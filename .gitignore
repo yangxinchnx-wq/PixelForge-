@@ -1,6 +1,42 @@
-/target
-dist
-node_modules
-*.log
+# Dependencies
+node_modules/
+
+# Build outputs
+target/
+dist/
+out/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
 .DS_Store
 Thumbs.db
+
+# Logs
+*.log
+
+# Rust
+*.pdb
+*.rlib
+*.dll
+*.exe
+*.so
+*.dylib
+*.a
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Test coverage
+coverage/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
