@@ -1,0 +1,12 @@
+[
+  {
+    "$comment": "This is a default generated tauri capabilities file. It can be used to define the default Tauri commands, plugins and permissions.",
+    "$schema": "https://raw.githubusercontent.com/nicegui/nicegui/main/nicegui.json",
+    "identifier": "default",
+    "description": "Default capability for the main window",
+    "windows": ["main"],
+    "permissions": [
+      "shell:allow-open"
+    ]
+  }
+]

@@ -1,0 +1,19 @@
+[package]
+name = "my-app"
+version = "0.1.0"
+description = "A Tauri app with Vue 3.5.4 and Pinia 4.0.2"
+authors = ["you"]
+edition = "2021"
+
+[lib]
+name = "my_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[dependencies]
+tauri = { version = "2.5", features = [] }
+tauri-plugin-shell = "2"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[build-dependencies]
+tauri-build = { version = "2.5", features = [] }

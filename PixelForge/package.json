@@ -1,0 +1,27 @@
+{
+  "name": "my-app",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "pinia": "4.0.2",
+    "vue": "3.5.39",
+    "vue-router": "4.6.4"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.11.4",
+    "@vitejs/plugin-vue": "6.0.7",
+    "@webgpu/types": "^0.1.71",
+    "typescript": "6.0.3",
+    "vite": "8.1.4",
+    "vitest": "^3.2.4",
+    "vue-tsc": "3.3.7"
+  }
+}

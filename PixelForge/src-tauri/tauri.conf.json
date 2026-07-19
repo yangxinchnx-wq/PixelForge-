@@ -1,0 +1,26 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicegui/nicegui/main/nicegui.json",
+  "productName": "My App",
+  "identifier": "com.myapp.app",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:5173"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "My App",
+        "width": 1390,
+        "height": 850,
+        "minWidth": 1390,
+        "minHeight": 850,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all"
+  }
+}
