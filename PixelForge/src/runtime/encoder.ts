@@ -12,7 +12,6 @@ export interface RenderVerificationSnapshot {
   canvasWidth: number
   canvasHeight: number
   seed: number
-  time: number
   visibleLayerCount: number
   hasEffects: boolean
 }
@@ -96,7 +95,6 @@ export function createRenderVerificationSnapshot(input: {
       height: number
     }
     seed: number
-    time: number
   }
 }): RenderVerificationSnapshot {
   return {
@@ -108,7 +106,6 @@ export function createRenderVerificationSnapshot(input: {
     canvasWidth: input.compileContext.canvasSize.width,
     canvasHeight: input.compileContext.canvasSize.height,
     seed: input.compileContext.seed,
-    time: input.compileContext.time,
     visibleLayerCount: input.artifact.visibleLayerCount ?? 1,
     hasEffects: input.artifact.hasEffects ?? false,
   }

@@ -1,7 +1,7 @@
 {
-  "$schema": "https://raw.githubusercontent.com/nicegui/nicegui/main/nicegui.json",
-  "productName": "My App",
-  "identifier": "com.myapp.app",
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "PixelForge",
+  "identifier": "com.pixelforge.app",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173"
@@ -9,7 +9,7 @@
   "app": {
     "windows": [
       {
-        "title": "My App",
+        "title": "PixelForge",
         "width": 1390,
         "height": 850,
         "minWidth": 1390,
@@ -21,6 +21,14 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all"
+    "targets": "all",
+    "publisher": "PixelForge",
+    "category": "GraphicsAndDesign",
+    "shortDescription": "PixelForge - WebGPU real-time graphics authoring",
+    "longDescription": "PixelForge is a WebGPU-powered real-time graphics authoring and rendering tool built with Vue 3, TypeScript, and Tauri.",
+    "icon": [
+      "icons/icon.png",
+      "icons/icon.ico"
+    ]
   }
 }

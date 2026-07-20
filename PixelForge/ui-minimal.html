@@ -1,0 +1,1481 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PixelForge</title>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+      :root {
+        color-scheme: light;
+        --paper: #faf7f0;
+        --surface: #ffffff;
+        --surface-soft: #f3efe5;
+        --surface-sunk: #efe9dc;
+        --line: rgba(30, 25, 20, 0.07);
+        --line-strong: rgba(30, 25, 20, 0.14);
+        --ink: #1a1814;
+        --ink-soft: #4d4944;
+        --ink-muted: #8a857d;
+        --ink-faint: #b8b3a9;
+        --accent: #b85c2e;
+        --accent-soft: #f6ebe2;
+        --accent-deep: #a44d24;
+        --success: #4a7a3e;
+        --success-soft: #ebf0e6;
+        --warning: #b88424;
+        --warning-soft: #f4ead4;
+        --danger: #d44b4b;
+        --danger-soft: #f6e4e4;
+        --info: #3a6a8a;
+        --info-soft: #e6eef4;
+        --r-xl: 28px;
+        --r-lg: 20px;
+        --r-md: 14px;
+        --r-sm: 10px;
+        --r-xs: 7px;
+      }
+
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      html, body { height: 100%; }
+
+      body {
+        font-family: 'Inter', system-ui, sans-serif;
+        font-size: 14px;
+        line-height: 1.5;
+        color: var(--ink);
+        background: var(--paper);
+        -webkit-font-smoothing: antialiased;
+        overflow: hidden;
+      }
+
+      button {
+        border: 0;
+        background: none;
+        font: inherit;
+        color: inherit;
+        cursor: pointer;
+      }
+
+      .mono { font-family: 'JetBrains Mono', monospace; }
+
+      #app {
+        height: 100vh;
+        padding: 14px;
+        display: grid;
+        grid-template-columns: 60px 300px minmax(0, 1fr) 320px;
+        grid-template-rows: 56px minmax(0, 1fr) 200px;
+        gap: 12px;
+        overflow: hidden;
+      }
+
+      .scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+      .scroll::-webkit-scrollbar-track { background: transparent; }
+      .scroll::-webkit-scrollbar-thumb {
+        background: var(--line-strong);
+        border-radius: 999px;
+      }
+
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: var(--r-xl);
+      }
+
+      .group-label {
+        font-size: 10.5px;
+        font-weight: 600;
+        color: var(--ink-faint);
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 24px;
+        padding: 0 10px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 500;
+      }
+
+      .pill.dot::before {
+        content: '';
+        width: 5px;
+        height: 5px;
+        border-radius: 999px;
+        background: currentColor;
+      }
+
+      .pill.ok { background: var(--success-soft); color: var(--success); }
+      .pill.warn { background: var(--warning-soft); color: var(--warning); }
+      .pill.err { background: var(--danger-soft); color: var(--danger); }
+      .pill.accent { background: var(--accent-soft); color: var(--accent); }
+      .pill.muted { background: var(--surface-soft); color: var(--ink-soft); }
+
+      /* =========================================================================
+         顶部工具栏
+         ========================================================================= */
+      .topbar {
+        grid-column: 1 / 5;
+        padding: 0 18px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+      }
+
+      .topbar-left {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .topbar-brand {
+        width: 32px;
+        height: 32px;
+        border-radius: 10px;
+        background: var(--ink);
+        display: grid;
+        place-items: center;
+      }
+
+      .topbar-brand::after {
+        content: '';
+        width: 11px;
+        height: 11px;
+        border-radius: 3px;
+        background: var(--accent);
+      }
+
+      .topbar-title {
+        font-size: 16px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+      }
+
+      .topbar-title sub {
+        font-size: 10.5px;
+        font-weight: 400;
+        color: var(--ink-muted);
+        margin-left: 6px;
+      }
+
+      .topbar-center {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        background: var(--surface-soft);
+        padding: 4px;
+        border-radius: 999px;
+      }
+
+      .tp-btn {
+        width: 32px;
+        height: 32px;
+        border-radius: 999px;
+        display: grid;
+        place-items: center;
+        color: var(--ink-soft);
+        font-size: 13px;
+        transition: all 160ms ease;
+      }
+
+      .tp-btn:hover {
+        background: var(--surface);
+        color: var(--ink);
+      }
+
+      .tp-btn.play {
+        background: var(--ink);
+        color: var(--paper);
+        width: 36px;
+        height: 36px;
+        margin: 0 4px;
+        font-size: 11px;
+      }
+
+      .tp-btn.play:hover { background: #2a2620; }
+
+      .topbar-right {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .chip {
+        height: 30px;
+        padding: 0 12px;
+        border-radius: 999px;
+        background: var(--surface-soft);
+        border: 1px solid var(--line);
+        font-size: 12px;
+        font-weight: 500;
+        color: var(--ink-soft);
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-family: 'JetBrains Mono', monospace;
+        transition: all 160ms ease;
+      }
+
+      .chip:hover {
+        border-color: var(--line-strong);
+        color: var(--ink);
+      }
+
+      .chip strong {
+        color: var(--ink);
+        font-weight: 600;
+      }
+
+      /* =========================================================================
+         最左：窄竖导航栏
+         ========================================================================= */
+      .pagenav {
+        grid-row: 2 / 4;
+        padding: 12px 6px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .page-btn {
+        width: 44px;
+        border-radius: var(--r-md);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 3px;
+        color: var(--ink-muted);
+        font-size: 10px;
+        font-weight: 500;
+        transition: all 180ms cubic-bezier(0.22, 1, 0.36, 1);
+        position: relative;
+        padding: 6px 0;
+      }
+
+      .page-btn.has-text { padding: 8px 0; }
+      .page-btn.icon-only { padding: 0; height: 44px; }
+
+      .page-btn-glyph {
+        width: 26px;
+        height: 26px;
+        border-radius: 8px;
+        background: var(--surface-soft);
+        display: grid;
+        place-items: center;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--ink-soft);
+        transition: all 180ms ease;
+      }
+
+      .page-btn-text { letter-spacing: 0.02em; }
+
+      .page-btn:hover { color: var(--ink); }
+      .page-btn:hover .page-btn-glyph {
+        background: var(--surface-sunk);
+        color: var(--ink);
+      }
+
+      .page-btn.active { color: var(--ink); }
+      .page-btn.active .page-btn-glyph {
+        background: var(--ink);
+        color: var(--paper);
+      }
+
+      .page-btn.active::before {
+        content: '';
+        position: absolute;
+        left: -6px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 3px;
+        height: 20px;
+        background: var(--accent);
+        border-radius: 999px;
+      }
+
+      .pagenav-spacer { flex: 1; }
+
+      /* =========================================================================
+         左侧：Prompt + LLM 解析
+         ========================================================================= */
+      .left-panel {
+        grid-row: 2 / 3;
+        padding: 18px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        overflow: auto;
+      }
+
+      .panel-title {
+        font-size: 15px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+      }
+
+      .panel-title sub {
+        font-size: 11px;
+        font-weight: 400;
+        color: var(--ink-muted);
+      }
+
+      .prompt-area {
+        width: 100%;
+        min-height: 130px;
+        padding: 12px 14px;
+        border-radius: var(--r-md);
+        background: var(--surface-soft);
+        border: 1px solid var(--line);
+        font: inherit;
+        font-size: 13px;
+        line-height: 1.6;
+        color: var(--ink);
+        resize: vertical;
+        transition: all 160ms ease;
+      }
+
+      .prompt-area:focus {
+        outline: none;
+        border-color: var(--accent);
+        background: var(--surface);
+      }
+
+      .prompt-area::placeholder { color: var(--ink-faint); }
+
+      .btn {
+        height: 36px;
+        padding: 0 16px;
+        border-radius: 999px;
+        background: var(--surface-soft);
+        border: 1px solid var(--line);
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--ink);
+        transition: all 180ms cubic-bezier(0.22, 1, 0.36, 1);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+      }
+
+      .btn:hover {
+        border-color: var(--line-strong);
+        transform: translateY(-1px);
+      }
+
+      .btn:active { transform: translateY(0) scale(0.98); }
+
+      .btn-accent {
+        background: var(--accent);
+        color: #fff;
+        border-color: var(--accent);
+      }
+
+      .btn-accent:hover {
+        background: var(--accent-deep);
+        border-color: var(--accent-deep);
+      }
+
+      .btn-dark {
+        background: var(--ink);
+        color: var(--paper);
+        border-color: var(--ink);
+      }
+
+      .btn-dark:hover { background: #2a2620; }
+
+      .btn-ghost { background: transparent; }
+      .btn-block { width: 100%; }
+
+      /* LLM 解析结果 */
+      .llm-card {
+        padding: 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .llm-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 9px 12px;
+        border-radius: var(--r-sm);
+        background: var(--surface-soft);
+        font-size: 12.5px;
+        transition: all 160ms ease;
+        cursor: pointer;
+      }
+
+      .llm-item:hover {
+        background: var(--surface-sunk);
+      }
+
+      .llm-item-name {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--ink);
+        font-weight: 500;
+      }
+
+      .llm-item-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 999px;
+        background: var(--accent);
+      }
+
+      .llm-item-tag {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 10.5px;
+        color: var(--accent);
+        padding: 2px 8px;
+        border-radius: 5px;
+        background: var(--accent-soft);
+        font-weight: 500;
+      }
+
+      /* =========================================================================
+         中间：Canvas + 缩略图时间轴
+         ========================================================================= */
+      .center-panel {
+        grid-row: 2 / 3;
+        padding: 18px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        min-height: 0;
+        overflow: hidden;
+      }
+
+      .canvas-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+      }
+
+      .canvas-title {
+        font-size: 16px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+      }
+
+      .canvas-scenario-tag {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 11px;
+        color: var(--accent);
+        padding: 2px 8px;
+        border-radius: 6px;
+        background: var(--accent-soft);
+        margin-left: 8px;
+      }
+
+      .canvas-frame {
+        flex: 1;
+        min-height: 0;
+        border-radius: var(--r-lg);
+        background: #0d0c10;
+        position: relative;
+        overflow: hidden;
+        box-shadow: 0 18px 40px rgba(20, 18, 14, 0.12);
+      }
+
+      .canvas-render {
+        position: absolute;
+        inset: 0;
+        background:
+          radial-gradient(circle at 22% 28%, rgba(255, 200, 90, 0.55), transparent 0 34%),
+          radial-gradient(circle at 78% 22%, rgba(90, 130, 220, 0.55), transparent 0 32%),
+          radial-gradient(circle at 50% 80%, rgba(220, 160, 90, 0.4), transparent 0 36%),
+          radial-gradient(circle at 30% 70%, rgba(180, 100, 200, 0.35), transparent 0 30%),
+          linear-gradient(135deg, #0e1a2a 0%, #1a0e1a 50%, #08070a 100%);
+      }
+
+      .canvas-grid {
+        position: absolute;
+        inset: 0;
+        background-image:
+          linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+        background-size: 40px 40px;
+        mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.85), rgba(0, 0, 0, 0.15));
+      }
+
+      .canvas-corner {
+        position: absolute;
+        top: 14px;
+        left: 14px;
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        padding: 6px 11px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.94);
+        font-size: 11.5px;
+        font-weight: 500;
+        color: var(--ink);
+      }
+
+      .canvas-corner::before {
+        content: '';
+        width: 6px;
+        height: 6px;
+        border-radius: 999px;
+        background: var(--accent);
+      }
+
+      .canvas-readout {
+        position: absolute;
+        top: 14px;
+        right: 14px;
+        display: flex;
+        gap: 6px;
+      }
+
+      .readout {
+        padding: 7px 11px;
+        border-radius: var(--r-sm);
+        background: rgba(255, 255, 255, 0.94);
+        display: grid;
+        gap: 1px;
+        min-width: 68px;
+      }
+
+      .readout span {
+        font-size: 9.5px;
+        color: var(--ink-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-weight: 600;
+      }
+
+      .readout strong {
+        font-size: 12.5px;
+        font-weight: 600;
+        font-family: 'JetBrains Mono', monospace;
+        color: var(--ink);
+      }
+
+      .readout.accent strong { color: var(--accent); }
+
+      /* 缩略图时间轴 */
+      .thumb-timeline {
+        flex-shrink: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .thumb-timeline-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        font-size: 11.5px;
+        color: var(--ink-muted);
+      }
+
+      .thumb-timeline-head strong {
+        font-family: 'JetBrains Mono', monospace;
+        color: var(--ink);
+        font-weight: 600;
+      }
+
+      .thumb-row {
+        display: flex;
+        gap: 4px;
+        overflow-x: auto;
+        overflow-y: hidden;
+        padding: 2px 0 4px;
+        scroll-behavior: smooth;
+      }
+
+      .thumb-row::-webkit-scrollbar { height: 6px; }
+      .thumb-row::-webkit-scrollbar-track { background: transparent; }
+      .thumb-row::-webkit-scrollbar-thumb {
+        background: var(--line-strong);
+        border-radius: 999px;
+      }
+
+      .thumb {
+        flex: 0 0 auto;
+        width: 88px;
+        height: 52px;
+        border-radius: var(--r-sm);
+        background: #0d0c10;
+        border: 1px solid var(--line);
+        overflow: hidden;
+        position: relative;
+        cursor: pointer;
+        transition: all 180ms cubic-bezier(0.22, 1, 0.36, 1);
+        box-shadow: 0 2px 6px rgba(20, 18, 14, 0.08);
+      }
+
+      .thumb-render { position: absolute; inset: 0; }
+
+      .thumb-render.g1 { background:
+        radial-gradient(circle at 22% 28%, rgba(255, 200, 90, 0.5), transparent 0 32%),
+        radial-gradient(circle at 78% 22%, rgba(90, 130, 220, 0.55), transparent 0 30%),
+        linear-gradient(135deg, #0e1a2a 0%, #08070a 100%);
+      }
+      .thumb-render.g2 { background:
+        radial-gradient(circle at 30% 40%, rgba(255, 180, 90, 0.5), transparent 0 32%),
+        radial-gradient(circle at 70% 70%, rgba(180, 100, 200, 0.55), transparent 0 30%),
+        linear-gradient(135deg, #1a0e1a 0%, #08070a 100%);
+      }
+      .thumb-render.g3 { background:
+        linear-gradient(135deg, #c47a1a 0%, #8a4a14 100%);
+      }
+      .thumb-render.g4 { background:
+        radial-gradient(circle at 50% 50%, rgba(240, 200, 90, 0.9), transparent 0 35%),
+        linear-gradient(135deg, #1a1612 0%, #08070a 100%);
+      }
+      .thumb-render.g5 { background:
+        radial-gradient(circle at 22% 28%, rgba(255, 180, 130, 0.42), transparent 0 32%),
+        radial-gradient(circle at 78% 22%, rgba(90, 130, 220, 0.45), transparent 0 30%),
+        radial-gradient(circle at 50% 80%, rgba(220, 160, 90, 0.36), transparent 0 34%),
+        linear-gradient(135deg, #0e1a2a 0%, #1a0e1a 50%, #08070a 100%);
+      }
+      .thumb-render.g6 { background:
+        radial-gradient(circle at 50% 50%, rgba(180, 220, 160, 0.55), transparent 0 40%),
+        linear-gradient(135deg, #0a141a 0%, #060808 100%);
+      }
+      .thumb-render.g7 { background:
+        radial-gradient(circle at 35% 50%, rgba(220, 80, 100, 0.5), transparent 0 30%),
+        radial-gradient(circle at 65% 50%, rgba(80, 160, 220, 0.5), transparent 0 30%),
+        linear-gradient(135deg, #14101a 0%, #08070a 100%);
+      }
+      .thumb-render.g8 { background:
+        radial-gradient(circle at 50% 45%, rgba(240, 200, 100, 0.85), transparent 0 28%),
+        linear-gradient(135deg, #2a1a0e 0%, #0e0806 100%);
+      }
+      .thumb-render.g9 { background:
+        radial-gradient(circle at 50% 50%, rgba(120, 180, 240, 0.7), transparent 0 32%),
+        linear-gradient(135deg, #0e1418 0%, #060808 100%);
+      }
+      .thumb-render.g10 { background:
+        linear-gradient(135deg, #2a3a4a 0%, #0a1018 100%);
+      }
+
+      .thumb-label {
+        position: absolute;
+        bottom: 3px;
+        left: 5px;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 9px;
+        color: rgba(255, 255, 255, 0.85);
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+        z-index: 2;
+      }
+
+      .thumb:hover {
+        transform: translateY(-2px) scale(1.06);
+        box-shadow: 0 6px 14px rgba(20, 18, 14, 0.2);
+        z-index: 5;
+      }
+
+      .thumb.active {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 2px var(--accent-soft), 0 4px 10px rgba(184, 92, 46, 0.3);
+        transform: translateY(-2px);
+      }
+
+      .thumb.active .thumb-label { color: #fff; font-weight: 600; }
+
+      /* =========================================================================
+         右侧：Render IR + 属性面板
+         ========================================================================= */
+      .right-panel {
+        grid-row: 2 / 3;
+        padding: 18px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        overflow: auto;
+      }
+
+      .ir-card {
+        padding: 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .ir-tree {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 12px;
+      }
+
+      .ir-node {
+        padding: 6px 10px;
+        border-radius: var(--r-xs);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--ink-soft);
+        transition: all 160ms ease;
+        cursor: pointer;
+      }
+
+      .ir-node:hover {
+        background: var(--surface-soft);
+      }
+
+      .ir-node.parent {
+        color: var(--ink);
+        font-weight: 600;
+      }
+
+      .ir-node.child {
+        padding-left: 26px;
+        color: var(--ink-muted);
+      }
+
+      .ir-node-tag {
+        font-size: 10px;
+        color: var(--accent);
+        padding: 1px 6px;
+        border-radius: 4px;
+        background: var(--accent-soft);
+        font-weight: 500;
+        margin-left: auto;
+      }
+
+      .ir-node.child .ir-node-tag {
+        color: var(--info);
+        background: var(--info-soft);
+      }
+
+      /* 属性面板 */
+      .prop-card {
+        padding: 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        flex: 1;
+      }
+
+      .prop-row {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .prop-label {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        font-size: 12px;
+        color: var(--ink-soft);
+      }
+
+      .prop-label strong {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 12px;
+        color: var(--ink);
+        font-weight: 600;
+      }
+
+      .slider {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 100%;
+        height: 4px;
+        background: var(--surface-sunk);
+        border-radius: 999px;
+        outline: none;
+      }
+
+      .slider::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 16px;
+        height: 16px;
+        border-radius: 999px;
+        background: var(--accent);
+        border: 2px solid var(--surface);
+        cursor: pointer;
+        box-shadow: 0 2px 6px rgba(184, 92, 46, 0.4);
+        transition: transform 160ms ease;
+      }
+
+      .slider::-webkit-slider-thumb:hover { transform: scale(1.15); }
+      .slider::-webkit-slider-thumb:active { transform: scale(0.95); }
+
+      .slider::-moz-range-thumb {
+        width: 16px;
+        height: 16px;
+        border-radius: 999px;
+        background: var(--accent);
+        border: 2px solid var(--surface);
+        cursor: pointer;
+      }
+
+      /* =========================================================================
+         底部：主体参数轨道
+         ========================================================================= */
+      .param-track {
+        grid-column: 2 / 5;
+        padding: 16px 18px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        min-height: 0;
+        overflow: hidden;
+      }
+
+      .param-track-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+        flex-shrink: 0;
+      }
+
+      .param-track-title {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--ink);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .param-track-title sub {
+        font-size: 11px;
+        font-weight: 400;
+        color: var(--ink-muted);
+      }
+
+      .param-track-meta {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 11.5px;
+        color: var(--ink-muted);
+      }
+
+      .param-track-meta strong {
+        font-family: 'JetBrains Mono', monospace;
+        color: var(--ink);
+        font-weight: 600;
+      }
+
+      .param-list {
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        padding-right: 4px;
+      }
+
+      .param-list::-webkit-scrollbar { width: 6px; }
+      .param-list::-webkit-scrollbar-track { background: transparent; }
+      .param-list::-webkit-scrollbar-thumb {
+        background: var(--line-strong);
+        border-radius: 999px;
+      }
+
+      .param-row {
+        display: grid;
+        grid-template-columns: 180px 60px 1fr 80px;
+        align-items: center;
+        gap: 12px;
+        padding: 8px 12px;
+        border-radius: var(--r-sm);
+        background: var(--surface-soft);
+        transition: all 160ms ease;
+      }
+
+      .param-row:hover {
+        background: var(--surface-sunk);
+      }
+
+      .param-name {
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+      }
+
+      .param-name-zh {
+        font-size: 12.5px;
+        font-weight: 500;
+        color: var(--ink);
+      }
+
+      .param-name-en {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 10px;
+        color: var(--ink-muted);
+        letter-spacing: 0.02em;
+      }
+
+      .param-value {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--accent);
+        text-align: right;
+      }
+
+      /* 曲线区 */
+      .curve {
+        position: relative;
+        height: 32px;
+        background: var(--surface);
+        border-radius: var(--r-xs);
+        border: 1px solid var(--line);
+        overflow: hidden;
+      }
+
+      .curve-grid {
+        position: absolute;
+        inset: 0;
+        background-image:
+          linear-gradient(90deg, rgba(30, 25, 20, 0.04) 1px, transparent 1px);
+        background-size: 10% 100%;
+      }
+
+      .curve-svg {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+      }
+
+      .curve-path {
+        fill: none;
+        stroke: var(--accent);
+        stroke-width: 1.8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      .curve-point {
+        position: absolute;
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        background: var(--surface);
+        border: 2px solid var(--accent);
+        transform: translate(-50%, -50%);
+        cursor: grab;
+        transition: transform 160ms ease, box-shadow 160ms ease;
+        z-index: 2;
+      }
+
+      .curve-point:hover {
+        transform: translate(-50%, -50%) scale(1.25);
+        box-shadow: 0 2px 6px rgba(184, 92, 46, 0.4);
+      }
+
+      .curve-point.active {
+        background: var(--accent);
+        transform: translate(-50%, -50%) scale(1.15);
+      }
+
+      .curve-playhead {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 1px;
+        background: var(--ink);
+        opacity: 0.3;
+        transform: translateX(-50%);
+        pointer-events: none;
+      }
+
+      .param-actions {
+        display: flex;
+        gap: 4px;
+        justify-content: flex-end;
+      }
+
+      .pa-btn {
+        width: 26px;
+        height: 26px;
+        border-radius: 999px;
+        display: grid;
+        place-items: center;
+        color: var(--ink-muted);
+        font-size: 11px;
+        background: transparent;
+        transition: all 160ms ease;
+      }
+
+      .pa-btn:hover {
+        background: var(--surface);
+        color: var(--accent);
+      }
+
+      /* Tooltip */
+      [data-tip] { position: relative; }
+
+      [data-tip]::after {
+        content: attr(data-tip);
+        position: absolute;
+        bottom: calc(100% + 7px);
+        left: 50%;
+        transform: translateX(-50%) scale(0.95);
+        padding: 5px 10px;
+        background: var(--ink);
+        color: var(--paper);
+        font-size: 11px;
+        border-radius: 7px;
+        white-space: nowrap;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 150ms ease, transform 150ms cubic-bezier(0.22, 1, 0.36, 1);
+        z-index: 50;
+      }
+
+      [data-tip]:hover::after {
+        opacity: 1;
+        transform: translateX(-50%) scale(1);
+      }
+
+      @media (max-width: 1280px) {
+        #app { grid-template-columns: 60px 280px minmax(0, 1fr); }
+        .right-panel { display: none; }
+        .param-track { grid-column: 2 / 4; }
+        .param-row { grid-template-columns: 160px 50px 1fr 60px; }
+      }
+
+      @media (max-width: 860px) {
+        #app {
+          padding: 10px;
+          grid-template-columns: 52px 1fr;
+          grid-template-rows: 52px auto 1fr 180px;
+        }
+        .pagenav { grid-row: 2 / 5; }
+        .topbar { grid-column: 1 / 3; }
+        .left-panel { grid-column: 2 / 3; grid-row: 2 / 3; max-height: 200px; }
+        .center-panel { grid-column: 2 / 3; grid-row: 3 / 4; }
+        .param-track { grid-column: 2 / 3; grid-row: 4 / 5; }
+        .thumb { width: 72px; height: 44px; }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after {
+          animation-duration: 0.01ms !important;
+          transition-duration: 0.01ms !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <!-- ===================================================================
+           顶部工具栏
+           =================================================================== -->
+      <header class="card topbar">
+        <div class="topbar-left">
+          <div class="topbar-brand"></div>
+          <div class="topbar-title">PixelForge <sub>语义视频生成</sub></div>
+        </div>
+
+        <div class="topbar-center">
+          <button type="button" class="tp-btn" data-tip="跳到开头">⏮</button>
+          <button type="button" class="tp-btn" data-tip="上一帧">‹</button>
+          <button type="button" class="tp-btn play" data-tip="播放">▶</button>
+          <button type="button" class="tp-btn" data-tip="下一帧">›</button>
+          <button type="button" class="tp-btn" data-tip="跳到结尾">⏭</button>
+        </div>
+
+        <div class="topbar-right">
+          <button type="button" class="chip" data-tip="分辨率"><strong>1920</strong> × <strong>1080</strong></button>
+          <button type="button" class="chip" data-tip="帧率"><strong>60</strong> FPS</button>
+          <button type="button" class="chip" data-tip="当前帧">帧 <strong>162</strong> / 300</button>
+          <button type="button" class="chip" data-tip="渲染状态"><span style="width:6px;height:6px;border-radius:999px;background:var(--success)"></span>就绪</button>
+        </div>
+      </header>
+
+      <!-- ===================================================================
+           最左：窄竖导航栏
+           =================================================================== -->
+      <nav class="card pagenav">
+        <button type="button" class="page-btn has-text active" data-page="video" data-tip="视频生成">
+          <span class="page-btn-glyph">视</span>
+          <span class="page-btn-text">视频</span>
+        </button>
+        <button type="button" class="page-btn icon-only" data-page="image" data-tip="图片生成">
+          <span class="page-btn-glyph">图</span>
+        </button>
+        <button type="button" class="page-btn icon-only" data-page="resource" data-tip="资源管理">
+          <span class="page-btn-glyph">资</span>
+        </button>
+
+        <div class="pagenav-spacer"></div>
+
+        <button type="button" class="page-btn icon-only" data-page="settings" data-tip="设置">
+          <span class="page-btn-glyph">⚙</span>
+        </button>
+      </nav>
+
+      <!-- ===================================================================
+           左侧：Prompt + LLM 解析
+           =================================================================== -->
+      <aside class="card left-panel scroll">
+        <div class="panel-title">
+          语义创作
+          <sub>LLM 驱动</sub>
+        </div>
+
+        <textarea class="prompt-area" placeholder="描述你想生成的画面...">梵高风格旋转星空，
+深蓝色夜空，
+黄色星星，
+村庄在下方</textarea>
+
+        <button type="button" class="btn btn-accent btn-block" data-tip="调用 LLM 解析为 IR">确认并解析</button>
+
+        <div class="card llm-card">
+          <div class="group-label">LLM 解析结果 <span class="pill accent">3 项</span></div>
+          <div class="llm-item">
+            <span class="llm-item-name">
+              <span class="llm-item-dot"></span>
+              背景天空
+            </span>
+            <span class="llm-item-tag">gradient</span>
+          </div>
+          <div class="llm-item">
+            <span class="llm-item-name">
+              <span class="llm-item-dot"></span>
+              漩涡效果
+            </span>
+            <span class="llm-item-tag">swirl</span>
+          </div>
+          <div class="llm-item">
+            <span class="llm-item-name">
+              <span class="llm-item-dot"></span>
+              星光
+            </span>
+            <span class="llm-item-tag">starfield</span>
+          </div>
+        </div>
+
+        <div class="card llm-card">
+          <div class="group-label">参数预设</div>
+          <div class="llm-item">
+            <span class="llm-item-name">星空密度</span>
+            <span class="llm-item-tag">0.80</span>
+          </div>
+          <div class="llm-item">
+            <span class="llm-item-name">漩涡强度</span>
+            <span class="llm-item-tag">0.60</span>
+          </div>
+          <div class="llm-item">
+            <span class="llm-item-name">色相偏移</span>
+            <span class="llm-item-tag">0.70</span>
+          </div>
+          <div class="llm-item">
+            <span class="llm-item-name">整体亮度</span>
+            <span class="llm-item-tag">0.90</span>
+          </div>
+        </div>
+      </aside>
+
+      <!-- ===================================================================
+           中间：Canvas + 缩略图时间轴
+           =================================================================== -->
+      <section class="card center-panel">
+        <header class="canvas-head">
+          <div>
+            <span class="canvas-title">画布预览</span>
+            <span class="canvas-scenario-tag">梵高星空 · 162 / 300</span>
+          </div>
+          <div style="display:flex; gap:6px;">
+            <button type="button" class="btn" data-tip="store.initialize(canvas)">初始化</button>
+            <button type="button" class="btn btn-dark" data-tip="store.renderCurrentIR()">渲染当前</button>
+            <button type="button" class="btn btn-accent" data-tip="批量生成">批量生成</button>
+          </div>
+        </header>
+
+        <div class="canvas-frame">
+          <div class="canvas-render"></div>
+          <div class="canvas-grid"></div>
+          <div class="canvas-corner">WebGPU · region-artifact-v2</div>
+          <div class="canvas-readout">
+            <div class="readout"><span>帧率</span><strong>60.0</strong></div>
+            <div class="readout accent"><span>帧号</span><strong>#0162</strong></div>
+            <div class="readout"><span>GPU</span><strong>3.2ms</strong></div>
+            <div class="readout"><span>显存</span><strong>4.2MB</strong></div>
+          </div>
+        </div>
+
+        <div class="thumb-timeline">
+          <div class="thumb-timeline-head">
+            <span>时间轴缩略图</span>
+            <span><strong>120</strong> → <strong>168</strong> · 共 <strong>48</strong> 帧</span>
+          </div>
+          <div class="thumb-row" id="thumbRow">
+            <div class="thumb" data-frame="120"><div class="thumb-render g1"></div><span class="thumb-label">120</span></div>
+            <div class="thumb" data-frame="124"><div class="thumb-render g3"></div><span class="thumb-label">124</span></div>
+            <div class="thumb" data-frame="128"><div class="thumb-render g4"></div><span class="thumb-label">128</span></div>
+            <div class="thumb" data-frame="132"><div class="thumb-render g5"></div><span class="thumb-label">132</span></div>
+            <div class="thumb" data-frame="136"><div class="thumb-render g2"></div><span class="thumb-label">136</span></div>
+            <div class="thumb" data-frame="140"><div class="thumb-render g5"></div><span class="thumb-label">140</span></div>
+            <div class="thumb" data-frame="144"><div class="thumb-render g6"></div><span class="thumb-label">144</span></div>
+            <div class="thumb" data-frame="148"><div class="thumb-render g7"></div><span class="thumb-label">148</span></div>
+            <div class="thumb" data-frame="150"><div class="thumb-render g7"></div><span class="thumb-label">150</span></div>
+            <div class="thumb" data-frame="154"><div class="thumb-render g8"></div><span class="thumb-label">154</span></div>
+            <div class="thumb" data-frame="158"><div class="thumb-render g10"></div><span class="thumb-label">158</span></div>
+            <div class="thumb" data-frame="160"><div class="thumb-render g9"></div><span class="thumb-label">160</span></div>
+            <div class="thumb active" data-frame="162"><div class="thumb-render g5"></div><span class="thumb-label">162</span></div>
+            <div class="thumb" data-frame="164"><div class="thumb-render g2"></div><span class="thumb-label">164</span></div>
+            <div class="thumb" data-frame="166"><div class="thumb-render g1"></div><span class="thumb-label">166</span></div>
+            <div class="thumb" data-frame="168"><div class="thumb-render g5"></div><span class="thumb-label">168</span></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===================================================================
+           右侧：Render IR + 属性面板
+           =================================================================== -->
+      <aside class="card right-panel scroll">
+        <div class="card ir-card">
+          <div class="group-label">Render IR <span class="pill muted">v2</span></div>
+          <div class="ir-tree">
+            <div class="ir-node parent">
+              <span>Layer 0</span>
+              <span style="color:var(--ink-muted); font-weight:400;">星空</span>
+              <span class="ir-node-tag">layer</span>
+            </div>
+            <div class="ir-node child">
+              <span>Region 0</span>
+              <span class="ir-node-tag">LINEAR_GRADIENT</span>
+            </div>
+            <div class="ir-node child">
+              <span>Region 1</span>
+              <span class="ir-node-tag">NOISE</span>
+            </div>
+            <div class="ir-node child">
+              <span>Region 2</span>
+              <span class="ir-node-tag">CIRCLE_SHAPE</span>
+            </div>
+            <div class="ir-node parent">
+              <span>Layer 1</span>
+              <span style="color:var(--ink-muted); font-weight:400;">漩涡</span>
+              <span class="ir-node-tag">layer</span>
+            </div>
+            <div class="ir-node child">
+              <span>Region 0</span>
+              <span class="ir-node-tag">SWIRL</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card prop-card">
+          <div class="group-label">属性面板 <span class="pill muted">主体</span></div>
+
+          <div class="prop-row">
+            <div class="prop-label"><span>星空密度</span><strong>0.80</strong></div>
+            <input type="range" class="slider" min="0" max="100" value="80" data-prop="density" />
+          </div>
+
+          <div class="prop-row">
+            <div class="prop-label"><span>漩涡强度</span><strong>0.60</strong></div>
+            <input type="range" class="slider" min="0" max="100" value="60" data-prop="strength" />
+          </div>
+
+          <div class="prop-row">
+            <div class="prop-label"><span>色相偏移</span><strong>0.70</strong></div>
+            <input type="range" class="slider" min="0" max="100" value="70" data-prop="hue" />
+          </div>
+
+          <div class="prop-row">
+            <div class="prop-label"><span>整体亮度</span><strong>0.90</strong></div>
+            <input type="range" class="slider" min="0" max="100" value="90" data-prop="brightness" />
+          </div>
+
+          <div class="prop-row">
+            <div class="prop-label"><span>混合模式</span><strong>normal</strong></div>
+            <div style="display:flex; gap:4px; flex-wrap:wrap;">
+              <button type="button" class="chip" data-tip="normal">normal</button>
+              <button type="button" class="chip" data-tip="screen">screen</button>
+              <button type="button" class="chip" data-tip="overlay">overlay</button>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- ===================================================================
+           底部：主体参数轨道
+           =================================================================== -->
+      <footer class="card param-track">
+        <div class="param-track-head">
+          <div class="param-track-title">
+            主体轨道
+            <sub>参数动画曲线 · 4 项</sub>
+          </div>
+          <div class="param-track-meta">
+            <span>范围 <strong>0 → 300</strong> 帧</span>
+            <span>·</span>
+            <span>当前 <strong>162</strong></span>
+            <span>·</span>
+            <span class="pill ok dot">签名一致</span>
+          </div>
+        </div>
+
+        <div class="param-list" id="paramList">
+          <!-- 由 JS 生成 -->
+        </div>
+      </footer>
+    </div>
+
+    <script>
+      // 页面切换栏
+      document.querySelectorAll('.page-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('.page-btn').forEach((b) => b.classList.remove('active'));
+          btn.classList.add('active');
+        });
+      });
+
+      // 缩略图点击
+      document.querySelectorAll('.thumb').forEach((thumb) => {
+        thumb.addEventListener('click', () => {
+          document.querySelectorAll('.thumb').forEach((b) => b.classList.remove('active'));
+          thumb.classList.add('active');
+          thumb.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+        });
+      });
+
+      // 时间轴滚轮横向滚动
+      (function attachWheelScroll() {
+        const wheelRow = document.getElementById('thumbRow');
+        if (!wheelRow) return;
+        wheelRow.addEventListener('wheel', (e) => {
+          const delta = Math.abs(e.deltaY) > Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+          if (delta === 0) return;
+          e.preventDefault();
+          const factor = e.shiftKey ? 2.4 : 1.4;
+          wheelRow.scrollLeft += delta * factor;
+        }, { passive: false });
+      })();
+
+      // 滑块实时更新数值
+      document.querySelectorAll('.slider').forEach((slider) => {
+        const label = slider.previousElementSibling?.querySelector('strong');
+        const update = () => {
+          if (label) {
+            label.textContent = (slider.value / 100).toFixed(2);
+          }
+        };
+        slider.addEventListener('input', update);
+      });
+
+      // =========================================================================
+      // 主体参数轨道生成
+      // =========================================================================
+      const params = [
+        {
+          zh: '星空密度', en: 'Density', value: 0.80,
+          // 关键点 [帧百分比, 数值百分比]
+          points: [[5, 30], [25, 80], [50, 65], [75, 90], [95, 70]]
+        },
+        {
+          zh: '漩涡强度', en: 'Strength', value: 0.60,
+          points: [[5, 40], [30, 60], [55, 75], [80, 55], [95, 65]]
+        },
+        {
+          zh: '色相', en: 'Hue', value: 0.70,
+          points: [[5, 20], [25, 50], [50, 80], [75, 60], [95, 90]]
+        },
+        {
+          zh: '亮度', en: 'Brightness', value: 0.90,
+          points: [[5, 60], [25, 85], [50, 70], [75, 95], [95, 80]]
+        }
+      ];
+
+      const currentFramePct = 162 / 300 * 100; // 当前帧在轨道上的位置
+
+      function buildCurvePath(points) {
+        // 把百分比点转为 SVG 路径（平滑曲线）
+        if (points.length === 0) return '';
+        const pts = points.map(([x, y]) => [x, 100 - y]); // y 翻转
+        let path = 'M ' + pts[0][0] + ' ' + pts[0][1];
+        for (let i = 1; i < pts.length; i++) {
+          const prev = pts[i - 1];
+          const curr = pts[i];
+          const cpx = (prev[0] + curr[0]) / 2;
+          path += ' Q ' + cpx + ' ' + prev[1] + ' ' + curr[0] + ' ' + curr[1];
+        }
+        return path;
+      }
+
+      function buildParamList() {
+        const list = document.getElementById('paramList');
+        list.innerHTML = '';
+        params.forEach((p, idx) => {
+          const row = document.createElement('div');
+          row.className = 'param-row';
+
+          const path = buildCurvePath(p.points);
+
+          let pointsHtml = '';
+          p.points.forEach(([x, y], i) => {
+            pointsHtml += '<div class="curve-point' + (i === 0 ? ' active' : '') + '" style="left:' + x + '%; top:' + (100 - y) + '%;" data-tip="帧 ' + Math.round(x / 100 * 300) + ' · ' + (y / 100).toFixed(2) + '"></div>';
+          });
+
+          row.innerHTML =
+            '<div class="param-name">' +
+              '<span class="param-name-zh">' + p.zh + '</span>' +
+              '<span class="param-name-en">' + p.en + '</span>' +
+            '</div>' +
+            '<div class="param-value">' + p.value.toFixed(2) + '</div>' +
+            '<div class="curve">' +
+              '<div class="curve-grid"></div>' +
+              '<svg class="curve-svg" viewBox="0 0 100 100" preserveAspectRatio="none">' +
+                '<path class="curve-path" d="' + path + '" />' +
+              '</svg>' +
+              '<div class="curve-playhead" style="left:' + currentFramePct + '%;"></div>' +
+              pointsHtml +
+            '</div>' +
+            '<div class="param-actions">' +
+              '<button type="button" class="pa-btn" data-tip="添加关键点">+</button>' +
+              '<button type="button" class="pa-btn" data-tip="重置曲线">↺</button>' +
+            '</div>';
+
+          list.appendChild(row);
+        });
+
+        // 关键点点击
+        list.querySelectorAll('.curve-point').forEach((pt) => {
+          pt.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const curve = pt.closest('.curve');
+            curve.querySelectorAll('.curve-point').forEach((p) => p.classList.remove('active'));
+            pt.classList.add('active');
+          });
+        });
+      }
+
+      buildParamList();
+
+      // 初始滚动到当前选中帧
+      document.querySelector('.thumb.active')?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+    </script>
+  </body>
+</html>

@@ -24,6 +24,7 @@
 import type {
   JsonLiteral,
   BoundingBox,
+  BlendMode,
   SourceKind,
   ParamOwnership,
   WorldMetadata,
@@ -288,6 +289,8 @@ function applyStructuralField(
   switch (field) {
     case 'visible':
       return { ...layer, visible: value as boolean };
+    case 'blendMode':
+      return { ...layer, blendMode: value as BlendMode };
     // bounds / targetLayer / targetRegion 不适用于 layer
     default:
       throw new PatchError('IR_PATCH_PATH_NOT_ALLOWED', [

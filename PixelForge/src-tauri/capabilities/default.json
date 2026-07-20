@@ -1,7 +1,7 @@
 [
   {
-    "$comment": "This is a default generated tauri capabilities file. It can be used to define the default Tauri commands, plugins and permissions.",
-    "$schema": "https://raw.githubusercontent.com/nicegui/nicegui/main/nicegui.json",
+    "$comment": "Default capability for the PixelForge main window",
+    "$schema": "https://schema.tauri.app/capabilities/2",
     "identifier": "default",
     "description": "Default capability for the main window",
     "windows": ["main"],

@@ -23,6 +23,7 @@ import type {
   AtomicLayerTopologyPatch,
   MetadataPatch,
   PatchBatch,
+  StructuralPatch,
   ValuePatch,
 } from '../patch'
 
@@ -75,6 +76,19 @@ const validValuePatch = (overrides: Record<string, any> = {}): ValuePatch => ({
   targetId: 'layer_1',
   paramKey: 'color',
   value: [0, 1, 0, 1],
+  ...overrides,
+})
+
+const validStructuralPatch = (
+  overrides: Record<string, any> = {},
+): StructuralPatch => ({
+  patchId: 'patch_struct_1',
+  tier: 'structural',
+  source: base.source,
+  targetEntity: 'layer',
+  targetId: 'layer_1',
+  field: 'visible',
+  value: false,
   ...overrides,
 })
 
@@ -153,6 +167,49 @@ describe('A. applyPatch 单 patch 成功', () => {
     expect(outcome.ir.canvas).toBe(originalIr.canvas)
     // 原始 ir 未被修改
     expect(originalIr.layers[0].params).toEqual({ color: [1, 0, 0, 1] })
+  })
+
+  it('A2 structural patch visible=false 修改 layer.visible + immutable', () => {
+    const originalIr = baseIR
+    const patch = validStructuralPatch({ field: 'visible', value: false })
+
+    const outcome = applyPatch(originalIr, patch)
+
+    // 返回新 ir，不是同一引用
+    expect(outcome.ir).not.toBe(originalIr)
+    // affectedScopes: structural + dynamic
+    expect(outcome.affectedScopes).toEqual(['structural', 'dynamic'])
+    // appliedCount
+    expect(outcome.appliedCount).toBe(1)
+    // 新 layer.visible 被替换
+    expect(outcome.ir.layers[0].visible).toBe(false)
+    // 非目标引用不变
+    expect(outcome.ir.regions).toBe(originalIr.regions)
+    expect(outcome.ir.effects).toBe(originalIr.effects)
+    expect(outcome.ir.canvas).toBe(originalIr.canvas)
+    // 原始 ir 未被修改
+    expect(originalIr.layers[0].visible).toBe(true)
+  })
+
+  it('A4 structural patch blendMode=multiply 修改 layer.blendMode + immutable', () => {
+    const originalIr = baseIR
+    const patch = validStructuralPatch({ field: 'blendMode', value: 'multiply' })
+
+    const outcome = applyPatch(originalIr, patch)
+
+    // 返回新 ir，不是同一引用
+    expect(outcome.ir).not.toBe(originalIr)
+    // affectedScopes: structural + dynamic
+    expect(outcome.affectedScopes).toEqual(['structural', 'dynamic'])
+    // appliedCount
+    expect(outcome.appliedCount).toBe(1)
+    // 新 layer.blendMode 被设置
+    expect(outcome.ir.layers[0].blendMode).toBe('multiply')
+    // 非目标引用不变
+    expect(outcome.ir.regions).toBe(originalIr.regions)
+    expect(outcome.ir.effects).toBe(originalIr.effects)
+    // 原始 ir 未被修改（baseIR.layers[0] 没有 blendMode 字段）
+    expect(originalIr.layers[0].blendMode).toBeUndefined()
   })
 
   it('A3 metadata patch 修改 canvas.worldMetadata', () => {

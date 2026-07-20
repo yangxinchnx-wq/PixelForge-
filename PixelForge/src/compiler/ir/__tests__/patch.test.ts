@@ -405,6 +405,31 @@ describe('G5 validatePatch · StructuralPatch', () => {
   it('G5-8 targetId 空', () => {
     expectHasViolation(validStructuralPatch({ targetId: '' }), 'IR_PATCH_VIOLATION', 'targetId')
   })
+
+  it('G5-9 blendMode=multiply 合法', () => {
+    expectNoViolation(validStructuralPatch({ field: 'blendMode', value: 'multiply' }))
+  })
+
+  it('G5-10 blendMode=invalid 非法', () => {
+    expectHasViolation(
+      validStructuralPatch({ field: 'blendMode', value: 'invalid' }),
+      'IR_PATCH_INVALID_VALUE',
+    )
+  })
+
+  it('G5-11 blendMode=123 非法(非字符串)', () => {
+    expectHasViolation(
+      validStructuralPatch({ field: 'blendMode', value: 123 }),
+      'IR_PATCH_INVALID_VALUE',
+    )
+  })
+
+  it('G5-12 blendMode=undefined 非法', () => {
+    expectHasViolation(
+      validStructuralPatch({ field: 'blendMode', value: undefined }),
+      'IR_PATCH_INVALID_VALUE',
+    )
+  })
 })
 
 describe('G6 validatePatch · MetadataPatch', () => {

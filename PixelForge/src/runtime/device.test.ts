@@ -55,6 +55,7 @@ describe('运行时初始化', () => {
       queue: {
         submit: vi.fn(),
         writeBuffer: vi.fn(),
+        onSubmittedWorkDone: vi.fn(),
       },
       createTexture: vi.fn(),
       createBuffer: vi.fn(),
@@ -129,6 +130,7 @@ describe('运行时初始化', () => {
       queue: {
         submit: vi.fn(),
         writeBuffer: vi.fn(),
+        onSubmittedWorkDone: vi.fn(),
       },
       createTexture: vi.fn(),
       createBuffer: vi.fn(),
@@ -206,6 +208,7 @@ describe('运行时初始化', () => {
       queue: {
         submit: vi.fn(),
         writeBuffer: vi.fn(),
+        onSubmittedWorkDone: vi.fn(),
       },
       createTexture: vi.fn(),
       createBuffer: vi.fn(),

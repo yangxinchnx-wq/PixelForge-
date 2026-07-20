@@ -8,12 +8,14 @@
 //   binding 1: storage     outputTex          rgba8unorm 读写纹理
 //   binding 2: storage     effectBuffer       vec4f 效果参数数组
 //   binding 3: storage     effectDescBuffer   u32 效果描述符数组
+//   binding 4: storage     regionBuffer       vec4f 区域边界数组（与图层 Pass 共享）
 //
 // 效果描述符布局：
 //   effectDescBuffer[0] = effectCount
 //   For each effect i:
 //     effectDescBuffer[1 + 2*i] = effectType(8) | reserved(8) | paramIndex(16)
-//     effectDescBuffer[2 + 2*i] = reserved(32)
+//     effectDescBuffer[2 + 2*i] = targetRegionIndex(16) | reserved(16)
+//                                 targetRegionIndex = 0xFFFF 表示全局应用（无区域限制）
 //
 // 效果类型常量：
 //   0=BLUR   1=BLOOM   2=COLOR_SHIFT   3=VIGNETTE   4=MASK
@@ -28,6 +30,7 @@ struct Uniforms {
 @group(0) @binding(1) var outputTex: texture_storage_2d<rgba8unorm, read_write>;
 @group(0) @binding(2) var<storage, read> effectBuffer: array<vec4f>;
 @group(0) @binding(3) var<storage, read> effectDescBuffer: array<u32>;
+@group(0) @binding(4) var<storage, read> regionBuffer: array<vec4f>;
 
 const EFFECT_BLUR: u32 = 0u;
 const EFFECT_BLOOM: u32 = 1u;
@@ -35,9 +38,21 @@ const EFFECT_COLOR_SHIFT: u32 = 2u;
 const EFFECT_VIGNETTE: u32 = 3u;
 const EFFECT_MASK: u32 = 4u;
 
+const NO_REGION: u32 = 0xFFFFu;
+
 // 简单伪随机
 fn hash2(p: vec2f) -> f32 {
     return fract(sin(dot(p, vec2f(127.1, 311.7))) * 43758.5453);
+}
+
+// 区域边界检测
+fn is_in_region(coords: vec2f, regionIndex: u32) -> bool {
+    if (regionIndex == NO_REGION) {
+        return true;
+    }
+    let bounds = regionBuffer[regionIndex];
+    return coords.x >= bounds.x && coords.x < bounds.x + bounds.z &&
+           coords.y >= bounds.y && coords.y < bounds.y + bounds.w;
 }
 
 @compute @workgroup_size(16, 16)
@@ -62,6 +77,15 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         let packedDesc = effectDescBuffer[1u + 2u * i];
         let effectType = (packedDesc >> 24u) & 0xFFu;
         let paramIndex = packedDesc & 0xFFFFu;
+
+        // 读取目标区域索引
+        let packedMeta = effectDescBuffer[2u + 2u * i];
+        let targetRegionIndex = packedMeta & 0xFFFFu;
+
+        // 如果效果有目标区域限制，且当前像素不在该区域内，跳过此效果
+        if (!is_in_region(coords, targetRegionIndex)) {
+            continue;
+        }
 
         switch (effectType) {
             case EFFECT_BLUR: {

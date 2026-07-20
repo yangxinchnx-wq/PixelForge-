@@ -27,7 +27,6 @@ describe('帧适配层', () => {
           canvasWidth: 1024,
           canvasHeight: 768,
           seed: 1337,
-          time: 0,
           valid: true,
           message: '历史帧回放签名一致',
         },

@@ -17,7 +17,6 @@ describe('渲染验证快照', () => {
       compileContext: {
         canvasSize: { width: 1024, height: 768 },
         seed: 1337,
-        time: 0,
       },
     })
 
@@ -30,7 +29,6 @@ describe('渲染验证快照', () => {
       canvasWidth: 1024,
       canvasHeight: 768,
       seed: 1337,
-      time: 0,
       visibleLayerCount: 1,
       hasEffects: false,
     })

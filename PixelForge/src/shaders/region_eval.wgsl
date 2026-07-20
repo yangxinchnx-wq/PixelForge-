@@ -1,7 +1,7 @@
 // PixelForge Phase B - 多图层/区域/混合 GPU 求值核心着色器
 //
 // 物理绑定布局（Group 0）：
-//   binding 0: uniform     Uniforms           全局元数据（resolution/seed/time/layerCount）
+//   binding 0: uniform     Uniforms           全局元数据（resolution/seed/layerCount）
 //   binding 1: storage     outputTex          rgba8unorm 直写纹理
 //   binding 2: storage     auxBuffer          vec4f 对齐辅助显存（所有图层参数拼接）
 //   binding 3: storage     descriptorBuffer   u32 描述符数组（图层描述符，无前缀）

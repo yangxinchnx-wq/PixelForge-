@@ -1,12 +1,12 @@
 [package]
-name = "my-app"
+name = "pixelforge"
 version = "0.1.0"
-description = "A Tauri app with Vue 3.5.4 and Pinia 4.0.2"
-authors = ["you"]
+description = "PixelForge - WebGPU-powered real-time graphics authoring tool"
+authors = ["PixelForge"]
 edition = "2021"
 
 [lib]
-name = "my_app_lib"
+name = "pixelforge_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [dependencies]

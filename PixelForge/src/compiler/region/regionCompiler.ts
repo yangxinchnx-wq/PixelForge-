@@ -1,5 +1,6 @@
 import { Opcode, type BlendMode, type BoundingBox, type EffectType, type JsonLiteral } from '@/shared/types'
 import type { Layer, RenderIR } from '@/compiler/ir/renderIR'
+import { createRuntimeError } from '@/shared/errors'
 
 // ============================================================================
 // V2 工件结构
@@ -87,7 +88,7 @@ export function compileRenderIRToRegionArtifact(ir: RenderIR): RegionCompileArti
   const visibleLayers = ir.layers.filter((l) => l.visible !== false)
 
   if (visibleLayers.length === 0) {
-    throw new Error('RenderIR does not contain any visible layer for rendering')
+    throw createRuntimeError('runtime/compile-error', 'RenderIR does not contain any visible layer for rendering')
   }
 
   // 编译每个图层
@@ -101,7 +102,7 @@ export function compileRenderIRToRegionArtifact(ir: RenderIR): RegionCompileArti
 
     // BLEND 作为图层 opcode 不再支持（BLEND 通过 blendMode 实现）
     if (opcodeName === 'BLEND') {
-      throw new Error(`BLEND opcode is no longer a layer opcode; use blendMode on layers instead`)
+      throw createRuntimeError('runtime/compile-error', `BLEND opcode is no longer a layer opcode; use blendMode on layers instead`)
     }
 
     const auxData = createAuxData(layer, opcodeName)
@@ -155,8 +156,17 @@ export function compileRenderIRToRegionArtifact(ir: RenderIR): RegionCompileArti
     const targetLayer = effect.targetLayer ?? null
     const targetRegion = effect.targetRegion ?? null
 
+    // 查找 targetRegion 在 ir.regions 中的索引（0xFFFF = 无区域限制）
+    let targetRegionIndex = 0xFFFF
+    if (targetRegion) {
+      const idx = ir.regions.findIndex((r) => r.id === targetRegion)
+      if (idx >= 0) {
+        targetRegionIndex = idx
+      }
+    }
+
     const packedDesc = (typeId << 24) | (0 << 16) | (effectParamOffset & 0xFFFF)
-    const packedMeta = 0
+    const packedMeta = targetRegionIndex & 0xFFFF
 
     effectEntries.push({
       effectId: effect.id,
@@ -246,12 +256,13 @@ const OPCODE_IDS: Record<keyof typeof Opcode, number> = {
   NOISE: Opcode.NOISE,
   BLEND: Opcode.BLEND,
   CIRCLE_SHAPE: Opcode.CIRCLE_SHAPE,
+  IMAGE_TEXTURE: Opcode.IMAGE_TEXTURE,
 }
 
 function readOpcodeName(layer: Layer): keyof typeof Opcode {
   const entry = Object.entries(Opcode).find(([, value]) => value === layer.opcode)
   if (!entry) {
-    throw new Error(`Unknown opcode value: ${layer.opcode}`)
+    throw createRuntimeError('runtime/compile-error', `Unknown opcode value: ${layer.opcode}`)
   }
   return entry[0] as keyof typeof Opcode
 }
@@ -271,7 +282,7 @@ function createAuxData(layer: Layer, opcode: keyof typeof Opcode): Float32Array 
     case 'CIRCLE_SHAPE':
       return createCircleShapeAuxData(layer)
     default:
-      throw new Error(`Unsupported opcode: ${opcode}`)
+      throw createRuntimeError('runtime/compile-error', `Unsupported opcode: ${opcode}`)
   }
 }
 

@@ -120,6 +120,7 @@ export enum Opcode {
   NOISE = 2,
   BLEND = 3,              // Phase B 启用（独立 blend pass，不进 region_eval）
   CIRCLE_SHAPE = 4,
+  IMAGE_TEXTURE = 5,      // Phase B 启用（用户拖入的图片作为 Layer Source）
 }
 
 // ============================================================================
@@ -172,7 +173,17 @@ export interface BoundingBox {
 }
 
 // ============================================================================
-// 6. TextureFormat - 共享层纹理格式协议字符串（不暴露 GPUTextureFormat）
+// 6. Color - RGB 颜色（骨架 §5.4 ColorBlockNode.color）
+// ============================================================================
+
+/**
+ * RGB 颜色元组，取值范围 0-255。
+ * 用于 ColorBlockNode.color，图像理解模块的平均色 / 主色表示。
+ */
+export type Color = [number, number, number];
+
+// ============================================================================
+// 7. TextureFormat - 共享层纹理格式协议字符串（不暴露 GPUTextureFormat）
 // ============================================================================
 
 /**

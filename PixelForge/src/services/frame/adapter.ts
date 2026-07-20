@@ -1,7 +1,6 @@
 import type { RuntimeFrameRecord } from '@/runtime/types'
 
 import type { DataSection, FrameSnapshot, TimelineFrame } from '@/components/ui/types'
-import type { FrameRepository } from './types'
 
 export function toFrameSnapshot(record: RuntimeFrameRecord): FrameSnapshot {
   const renderVerificationState = readRenderVerificationState(record)
@@ -36,8 +35,8 @@ export function toFrameSnapshot(record: RuntimeFrameRecord): FrameSnapshot {
   }
 }
 
-export function createFrameSnapshotList(repository: FrameRepository): FrameSnapshot[] {
-  return repository.listFrames().map(toFrameSnapshot)
+export function createFrameSnapshotList(records: RuntimeFrameRecord[]): FrameSnapshot[] {
+  return records.map(toFrameSnapshot)
 }
 
 export function toTimelineFrame(snapshot: FrameSnapshot): TimelineFrame {

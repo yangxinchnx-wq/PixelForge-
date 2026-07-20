@@ -176,11 +176,7 @@ export const FORBIDDEN_EFFECT_TYPE_NAMES = [
  * CompileContext：编译期稳定上下文。
  *
  * freeze-1 修订：删除 time 字段，对齐 §4.1.0 静态边界硬约束。
- *
- * 与 region_eval.wgsl 中 Uniforms.time 的差异说明：
- *   - WGSL uniform 中的 time 是 GPU 求值期注入（渲染时刻的瞬时量）
- *   - CompileContext 是编译期的稳定上下文（不含时间语义）
- *   - 两者解耦：动画通过高频 ValuePatch 在主线程推动
+ * 时间语义完全由 ValuePatch 在主线程推动，编译期不含任何时间量。
  */
 export interface CompileContext {
   capability: CapabilityProfile;

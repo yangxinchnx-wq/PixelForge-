@@ -4,11 +4,9 @@ import type { FrameRepository } from './types'
 /**
  * 内存版仓储实现。
  *
- * 当前作为前端默认实现，后续可替换为：
- * - Pinia 持久仓储
- * - Tauri bridge 仓储
- * - 回放文件仓储
- * - 远端调试会话仓储
+ * 当前作为测试环境和 fallback 默认实现。
+ * 不持久化数据，页面刷新后数据丢失。
+ * 生产环境应使用 IndexedDBFrameRepository。
  */
 export class InMemoryFrameRepository implements FrameRepository {
   private frames = new Map<number, RuntimeFrameRecord>()
@@ -33,5 +31,17 @@ export class InMemoryFrameRepository implements FrameRepository {
 
   clear(): void {
     this.frames.clear()
+  }
+
+  async initialize(): Promise<void> {
+    // 内存实现无需初始化
+  }
+
+  async flush(): Promise<void> {
+    // 内存实现无需 flush
+  }
+
+  isPersistent(): boolean {
+    return false
   }
 }

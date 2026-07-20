@@ -23,7 +23,6 @@ describe('帧适配层', () => {
     compileContextSnapshot: {
       canvasSize: { width: 1024, height: 768 },
       seed: 1337,
-      time: 0,
     },
     renderIrSnapshot: {
       canvas: { width: 1024, height: 768 },
@@ -61,7 +60,6 @@ describe('帧适配层', () => {
         canvasWidth: 1024,
         canvasHeight: 768,
         seed: 1337,
-        time: 0,
         visibleLayerCount: 1,
         hasEffects: false,
         valid: true,
@@ -89,7 +87,7 @@ describe('帧适配层', () => {
       { ...baseRecord, frame: 129 },
     ])
 
-    const snapshots = createFrameSnapshotList(repository)
+    const snapshots = createFrameSnapshotList(repository.listFrames())
 
     expect(snapshots.map((item) => item.frame)).toEqual([129, 130])
   })

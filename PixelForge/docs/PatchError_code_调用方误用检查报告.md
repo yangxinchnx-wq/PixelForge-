@@ -1,6 +1,6 @@
 # PatchError.code 调用方误用检查报告
 
-> **检查范围**：`2号想法/my-app/src/` 全目录
+> **检查范围**：`PixelForge/src/` 全目录
 > **检查方法**：grep 所有 `PatchError` / `.code` / `.violations` / `outcome.errors` 使用点 + 逐个分析
 > **检查结论**：当前项目无真正的业务调用方（Phase A 未启动），无误用 bug。但发现 2 处文档缺口 + 2 处测试覆盖缺口，已全部修复。测试过程中额外发现 1 处格式不一致（freeze-1 原有设计，非本次修改造成）。
 

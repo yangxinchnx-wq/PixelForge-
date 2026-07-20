@@ -147,6 +147,7 @@ export interface ValuePatch extends PatchBase {
  */
 export type StructuralField =
   | 'visible'         // layer.visible 切换
+  | 'blendMode'       // layer.blendMode 修改（static 字段，但通过 structural patch 修改）
   | 'bounds'          // region.bounds 修改
   | 'targetLayer'     // effect.targetLayer 修改
   | 'targetRegion';   // effect.targetRegion 修改
@@ -366,7 +367,7 @@ export type PatchErrorCode =
   | 'IR_PATCH_TARGET_NOT_FOUND'           // targetId 不存在
   | 'IR_PATCH_DUPLICATE_ID'              // add 时 id 重复
   | 'IR_PATCH_DANGLING_REF'              // remove 时仍有引用 / setLayerRefs 引用不存在
-  | 'IR_PATCH_SCHEMA_MISMATCH'            // params 不匹配 opcode schema
+  | 'IR_PATCH_SCHEMA_MISMATCH'            // params 不匹配 opcode schema（Phase B 预留：OpcodeRegistry 启用后才会抛出，当前无任何代码抛出此错误码）
   | 'IR_PATCH_PATH_NOT_ALLOWED'           // value patch path 不在白名单 / 指向非 params
   | 'IR_PATCH_INVALID_VALUE'              // 数值越界（radius < 0 / 负尺寸 / NaN）
   | 'IR_PATCH_ATOMIC_INCOMPLETE'          // AtomicTopologyPatch 缺 newOpcode / newType 或 params
@@ -828,12 +829,22 @@ const FORBIDDEN_VALUEPATCH_KEYS = new Set<string>([
 ]);
 
 /**
+ * 合法 BlendMode 值集合（用于 StructuralPatch.field='blendMode' 校验）。
+ * 与 shared/types.ts BlendMode 类型保持同步。
+ */
+const VALID_BLEND_MODES = new Set<string>([
+  'normal', 'multiply', 'screen', 'overlay', 'add', 'subtract',
+]);
+
+/**
  * StructuralPatch 字段值类型校验。
  */
 function checkStructuralValue(field: StructuralField, value: unknown): boolean {
   switch (field) {
     case 'visible':
       return typeof value === 'boolean';
+    case 'blendMode':
+      return typeof value === 'string' && VALID_BLEND_MODES.has(value);
     case 'bounds':
       return isValidBoundingBox(value);
     case 'targetLayer':

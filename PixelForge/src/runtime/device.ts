@@ -2,6 +2,7 @@ import { detectCapability } from './capability'
 import { clearOutputTexture, renderPresentPass } from './encoder'
 import { createOutputTexture } from './output'
 import { createPresentPipeline } from './pipeline'
+import { createRuntimeError as createStructuredRuntimeError } from '@/shared/errors'
 import type {
   RuntimeCanvasSize,
   RuntimeDeviceHandle,
@@ -63,6 +64,7 @@ export async function initRuntime(options: RuntimeInitOptions): Promise<RuntimeI
     queue: {
       submit: nativeDevice.queue.submit.bind(nativeDevice.queue),
       writeBuffer: nativeDevice.queue.writeBuffer.bind(nativeDevice.queue),
+      onSubmittedWorkDone: nativeDevice.queue.onSubmittedWorkDone.bind(nativeDevice.queue),
     },
     createTexture: nativeDevice.createTexture.bind(nativeDevice),
     createBuffer: nativeDevice.createBuffer.bind(nativeDevice),
@@ -127,7 +129,5 @@ function syncCanvasSize(canvas: HTMLCanvasElement, size: RuntimeCanvasSize): voi
 }
 
 function createRuntimeError(code: RuntimeErrorInfo['code'], message: string): RuntimeErrorInfo {
-  const error = new Error(message) as RuntimeErrorInfo
-  error.code = code
-  return error
+  return createStructuredRuntimeError(code, message)
 }

@@ -1,9 +1,0 @@
-@supports (-webkit-touch-callout: none) {
-  #tauri-app {
-    min-width: 200px;
-  }
-}
-
-#tauri-app {
-  min-width: 200px;
-}

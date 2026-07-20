@@ -19,7 +19,6 @@ vi.mock('@/compiler/context', () => ({
     },
     canvasSize: { width: 1024, height: 768 },
     seed: 1337,
-    time: 0,
   })),
 }))
 
@@ -31,6 +30,7 @@ vi.mock('@/compiler/region/evaluator', () => ({
 
 vi.mock('@/runtime/encoder', () => ({
   renderFrame: vi.fn(),
+  renderPresentPass: vi.fn(),
   createRenderVerificationSnapshot: vi.fn(({ artifact, compileContext }) => ({
     descriptorData: Array.from(artifact.descriptorData),
     auxData: Array.from(artifact.auxData),
@@ -40,7 +40,6 @@ vi.mock('@/runtime/encoder', () => ({
     canvasWidth: compileContext.canvasSize.width,
     canvasHeight: compileContext.canvasSize.height,
     seed: compileContext.seed,
-    time: compileContext.time,
     visibleLayerCount: artifact.visibleLayerCount ?? 1,
     hasEffects: artifact.hasEffects ?? false,
   })),
@@ -126,7 +125,6 @@ describe('回放渲染签名一致性', () => {
       compileContextSnapshot: {
         canvasSize: { width: 1024, height: 768 },
         seed: 1337,
-        time: 0,
       },
       renderIrSnapshot: {
         canvas: { width: 1024, height: 768 },
@@ -160,7 +158,6 @@ describe('回放渲染签名一致性', () => {
           canvasWidth: 1024,
           canvasHeight: 768,
           seed: 1337,
-          time: 0,
           visibleLayerCount: 1,
           hasEffects: false,
           valid: true,
@@ -190,7 +187,6 @@ describe('回放渲染签名一致性', () => {
       canvasWidth: 1024,
       canvasHeight: 768,
       seed: 1337,
-      time: 0,
       visibleLayerCount: 1,
       hasEffects: false,
       valid: true,
