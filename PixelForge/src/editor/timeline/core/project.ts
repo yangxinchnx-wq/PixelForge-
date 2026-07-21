@@ -168,3 +168,92 @@ export function replaceSequence(project: Project, newSeq: Sequence): Project {
     updatedAt: Date.now(),
   }
 }
+
+// ============================================================================
+// 5. Sequence CRUD(Step 31.6)
+// ============================================================================
+
+/**
+ * 按 ID 查找 Sequence。
+ */
+export function findSequence(project: Project, sequenceId: string): Sequence | null {
+  return project.sequences.find((s) => s.id === sequenceId) ?? null
+}
+
+/**
+ * 重命名 Sequence。
+ */
+export function renameSequence(project: Project, sequenceId: string, name: string): Project {
+  const trimmed = name.trim()
+  if (!trimmed) return project
+  return {
+    ...project,
+    sequences: project.sequences.map((s) =>
+      s.id === sequenceId ? { ...s, name: trimmed, updatedAt: Date.now() } : s,
+    ),
+    updatedAt: Date.now(),
+  }
+}
+
+/**
+ * 删除 Sequence。
+ *
+ * 规则:
+ * - 不允许删除最后一个 Sequence(至少保留 1 个)
+ * - 若删除的是 activeSequence,自动切换到第一个剩余 Sequence
+ * - 不清理其他 Sequence 中对该 Sequence 的嵌套引用(由调用方决定)
+ *
+ * @returns 新的 Project(若拒绝删除,返回原 Project)
+ */
+export function removeSequence(project: Project, sequenceId: string): Project {
+  if (project.sequences.length <= 1) return project
+  const exists = project.sequences.some((s) => s.id === sequenceId)
+  if (!exists) return project
+
+  const newSequences = project.sequences.filter((s) => s.id !== sequenceId)
+  let newActiveId = project.activeSequenceId
+  if (project.activeSequenceId === sequenceId) {
+    newActiveId = newSequences[0].id
+  }
+
+  return {
+    ...project,
+    sequences: newSequences,
+    activeSequenceId: newActiveId,
+    updatedAt: Date.now(),
+  }
+}
+
+/**
+ * 修改 Sequence 属性(fps / width / height / duration)。
+ *
+ * @param project    原 Project
+ * @param sequenceId 目标 Sequence ID
+ * @param props      要修改的属性(部分字段)
+ */
+export function setSequenceProperties(
+  project: Project,
+  sequenceId: string,
+  props: Partial<Pick<Sequence, 'fps' | 'width' | 'height' | 'duration'>>,
+): Project {
+  return {
+    ...project,
+    sequences: project.sequences.map((s) =>
+      s.id === sequenceId ? { ...s, ...props, updatedAt: Date.now() } : s,
+    ),
+    updatedAt: Date.now(),
+  }
+}
+
+/**
+ * 统计 Project 中所有 Sequence 的 Clip 总数。
+ */
+export function getTotalClipCountInProject(project: Project): number {
+  let count = 0
+  for (const seq of project.sequences) {
+    for (const track of seq.tracks) {
+      count += track.clips.length
+    }
+  }
+  return count
+}

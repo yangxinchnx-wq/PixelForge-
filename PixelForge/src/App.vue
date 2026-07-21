@@ -7,6 +7,7 @@ import ClarifierDialog from '@/components/editor/ClarifierDialog.vue'
 import GraphEditor from '@/components/editor/graph/GraphEditor.vue'
 import Inspector from '@/components/editor/inspector/InspectorPanel.vue'
 import ParameterTrack from '@/components/editor/timeline/ParameterTrack.vue'
+import ProTimeline from '@/components/editor/pro-timeline/ProTimeline.vue'
 import PromptPanel from '@/components/editor/PromptPanel.vue'
 import RenderIRTree from '@/components/editor/RenderIRTree.vue'
 import Timeline from '@/components/editor/Timeline.vue'
@@ -91,6 +92,16 @@ const clarifierWarnings = ref<string[]>([])
 
 // —— 节点图编辑器状态(Step 25:Requirement → RenderGraph → DAG 编辑 → 编译为 RenderIR) ——
 const graphEditorVisible = ref(false)
+
+// —— 时间轴模式切换(Step 31.2:专业时间轴 ProTimeline 与现有帧级 Timeline 并存) ——
+// 'frame' = 现有帧级时间轴(用于 AI 生成预览)
+// 'pro'   = 专业时间轴(bigint 微秒精度,Clip CRUD)
+type TimelineMode = 'frame' | 'pro'
+const timelineMode = ref<TimelineMode>('frame')
+
+function setTimelineMode(mode: TimelineMode) {
+  timelineMode.value = mode
+}
 
 const llmResults = computed(() => {
   const ir = runtimeStore.currentIr
@@ -784,10 +795,31 @@ onBeforeUnmount(() => {
           </template>
         </CanvasView>
 
+        <!-- 时间轴模式切换(Step 31.2) -->
+        <div class="timeline-mode-switch">
+          <button
+            class="mode-btn"
+            :class="{ active: timelineMode === 'frame' }"
+            data-tip="帧级时间轴(AI 生成预览)"
+            @click="setTimelineMode('frame')"
+          >帧级时间轴</button>
+          <button
+            class="mode-btn"
+            :class="{ active: timelineMode === 'pro' }"
+            data-tip="专业时间轴(Clip CRUD,bigint 微秒精度)"
+            @click="setTimelineMode('pro')"
+          >专业时间轴</button>
+        </div>
+
         <Timeline
+          v-if="timelineMode === 'frame'"
           :frames="timelineFrames"
           @select="handleSelectFrame"
           @seek="handleTimelineSeek"
+        />
+
+        <ProTimeline
+          v-else
         />
 
         <ParameterTrack />
@@ -874,7 +906,7 @@ onBeforeUnmount(() => {
 
 .editor-center {
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto auto;
+  grid-template-rows: minmax(0, 1fr) auto auto auto;
   gap: 12px;
   min-height: 0;
   overflow: hidden;
@@ -886,6 +918,37 @@ onBeforeUnmount(() => {
   gap: 12px;
   min-height: 0;
   overflow: auto;
+}
+
+/* 时间轴模式切换(Step 31.2) */
+.timeline-mode-switch {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  background: var(--pf-surface-soft);
+  border: 1px solid var(--pf-line);
+  border-radius: var(--pf-r-sm);
+  width: fit-content;
+}
+.mode-btn {
+  height: 24px;
+  padding: 0 12px;
+  border: none;
+  background: transparent;
+  color: var(--pf-ink-muted);
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.mode-btn:hover {
+  color: var(--pf-ink);
+}
+.mode-btn.active {
+  background: var(--pf-surface);
+  color: var(--pf-ink);
+  box-shadow: 0 1px 3px rgba(30, 25, 20, 0.1);
 }
 
 .runtime-canvas {

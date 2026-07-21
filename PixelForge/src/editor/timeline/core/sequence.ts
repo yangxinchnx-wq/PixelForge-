@@ -171,6 +171,99 @@ export function replaceTrack(
   }
 }
 
+/**
+ * 重排序轨道(把 fromId 轨道移动到 toId 轨道的位置)。
+ *
+ * 规则:
+ * - 若 fromId === toId,返回原 Sequence(无操作)
+ * - 否则把 fromId 轨道从数组中移除,然后插入到 toId 轨道之前
+ * - 不改变 tracks 内对象的引用,只改变数组顺序
+ * - 同类型轨道的 index 会按新顺序重新编号(从 0 起)
+ *
+ * @param sequence 原 Sequence
+ * @param fromId   要移动的轨道 ID
+ * @param toId     目标位置轨道 ID(插入到该轨道之前)
+ * @returns 新的 Sequence
+ */
+export function reorderTracks(
+  sequence: Sequence,
+  fromId: string,
+  toId: string,
+): Sequence {
+  if (fromId === toId) return sequence
+  const fromIdx = sequence.tracks.findIndex((t) => t.id === fromId)
+  const toIdx = sequence.tracks.findIndex((t) => t.id === toId)
+  if (fromIdx < 0 || toIdx < 0) return sequence
+
+  const tracks = [...sequence.tracks]
+  const [moved] = tracks.splice(fromIdx, 1)
+  // 移除后 toIdx 可能偏移:若 fromIdx < toIdx,目标位置已前移 1
+  const insertIdx = fromIdx < toIdx ? toIdx - 1 : toIdx
+  tracks.splice(insertIdx, 0, moved)
+
+  // 同类型轨道重新编号 index(从 0 起,保证 index 单调递增)
+  const typeCounters: Record<string, number> = {}
+  for (const t of tracks) {
+    const key = t.type
+    typeCounters[key] = (typeCounters[key] ?? 0) + 1
+    t.index = typeCounters[key] - 1
+  }
+
+  return { ...sequence, tracks, updatedAt: Date.now() }
+}
+
+/**
+ * 把 fromId 轨道移动到指定位置(absolute index in tracks array)。
+ *
+ * 与 reorderTracks 区别:reorderTracks 以目标轨道为参考点,
+ * moveTrackByIndex 以数组下标为参考点(适合程序化移动)。
+ */
+export function moveTrackByIndex(
+  sequence: Sequence,
+  fromId: string,
+  toIndex: number,
+): Sequence {
+  const fromIdx = sequence.tracks.findIndex((t) => t.id === fromId)
+  if (fromIdx < 0) return sequence
+  const clampedTo = Math.max(0, Math.min(sequence.tracks.length - 1, toIndex))
+  if (fromIdx === clampedTo) return sequence
+
+  const tracks = [...sequence.tracks]
+  const [moved] = tracks.splice(fromIdx, 1)
+  tracks.splice(clampedTo, 0, moved)
+
+  // 重新编号
+  const typeCounters: Record<string, number> = {}
+  for (const t of tracks) {
+    const key = t.type
+    typeCounters[key] = (typeCounters[key] ?? 0) + 1
+    t.index = typeCounters[key] - 1
+  }
+
+  return { ...sequence, tracks, updatedAt: Date.now() }
+}
+
+/**
+ * 在指定位置插入轨道(用于"复制轨道" / "添加轨道到指定位置")。
+ *
+ * @param sequence 原 Sequence
+ * @param newTrack 要插入的 Track
+ * @param atIndex  插入位置(可选,默认追加到末尾)
+ */
+export function insertTrack(
+  sequence: Sequence,
+  newTrack: Track,
+  atIndex?: number,
+): Sequence {
+  const tracks = [...sequence.tracks]
+  if (atIndex === undefined || atIndex < 0 || atIndex >= tracks.length) {
+    tracks.push(newTrack)
+  } else {
+    tracks.splice(atIndex, 0, newTrack)
+  }
+  return { ...sequence, tracks, updatedAt: Date.now() }
+}
+
 // ============================================================================
 // 5. 查询
 // ============================================================================

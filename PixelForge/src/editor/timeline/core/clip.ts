@@ -70,6 +70,8 @@ export const DEFAULT_TRANSFORM: ClipTransform = {
  * @property locked        是否锁定(锁定后不可编辑)
  * @property label         显示名称(可选,默认用 asset 名)
  * @property effects       片段级特效列表(Effect ID 数组)
+ * @property groupId       群组 ID(可选,同一 groupId 的 Clip 视为一个群组,Step 31.4)
+ * @property sequenceId    引用的 Sequence ID(可选,用于嵌套 Sequence,Step 31.6)
  */
 export interface Clip {
   id: string
@@ -86,6 +88,8 @@ export interface Clip {
   locked: boolean
   label?: string
   effects: string[]
+  groupId?: string
+  sequenceId?: string
 }
 
 // ============================================================================
@@ -129,6 +133,7 @@ export function createClip(options: {
   locked?: boolean
   label?: string
   effects?: string[]
+  sequenceId?: string
 }): Clip {
   const {
     assetId,
@@ -144,6 +149,7 @@ export function createClip(options: {
     locked = false,
     label,
     effects = [],
+    sequenceId,
   } = options
 
   if (sourceEnd <= sourceStart) {
@@ -155,7 +161,7 @@ export function createClip(options: {
 
   const clipDuration = sub(sourceEnd, sourceStart)
 
-  return {
+  const clip: Clip = {
     id: id ?? genClipId(),
     assetId,
     kind,
@@ -171,6 +177,10 @@ export function createClip(options: {
     label,
     effects,
   }
+  if (sequenceId !== undefined) {
+    clip.sequenceId = sequenceId
+  }
+  return clip
 }
 
 // ============================================================================
@@ -313,4 +323,88 @@ export function compareClipByStart(a: Clip, b: Clip): number {
 /** 获取 Clip 的时长(便捷方法,= rangeDuration(getTimelineRange(clip))) */
 export function getClipDuration(clip: Clip): Time {
   return rangeDuration(getTimelineRange(clip))
+}
+
+// ============================================================================
+// 7. 属性 setter(Step 31.4 — 用于 Inspector 面板修改 + Command)
+// ============================================================================
+
+let groupIdCounter = 0
+
+/** 生成唯一群组 ID */
+export function genGroupId(): string {
+  groupIdCounter++
+  return `grp_${Date.now().toString(36)}_${groupIdCounter.toString(36)}`
+}
+
+/** 设置 Clip 的群组 ID(传 undefined 解除群组) */
+export function setClipGroupId(clip: Clip, groupId?: string): Clip {
+  const newClip = { ...clip }
+  if (groupId === undefined) {
+    delete newClip.groupId
+  } else {
+    newClip.groupId = groupId
+  }
+  return newClip
+}
+
+// ============================================================================
+// 7. 嵌套 Sequence(Step 31.6)
+// ============================================================================
+
+/** 判断 Clip 是否为嵌套 Sequence 引用(而非普通 Asset 引用) */
+export function isNestedSequenceClip(clip: Clip): boolean {
+  return clip.sequenceId !== undefined && clip.sequenceId.length > 0
+}
+
+/**
+ * 设置 Clip 引用的 Sequence ID(传 undefined 取消嵌套引用)。
+ *
+ * 注意:调用方需自行校验循环引用(setClipSequenceId 不做校验,
+ * 因为循环检测需要 Project 上下文,见 nestedSequenceResolver)。
+ */
+export function setClipSequenceId(clip: Clip, sequenceId?: string): Clip {
+  const newClip = { ...clip }
+  if (sequenceId === undefined || sequenceId.length === 0) {
+    delete newClip.sequenceId
+  } else {
+    newClip.sequenceId = sequenceId
+  }
+  return newClip
+}
+
+/** 设置 Clip 标签 */
+export function setClipLabel(clip: Clip, label: string): Clip {
+  return { ...clip, label: label.trim() || clip.label }
+}
+
+/** 设置 Clip 速度(同时调整 sourceEnd 保持 duration 不变) */
+export function setClipSpeed(clip: Clip, speed: number): Clip {
+  const clamped = Math.max(0.1, Math.min(10, speed))
+  return { ...clip, speed: clamped }
+}
+
+/** 设置 Clip 音量(0-1) */
+export function setClipVolume(clip: Clip, volume: number): Clip {
+  return { ...clip, volume: Math.max(0, Math.min(1, volume)) }
+}
+
+/** 设置 Clip 启用状态 */
+export function setClipEnabled(clip: Clip, enabled: boolean): Clip {
+  return { ...clip, enabled }
+}
+
+/** 设置 Clip 锁定状态 */
+export function setClipLocked(clip: Clip, locked: boolean): Clip {
+  return { ...clip, locked }
+}
+
+/** 设置 Clip Transform(部分更新) */
+export function setClipTransform(clip: Clip, transform: Partial<ClipTransform>): Clip {
+  return { ...clip, transform: { ...clip.transform, ...transform } }
+}
+
+/** 设置 Clip 颜色(通过 label 字段存储,可选;若需要独立颜色可扩展) */
+export function setClipColor(clip: Clip, color: string): Clip & { color?: string } {
+  return { ...clip, color }
 }

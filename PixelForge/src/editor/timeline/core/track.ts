@@ -45,6 +45,7 @@ export enum TrackType {
  * @property muted    是否静音(仅 AUDIO 类型)
  * @property height   轨道高度(UI,像素)
  * @property volume   轨道音量(0-1,仅 AUDIO 类型)
+ * @property color    轨道颜色(hex 字符串,如 "#5B8DEF",用于 UI 区分)
  */
 export interface Track {
   id: string
@@ -57,10 +58,29 @@ export interface Track {
   muted: boolean
   height: number
   volume: number
+  color: string
 }
 
 // ============================================================================
-// 2. 构造
+// 2. 常量 — 轨道默认颜色(按类型)
+// ============================================================================
+
+/** 轨道默认颜色映射(按类型) */
+export const TRACK_DEFAULT_COLORS: Record<TrackType, string> = {
+  [TrackType.VIDEO]: '#5B8DEF',   // 蓝
+  [TrackType.AUDIO]: '#52C41A',   // 绿
+  [TrackType.TEXT]:  '#FA8C16',   // 橙
+  [TrackType.EFFECT]: '#722ED1',  // 紫
+}
+
+/** 轨道高度范围(像素) */
+export const MIN_TRACK_HEIGHT = 32
+export const MAX_TRACK_HEIGHT = 240
+export const DEFAULT_TRACK_HEIGHT_VIDEO = 80
+export const DEFAULT_TRACK_HEIGHT_AUDIO = 64
+
+// ============================================================================
+// 3. 构造
 // ============================================================================
 
 let trackIdCounter = 0
@@ -77,11 +97,13 @@ export function genTrackId(): string {
  * @param type  轨道类型
  * @param index 轨道序号
  * @param name  轨道名称(可选,默认自动生成)
+ * @param color 轨道颜色(可选,默认按类型)
  */
 export function createTrack(
   type: TrackType,
   index: number,
   name?: string,
+  color?: string,
 ): Track {
   const defaultName = name ?? `${type.charAt(0).toUpperCase() + type.slice(1)} ${index + 1}`
   return {
@@ -93,8 +115,9 @@ export function createTrack(
     visible: true,
     locked: false,
     muted: false,
-    height: type === TrackType.AUDIO ? 64 : 80,
+    height: type === TrackType.AUDIO ? DEFAULT_TRACK_HEIGHT_AUDIO : DEFAULT_TRACK_HEIGHT_VIDEO,
     volume: 1,
+    color: color ?? TRACK_DEFAULT_COLORS[type],
   }
 }
 
@@ -182,6 +205,27 @@ export function setTrackVolume(track: Track, volume: number): Track {
   return { ...track, volume: Math.max(0, Math.min(1, volume)) }
 }
 
+/** 设置轨道颜色 */
+export function setTrackColor(track: Track, color: string): Track {
+  return { ...track, color }
+}
+
+/** 设置轨道高度(限制在 [MIN_TRACK_HEIGHT, MAX_TRACK_HEIGHT]) */
+export function setTrackHeight(track: Track, height: number): Track {
+  const clamped = Math.max(MIN_TRACK_HEIGHT, Math.min(MAX_TRACK_HEIGHT, Math.round(height)))
+  return { ...track, height: clamped }
+}
+
+/** 设置轨道名称 */
+export function setTrackName(track: Track, name: string): Track {
+  return { ...track, name: name.trim() || track.name }
+}
+
+/** 设置轨道序号 */
+export function setTrackIndex(track: Track, index: number): Track {
+  return { ...track, index: Math.max(0, index) }
+}
+
 // ============================================================================
 // 5. 工具
 // ============================================================================
@@ -200,4 +244,34 @@ export function getTrackDuration(track: Track): bigint {
 /** 轨道是否为空(无 Clip) */
 export function isTrackEmpty(track: Track): boolean {
   return track.clips.length === 0
+}
+
+/**
+ * 复制轨道(深拷贝 clips,生成新 track ID 与新 clip ID)。
+ *
+ * 用于"复制轨道"功能:复制后的轨道紧贴原轨道下方,
+ * 名称加 " 副本" 后缀,颜色保持一致。
+ *
+ * @param track      原 Track
+ * @param newIndex   新轨道序号
+ * @param genClipId  生成新 Clip ID 的函数(避免与原 Clip 冲突)
+ */
+export function duplicateTrack(
+  track: Track,
+  newIndex: number,
+  genClipId: () => string,
+): Track {
+  const newClips: Clip[] = track.clips.map((c) => ({
+    ...c,
+    id: genClipId(),
+    transform: { ...c.transform },
+    effects: [...c.effects],
+  }))
+  return {
+    ...track,
+    id: genTrackId(),
+    index: newIndex,
+    name: `${track.name} 副本`,
+    clips: newClips,
+  }
 }

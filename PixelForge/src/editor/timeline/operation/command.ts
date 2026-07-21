@@ -55,6 +55,21 @@ export interface MutableSequenceState {
   notify: () => void
 }
 
+/**
+ * MutableProjectState — 可变的 Project 状态容器(Step 31.6)。
+ *
+ * 用于 Sequence 级命令(AddSequence / RemoveSequence / SwitchSequence 等)。
+ * 与 MutableSequenceState 区别:
+ * - MutableSequenceState: 操作单个活跃 Sequence(Track / Clip 级命令)
+ * - MutableProjectState: 操作整个 Project(Sequence 级命令)
+ */
+export interface MutableProjectState {
+  /** 可变的 Project(命令直接修改其属性) */
+  project: import('../core/project').Project
+  /** 通知 store 状态已变更(触发响应式更新 + 重建索引) */
+  notify: () => void
+}
+
 // ============================================================================
 // 3. 基类
 // ============================================================================
