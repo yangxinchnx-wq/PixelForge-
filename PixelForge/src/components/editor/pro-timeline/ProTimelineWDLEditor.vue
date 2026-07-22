@@ -1,8 +1,8 @@
 <script setup lang="ts">
 /**
- * ProTimelineWDLEditor(Step 37.5)— WDL 代码编辑器面板。
+ * ProTimelineWDLEditor(Step 37.5 + 38.1)— WDL 代码编辑器面板。
  *
- * 功能:
+ * Step 37.5 原始功能:
  * - 代码编辑区(textarea + 行号)
  * - 实时语法校验(lexer + parser + validator)
  * - 错误/警告列表(点击跳转行号)
@@ -10,17 +10,31 @@
  * - 应用到运行时(将 RenderIR 推送到 runtimeStore)
  * - 示例模板(星空夜景 / 纯色测试)
  *
+ * Step 38.1 升级:
+ * - textarea → Monaco Editor(语法高亮 / 括号匹配 / 注释切换 / 自动缩进)
+ * - WDL Monarch tokenizer 着色(关键字 / opcode / 字符串 / 数字 / 尺寸 / 注释)
+ * - pixelforge-dark 主题(对齐 --pf-* 设计令牌)
+ *
  * 设计:
  * - --pf-* 设计令牌
  * - cubic-bezier(0.22, 1, 0.36, 1) 180ms 过渡
  * - JetBrains Mono 用于代码字体
  */
-import { ref, computed, shallowRef, watch } from 'vue'
+import { ref, computed, shallowRef, watch, onBeforeUnmount } from 'vue'
+import { VueMonacoEditor, loader } from '@guolao/vue-monaco-editor'
 import { useRuntimeStore } from '@/stores/runtime'
 import { validateSource } from '@/world/wdl/wdlValidator'
 import { compileSource } from '@/world/wdl/wdlCompiler'
+import { registerWDLLanguage } from '@/world/wdl/wdlRegister'
+import { WDL_LANGUAGE_ID } from '@/world/wdl/wdlMonarch'
+import { WDL_THEME_ID } from '@/world/wdl/wdlTheme'
 import type { ValidationReport } from '@/world/wdl/wdlValidator'
 import type { RenderIR } from '@/compiler/ir/renderIR'
+import type * as Monaco from 'monaco-editor'
+
+// 配置 loader 使用本地 monaco-editor(不走 CDN)
+import * as monacoEditor from 'monaco-editor'
+loader.config({ monaco: monacoEditor })
 
 const runtimeStore = useRuntimeStore()
 
@@ -66,6 +80,68 @@ const compileError = ref<string | null>(null)
 
 /** 是否在输入后自动校验 */
 const autoValidate = ref(true)
+
+/** Monaco editor 实例(shallowRef 避免深度响应) */
+const editorInstance = shallowRef<Monaco.editor.IStandaloneCodeEditor | null>(null)
+
+/** 跳转目标行(用于点击消息后定位) */
+const jumpLine = ref<number | null>(null)
+
+// ============================================================================
+// Monaco 编辑器配置
+// ============================================================================
+
+/** Monaco 编辑器选项 */
+const editorOptions = computed<Monaco.editor.IStandaloneEditorConstructionOptions>(() => ({
+  value: source.value,
+  language: WDL_LANGUAGE_ID,
+  theme: WDL_THEME_ID,
+  fontFamily: "'JetBrains Mono', monospace",
+  fontSize: 13,
+  lineHeight: 20,
+  minimap: { enabled: false },
+  scrollBeyondLastLine: false,
+  automaticLayout: true,
+  tabSize: 2,
+  insertSpaces: true,
+  wordWrap: 'off',
+  lineNumbers: 'on',
+  lineDecorationsWidth: 8,
+  lineNumbersMinChars: 3,
+  glyphMargin: true,
+  folding: true,
+  renderLineHighlight: 'all',
+  scrollbar: {
+    vertical: 'auto',
+    horizontal: 'auto',
+    verticalScrollbarSize: 8,
+    horizontalScrollbarSize: 8,
+  },
+  padding: { top: 8, bottom: 8 },
+}))
+
+/** Monaco 加载前回调 — 注册 WDL 语言 */
+function handleBeforeMount(monaco: typeof Monaco) {
+  registerWDLLanguage(monaco)
+}
+
+/** Monaco 挂载后回调 — 保存 editor 实例 */
+function handleMount(editor: Monaco.editor.IStandaloneCodeEditor) {
+  editorInstance.value = editor
+  // 恢复跳转
+  if (jumpLine.value !== null) {
+    editor.revealLineInCenter(jumpLine.value)
+    editor.setPosition({ lineNumber: jumpLine.value, column: 1 })
+    jumpLine.value = null
+  }
+}
+
+/** 编辑器内容变更 */
+function handleEditorChange(value: string | undefined) {
+  if (value !== undefined) {
+    source.value = value
+  }
+}
 
 // ============================================================================
 // 校验和编译
@@ -123,29 +199,17 @@ const allMessages = computed(() => {
   return all.sort((a, b) => a.line - b.line)
 })
 
-/** 跳转到指定行 */
+/** 跳转到指定行(Monaco editor) */
 function jumpToLine(line: number) {
-  const textarea = document.querySelector('.wdl-editor-textarea') as HTMLTextAreaElement
-  if (!textarea) return
-
-  const lines = source.value.split('\n')
-  let pos = 0
-  for (let i = 0; i < line - 1 && i < lines.length; i++) {
-    pos += lines[i].length + 1 // +1 for \n
+  const editor = editorInstance.value
+  if (editor) {
+    editor.revealLineInCenter(line)
+    editor.setPosition({ lineNumber: line, column: 1 })
+    editor.focus()
+  } else {
+    jumpLine.value = line
   }
-  textarea.focus()
-  textarea.setSelectionRange(pos, pos)
 }
-
-// ============================================================================
-// 行号
-// ============================================================================
-
-/** 行号数组 */
-const lineNumbers = computed(() => {
-  const count = source.value.split('\n').length
-  return Array.from({ length: count }, (_, i) => i + 1)
-})
 
 // ============================================================================
 // 编辑器操作
@@ -176,24 +240,34 @@ function loadTemplate(name: 'starry' | 'solid' | 'empty') {
 }`
       break
   }
+  // 同步到 Monaco editor
+  if (editorInstance.value) {
+    editorInstance.value.setValue(source.value)
+  }
 }
 
 /** 清空编辑器 */
 function clearEditor() {
   source.value = ''
+  if (editorInstance.value) {
+    editorInstance.value.setValue('')
+  }
 }
 
 /** 格式化(简单:去除多余空行) */
 function formatSource() {
-  source.value = source.value
+  const formatted = source.value
     .split('\n')
     .filter((line, i, arr) => {
-      // 去除连续空行
       const isEmpty = line.trim() === ''
       const prevEmpty = i > 0 && arr[i - 1].trim() === ''
       return !(isEmpty && prevEmpty)
     })
     .join('\n')
+  source.value = formatted
+  if (editorInstance.value) {
+    editorInstance.value.setValue(formatted)
+  }
 }
 
 function toggle() {
@@ -203,6 +277,14 @@ function toggle() {
 function close() {
   visible.value = false
 }
+
+// 组件卸载前销毁 editor
+onBeforeUnmount(() => {
+  if (editorInstance.value) {
+    editorInstance.value.dispose()
+    editorInstance.value = null
+  }
+})
 </script>
 
 <template>
@@ -244,21 +326,19 @@ function close() {
                 >应用到运行时</button>
               </div>
 
-              <!-- 行号 + textarea -->
+              <!-- Monaco Editor(Step 38.1: 替换原 textarea + 行号) -->
               <div class="wdl-editor-area">
-                <div class="wdl-line-numbers">
-                  <div
-                    v-for="num in lineNumbers"
-                    :key="num"
-                    class="wdl-line-num"
-                  >{{ num }}</div>
-                </div>
-                <textarea
-                  v-model="source"
-                  class="wdl-editor-textarea"
-                  spellcheck="false"
-                  placeholder="在此输入 WDL 源码..."
-                ></textarea>
+                <vue-monaco-editor
+                  :value="source"
+                  :options="editorOptions"
+                  :language="WDL_LANGUAGE_ID"
+                  :theme="WDL_THEME_ID"
+                  width="100%"
+                  height="100%"
+                  @before-mount="handleBeforeMount"
+                  @mount="handleMount"
+                  @change="handleEditorChange"
+                />
               </div>
             </div>
 
@@ -487,37 +567,6 @@ function close() {
   flex: 1;
   display: flex;
   overflow: hidden;
-}
-.wdl-line-numbers {
-  width: 40px;
-  padding: 8px 0;
-  background: var(--pf-bg, var(--pf-surface));
-  border-right: 1px solid var(--pf-line);
-  text-align: right;
-  overflow: hidden;
-  user-select: none;
-}
-.wdl-line-num {
-  padding: 0 8px;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 12px;
-  line-height: 20px;
-  color: var(--pf-ink-faint);
-}
-.wdl-editor-textarea {
-  flex: 1;
-  padding: 8px 12px;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 13px;
-  line-height: 20px;
-  color: var(--pf-ink);
-  background: transparent;
-  border: none;
-  outline: none;
-  resize: none;
-  white-space: pre;
-  overflow: auto;
-  tab-size: 2;
 }
 
 .wdl-side-section {
