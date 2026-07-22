@@ -647,7 +647,7 @@ describe('graph/runtime/resourceManager', () => {
     rm.acquireTexture('nodeB', { width: 200, height: 200 })
     const stats = rm.getStats()
     expect(stats.nodeCount).toBe(2)
-    expect(stats.poolSize).toBe(2)
+    expect(stats.texturePoolSize).toBe(2)
   })
 
   it('RM8: getTexturePool 暴露内部池', () => {
@@ -1061,11 +1061,11 @@ describe('graph/runtime/graphRuntime', () => {
     const runtime = new GraphRuntime(graph, { cache, resourceManager: rm })
     await runtime.execute()
     expect(cache.size).toBe(2)
-    expect(rm.getStats().poolSize).toBeGreaterThan(0)
+    expect(rm.getStats().texturePoolSize).toBeGreaterThan(0)
 
     runtime.dispose()
     expect(cache.size).toBe(0)
-    expect(rm.getStats().poolSize).toBe(0)
+    expect(rm.getStats().texturePoolSize).toBe(0)
   })
 
   it('GR16: steps 字段包含完整信息(nodeId / nodeType / cacheHit / handle / durationMs)', async () => {
