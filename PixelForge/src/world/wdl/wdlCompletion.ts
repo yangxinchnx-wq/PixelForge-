@@ -24,9 +24,6 @@ import {
   WDL_MONARCH_BOOLEANS,
 } from './wdlMonarch'
 
-// CompletionItemKind 枚举常量(从 monaco-editor 导入)
-import * as MonacoNS from 'monaco-editor'
-
 // ============================================================================
 // 1. 参数名补全表(按 block 类型)
 // ============================================================================
@@ -327,15 +324,18 @@ const EFFECT_TYPE_DESCRIPTIONS: Record<string, string> = {
 // 5. Monaco 注册
 // ============================================================================
 
-/** WDLCompletionKind → Monaco CompletionItemKind 映射 */
-function toMonacoKind(kind: WDLCompletionKind): Monaco.languages.CompletionItemKind {
+/** WDLCompletionKind → Monaco CompletionItemKind 映射(使用传入的 monaco 实例) */
+function toMonacoKind(
+  kind: WDLCompletionKind,
+  monaco: typeof Monaco,
+): Monaco.languages.CompletionItemKind {
   switch (kind) {
-    case 'keyword': return MonacoNS.languages.CompletionItemKind.Keyword
-    case 'property': return MonacoNS.languages.CompletionItemKind.Property
-    case 'value': return MonacoNS.languages.CompletionItemKind.Value
-    case 'snippet': return MonacoNS.languages.CompletionItemKind.Snippet
-    case 'reference': return MonacoNS.languages.CompletionItemKind.Reference
-    default: return MonacoNS.languages.CompletionItemKind.Text
+    case 'keyword': return monaco.languages.CompletionItemKind.Keyword
+    case 'property': return monaco.languages.CompletionItemKind.Property
+    case 'value': return monaco.languages.CompletionItemKind.Value
+    case 'snippet': return monaco.languages.CompletionItemKind.Snippet
+    case 'reference': return monaco.languages.CompletionItemKind.Reference
+    default: return monaco.languages.CompletionItemKind.Text
   }
 }
 
@@ -368,11 +368,11 @@ export function registerWDLCompletion(monaco: typeof Monaco): void {
       return {
         suggestions: items.map((item) => ({
           label: item.label,
-          kind: toMonacoKind(item.kind),
+          kind: toMonacoKind(item.kind, monaco),
           insertText: item.insertText,
           insertTextRules: item.kind === 'snippet'
-            ? MonacoNS.languages.CompletionItemInsertTextRule.InsertAsSnippet
-            : MonacoNS.languages.CompletionItemInsertTextRule.None,
+            ? monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet
+            : monaco.languages.CompletionItemInsertTextRule.None,
           detail: item.detail,
           range,
         })),

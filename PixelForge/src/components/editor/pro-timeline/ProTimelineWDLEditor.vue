@@ -28,6 +28,7 @@ import { compileSource } from '@/world/wdl/wdlCompiler'
 import { registerWDLLanguage } from '@/world/wdl/wdlRegister'
 import { WDL_LANGUAGE_ID } from '@/world/wdl/wdlMonarch'
 import { WDL_THEME_ID } from '@/world/wdl/wdlTheme'
+import { validateSourceToMarkers, applyMarkersToModel, clearMarkersFromModel } from '@/world/wdl/wdlDiagnostics'
 import type { ValidationReport } from '@/world/wdl/wdlValidator'
 import type { RenderIR } from '@/compiler/ir/renderIR'
 import type * as Monaco from 'monaco-editor'
@@ -84,6 +85,9 @@ const autoValidate = ref(true)
 /** Monaco editor 实例(shallowRef 避免深度响应) */
 const editorInstance = shallowRef<Monaco.editor.IStandaloneCodeEditor | null>(null)
 
+/** Monaco 全局对象(用于 setModelMarkers) */
+const monacoRef = shallowRef<typeof Monaco | null>(null)
+
 /** 跳转目标行(用于点击消息后定位) */
 const jumpLine = ref<number | null>(null)
 
@@ -122,6 +126,7 @@ const editorOptions = computed<Monaco.editor.IStandaloneEditorConstructionOption
 
 /** Monaco 加载前回调 — 注册 WDL 语言 */
 function handleBeforeMount(monaco: typeof Monaco) {
+  monacoRef.value = monaco
   registerWDLLanguage(monaco)
 }
 
@@ -150,6 +155,16 @@ function handleEditorChange(value: string | undefined) {
 /** 执行校验 */
 function doValidate() {
   report.value = validateSource(source.value)
+  // Step 38.3: 将错误/警告标记到 Monaco 编辑器(内联波浪线)
+  const editor = editorInstance.value
+  const monaco = monacoRef.value
+  if (editor && monaco) {
+    const model = editor.getModel()
+    if (model) {
+      const markers = validateSourceToMarkers(source.value)
+      applyMarkersToModel(monaco, model, markers)
+    }
+  }
 }
 
 /** 执行编译 */
@@ -278,8 +293,12 @@ function close() {
   visible.value = false
 }
 
-// 组件卸载前销毁 editor
+// 组件卸载前销毁 editor + 清除 markers
 onBeforeUnmount(() => {
+  if (editorInstance.value && monacoRef.value) {
+    const model = editorInstance.value.getModel()
+    if (model) clearMarkersFromModel(monacoRef.value, model)
+  }
   if (editorInstance.value) {
     editorInstance.value.dispose()
     editorInstance.value = null
