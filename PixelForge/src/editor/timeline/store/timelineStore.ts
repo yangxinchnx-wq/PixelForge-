@@ -27,7 +27,7 @@ import type { Project } from '../core/project'
 import { createProject, getActiveSequence, replaceSequence } from '../core/project'
 import type { Sequence } from '../core/sequence'
 import type { Clip } from '../core/clip'
-import { TrackType } from '../core/track'
+import { TrackType, setTrackMuted } from '../core/track'
 import type { Time } from '../core/time'
 import { ZERO, seconds, clamp, timeToFrame, frames } from '../core/time'
 import { CachedTimelineResolver, type TimelineResolveResult } from '../resolver/timelineResolver'
@@ -335,6 +335,16 @@ export const useProTimelineStore = defineStore('proTimeline', () => {
   /** 设置轨道颜色 */
   function setTrackColor(trackId: string, color: string): void {
     executeCommand(new SetTrackColorCommand(mutableState, trackId, color))
+  }
+
+  /** 切换轨道静音状态(仅 AUDIO 类型) */
+  function toggleTrackMuted(trackId: string): void {
+    const seq = mutableState.sequence
+    const track = seq.tracks.find((t) => t.id === trackId)
+    if (!track) return
+    const updatedTrack = setTrackMuted(track, !track.muted)
+    const updatedTracks = seq.tracks.map((t) => (t.id === trackId ? updatedTrack : t))
+    mutableState.sequence = { ...seq, tracks: updatedTracks, updatedAt: Date.now() }
   }
 
   /** 重命名轨道 */
@@ -943,6 +953,7 @@ export const useProTimelineStore = defineStore('proTimeline', () => {
     reorderTrack,
     resizeTrack,
     setTrackColor,
+    toggleTrackMuted,
     renameTrack,
     deleteTrack,
     duplicateTrack,
