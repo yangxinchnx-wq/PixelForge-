@@ -14,7 +14,12 @@ import { useCommandShortcuts } from '@/composables/useCommandShortcuts'
 import { commandRegistry, registerDefaultCommands } from '@/composables/commandRegistry'
 import { createAutosaver } from '@/project/autosave'
 import { loadProjectFromFile, pickProjectFile, saveProjectToFile } from '@/project/fileSystem'
+import { useRecentProjectsStore, type RecentProjectEntry } from '@/project/recentProjects'
+import { validateProject, formatValidationResult } from '@/project/projectValidator'
+import { extractDroppedFiles } from '@/project/projectExport'
+import { deserializeProject } from '@/project/serializer'
 import { useProjectStore } from '@/project/projectStore'
+import type { PixelForgeProject } from '@/project/types'
 import { useHistoryStore } from '@/stores/history'
 import { useRuntimeStore } from '@/stores/runtime'
 import { useTimelineStore } from '@/stores/timeline'
@@ -50,6 +55,7 @@ const projectStore = useProjectStore()
 const graphStore = useGraphStore()
 const materialStore = useMaterialGraphStore()
 const settingsStore = useSettingsStore()
+const recentProjectsStore = useRecentProjectsStore()
 const showSettings = ref(false)
 const showCommandPalette = ref(false)
 const canvasRef = ref<HTMLCanvasElement | null>(null)
@@ -569,7 +575,7 @@ function handleNewProject() {
   applyCurrentFrameToRuntime({ skipHistory: true })
 }
 
-/** 打开项目:弹出文件选择 → 解析 → 还原 store */
+/** 打开项目:弹出文件选择 → 解析 → 还原 store → 记录最近项目 */
 async function handleOpenProject() {
   if (projectStore.dirty) {
     const ok = window.confirm('当前项目有未保存的修改,是否放弃?')
@@ -583,10 +589,74 @@ async function handleOpenProject() {
     // 重置播放头到加载项目的位置
     timelineStore.seek(project.timeline.currentFrame)
     applyCurrentFrameToRuntime({ skipHistory: true })
+    // 记录到最近项目(Step 40.3)
+    recordRecentProject(project)
   } catch (e) {
     console.error('[project] 打开失败:', e)
     window.alert(`打开项目失败: ${(e as Error).message}`)
   }
+}
+
+/**
+ * 把打开的项目记录到最近项目列表(Step 40.3)。
+ */
+function recordRecentProject(project: PixelForgeProject): void {
+  const entry: RecentProjectEntry = {
+    id: project.metadata.id,
+    name: project.metadata.name,
+    filePath: '',
+    fileSize: undefined,
+    openedAt: Date.now(),
+    createdAt: project.metadata.createdAt,
+    canvasSize: { ...project.metadata.canvasSize },
+  }
+  recentProjectsStore.recordOpen(entry)
+}
+
+/**
+ * 拖拽导入项目文件(Step 40.3)。
+ *
+ * 浏览器拖拽 API:用户把 .pixelforge 文件拖到画布区域触发。
+ * 支持拖入单个项目文件,自动校验 + 还原 store + 记录最近项目。
+ */
+async function handleDropProject(event: DragEvent): Promise<void> {
+  const files = extractDroppedFiles(event)
+  if (files.length === 0) return
+  event.preventDefault()
+
+  if (projectStore.dirty) {
+    const ok = window.confirm('当前项目有未保存的修改,是否放弃?')
+    if (!ok) return
+  }
+
+  try {
+    const file = files[0]
+    const text = await file.text()
+    // 增强校验(Step 40.3)
+    const validation = validateProject(JSON.parse(text))
+    if (!validation.valid) {
+      const msg = formatValidationResult(validation)
+      window.alert(`项目文件校验失败:\n${msg}`)
+      return
+    }
+    if (validation.warningCount > 0) {
+      const msg = formatValidationResult(validation)
+      console.warn('[project] 校验警告:', msg)
+    }
+    const project = deserializeProject(text)
+    projectStore.openProject(project, runtimeStore, timelineStore, historyStore)
+    timelineStore.seek(project.timeline.currentFrame)
+    applyCurrentFrameToRuntime({ skipHistory: true })
+    recordRecentProject(project)
+  } catch (e) {
+    console.error('[project] 拖拽导入失败:', e)
+    window.alert(`拖拽导入失败: ${(e as Error).message}`)
+  }
+}
+
+/** 拖拽悬停(阻止默认行为,允许 drop) */
+function handleDragOver(event: DragEvent): void {
+  event.preventDefault()
 }
 
 /** 保存项目:快照 → 触发浏览器下载 .pixelforge 文件 */
@@ -773,6 +843,8 @@ void handleRedo
 
 // —— 初始化设置(主题持久化 + 系统监听) ——
 settingsStore.init()
+// —— 初始化最近项目列表(从 localStorage 加载) ——
+recentProjectsStore.init()
 
 onBeforeUnmount(() => {
   // 卸载前立即 flush 一次自动保存(避免丢失最近 10 秒内的修改)
@@ -833,7 +905,7 @@ onBeforeUnmount(() => {
             </section>
           </aside>
 
-          <section class="canvas-workspace">
+          <section class="canvas-workspace" @drop="handleDropProject" @dragover="handleDragOver">
             <div class="workspace-context"><div><span class="context-kicker">画布</span><strong>星空湖泊演示</strong></div><div class="context-actions"><span class="context-state"><i :class="{ live: runtimeStore.isReady }"></i>{{ runtimeStore.isReady ? '已就绪' : '未初始化' }}</span><button class="context-action" @click="handleInit">初始化</button></div></div>
             <CanvasView :status="topbarStatus" :hud="canvasHud" @init="handleInit" @render="handleRender" @batch="handleBatch"><template #canvas><canvas ref="canvasRef" class="runtime-canvas" /></template></CanvasView>
             <div class="canvas-controls"><button @click="handleJumpStart">⏮</button><button class="play-control" @click="handlePlay">▶</button><button @click="handleStepForward">⏭</button><span>{{ String(currentFrame).padStart(3, '0') }} / {{ totalFrames }}</span><div class="mini-progress"><i :style="{ width: `${(currentFrame / Math.max(totalFrames, 1)) * 100}%` }"></i></div></div>
