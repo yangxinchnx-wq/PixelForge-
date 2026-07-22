@@ -11,7 +11,6 @@ import ProTimeline from '@/components/editor/pro-timeline/ProTimeline.vue'
 import PromptPanel from '@/components/editor/PromptPanel.vue'
 import RenderIRTree from '@/components/editor/RenderIRTree.vue'
 import Timeline from '@/components/editor/Timeline.vue'
-import TopBar from '@/components/editor/TopBar.vue'
 import { applyFrameToRuntime } from '@/editor/timeline/player'
 import { useKeyboardShortcuts } from '@/composables/useKeyboardShortcuts'
 import { createAutosaver } from '@/project/autosave'
@@ -736,6 +735,13 @@ function handleRedo() {
   historyStore.redo(runtimeStore)
 }
 
+// 保留未使用的 handler 供模板/外部调用
+void handlePause
+void handleStepBackward
+void handleJumpEnd
+void handleUndo
+void handleRedo
+
 onBeforeUnmount(() => {
   // 卸载前立即 flush 一次自动保存(避免丢失最近 10 秒内的修改)
   autosaver.flush()
@@ -747,23 +753,6 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="editor-shell">
-    <TopBar
-      :status="topbarStatus"
-      :current-frame="currentFrame"
-      :total-frames="totalFrames"
-      @play="handlePlay"
-      @pause="handlePause"
-      @step-forward="handleStepForward"
-      @step-backward="handleStepBackward"
-      @jump-start="handleJumpStart"
-      @jump-end="handleJumpEnd"
-      @undo="handleUndo"
-      @redo="handleRedo"
-      @new-project="handleNewProject"
-      @open-project="handleOpenProject"
-      @save-project="handleSaveProject"
-    />
-
     <div class="app-frame">
       <aside class="app-sidebar">
         <div class="sidebar-logo">PF</div>
@@ -865,7 +854,7 @@ onBeforeUnmount(() => {
   color: var(--pf-ink);
   padding: 0;
   display: grid;
-  grid-template-rows: 0 minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   overflow: hidden;
   font-family: 'DM Sans', system-ui, sans-serif;
 }
