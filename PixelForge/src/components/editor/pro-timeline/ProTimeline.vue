@@ -58,6 +58,7 @@ import ProTimelineRenderPanel from './ProTimelineRenderPanel.vue'
 import ProTimelineAudioMixer from './ProTimelineAudioMixer.vue'
 import ProTimelineEffectChain from './ProTimelineEffectChain.vue'
 import ProTimelineAssetBrowser from './ProTimelineAssetBrowser.vue'
+import ProTimelineDirectorPanel from './ProTimelineDirectorPanel.vue'
 import ProTimelineRuler from './ProTimelineRuler.vue'
 import ProTimelinePlayhead from './ProTimelinePlayhead.vue'
 import ProTimelineTrackHeader from './ProTimelineTrackHeader.vue'
@@ -820,6 +821,7 @@ const snapTime = computed(() => {
     <ProTimelineAudioMixer />
     <ProTimelineEffectChain />
     <ProTimelineAssetBrowser />
+    <ProTimelineDirectorPanel />
 
     <div class="ptl-body">
       <!-- 左上角占位(轨道头列 + 标尺行交叉处) -->
