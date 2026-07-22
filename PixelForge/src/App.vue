@@ -766,7 +766,23 @@ onBeforeUnmount(() => {
       @save-project="handleSaveProject"
     />
 
-    <div class="editor-workspace">
+    <div class="app-frame">
+      <aside class="app-sidebar">
+        <div class="sidebar-logo">PF</div>
+        <button class="sidebar-icon active" data-tip="工作区"><span>⌂</span></button>
+        <button class="sidebar-icon" data-tip="项目文件" @click="handleOpenProject"><span>□</span></button>
+        <button class="sidebar-icon" data-tip="素材库" @click="leftPanelMode = 'assets'"><span>▧</span></button>
+        <div class="sidebar-spacer"></div>
+        <button class="sidebar-icon" data-tip="节点图" @click="handleOpenGraphEditor"><span>⌘</span></button>
+        <button class="sidebar-icon" data-tip="保存项目" @click="handleSaveProject"><span>↓</span></button>
+      </aside>
+      <div class="app-content">
+        <div class="project-strip">
+          <div class="project-strip-title"><span class="project-status"></span><strong>{{ projectStore.projectName || '未命名项目' }}</strong><span class="project-dirty">{{ projectStore.dirty ? '未保存' : '已保存' }}</span></div>
+          <div class="project-strip-center"><span>编辑工作区</span><span class="strip-separator">/</span><span>{{ timelineMode === 'frame' ? '实时预览' : '专业时间轴' }}</span></div>
+          <div class="project-strip-actions"><button @click="handleNewProject">新建</button><button @click="handleOpenProject">打开</button><button class="save" @click="handleSaveProject">保存</button></div>
+        </div>
+        <div class="editor-workspace">
       <aside class="editor-left">
         <nav class="tool-rail" aria-label="工作区工具">
           <div class="rail-brand">PF</div>
