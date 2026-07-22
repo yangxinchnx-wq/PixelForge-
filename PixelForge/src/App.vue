@@ -10,7 +10,8 @@ import PromptPanel from '@/components/editor/PromptPanel.vue'
 import RenderIRTree from '@/components/editor/RenderIRTree.vue'
 import Timeline from '@/components/editor/Timeline.vue'
 import { applyFrameToRuntime } from '@/editor/timeline/player'
-import { useKeyboardShortcuts } from '@/composables/useKeyboardShortcuts'
+import { useCommandShortcuts } from '@/composables/useCommandShortcuts'
+import { commandRegistry, registerDefaultCommands } from '@/composables/commandRegistry'
 import { createAutosaver } from '@/project/autosave'
 import { loadProjectFromFile, pickProjectFile, saveProjectToFile } from '@/project/fileSystem'
 import { useProjectStore } from '@/project/projectStore'
@@ -40,6 +41,7 @@ import { parsePrompt } from '@/authoring/prompt/promptParser'
 import { parse as parseIntent } from '@/compiler/parser/ruleParser'
 import { useSettingsStore } from '@/preferences/settingsStore'
 import SettingsDialog from '@/components/editor/SettingsDialog.vue'
+import CommandPalette from '@/components/editor/CommandPalette.vue'
 
 const runtimeStore = useRuntimeStore()
 const timelineStore = useTimelineStore()
@@ -49,6 +51,7 @@ const graphStore = useGraphStore()
 const materialStore = useMaterialGraphStore()
 const settingsStore = useSettingsStore()
 const showSettings = ref(false)
+const showCommandPalette = ref(false)
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 
 const appWindow = getCurrentWindow()
@@ -56,8 +59,28 @@ async function minimizeWindow() { await appWindow.minimize() }
 async function toggleMaximizeWindow() { await appWindow.toggleMaximize() }
 async function closeWindow() { await appWindow.close() }
 
-// —— 启用全局键盘快捷键(Ctrl+Z/Y, Space, ←→, Home/End) ——
-useKeyboardShortcuts()
+// —— 全局键盘快捷键(Step 40.2:基于 CommandRegistry 统一调度) ——
+// 注册默认命令(播放控制 + 撤销/重做),对齐原 useKeyboardShortcuts.ts 行为
+registerDefaultCommands({
+  togglePlay: () => timelineStore.togglePlay(),
+  stepForward: () => timelineStore.stepForward(),
+  stepBackward: () => timelineStore.stepBackward(),
+  jumpStart: () => timelineStore.jumpStart(),
+  jumpEnd: () => timelineStore.jumpEnd(),
+  undo: () => historyStore.undo(runtimeStore),
+  redo: () => historyStore.redo(runtimeStore),
+})
+// 命令面板命令(Ctrl+K / Cmd+K)
+commandRegistry.register({
+  id: 'view.commandPalette',
+  name: '打开命令面板',
+  description: '搜索并执行任意命令',
+  category: 'view',
+  shortcut: 'mod+k',
+  activeWhenEditing: true,
+  execute: () => { showCommandPalette.value = true },
+})
+useCommandShortcuts()
 
 // —— 创建 Engine(主循环聚合层:统一驱动 Timeline + Input + GPU 渲染) ——
 // Step 30 集成:替换原 createPlayer,支持音频/摄像头/MIDI 实时输入驱动画面
@@ -845,6 +868,12 @@ onBeforeUnmount(() => {
     <SettingsDialog
       :open="showSettings"
       @close="showSettings = false"
+    />
+
+    <!-- 命令面板(Step 40.2,Ctrl+K) -->
+    <CommandPalette
+      :open="showCommandPalette"
+      @close="showCommandPalette = false"
     />
   </div>
 </template>
