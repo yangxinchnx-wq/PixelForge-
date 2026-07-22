@@ -1,13 +1,11 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 
 import AssetPanel from '@/components/editor/AssetPanel.vue'
 import CanvasView from '@/components/editor/CanvasView.vue'
 import ClarifierDialog from '@/components/editor/ClarifierDialog.vue'
 import GraphEditor from '@/components/editor/graph/GraphEditor.vue'
-import Inspector from '@/components/editor/inspector/InspectorPanel.vue'
-import ParameterTrack from '@/components/editor/timeline/ParameterTrack.vue'
-import ProTimeline from '@/components/editor/pro-timeline/ProTimeline.vue'
 import PromptPanel from '@/components/editor/PromptPanel.vue'
 import RenderIRTree from '@/components/editor/RenderIRTree.vue'
 import Timeline from '@/components/editor/Timeline.vue'
@@ -40,6 +38,8 @@ import { useGraphStore } from '@/graph/graphStore'
 import type { RenderIR } from '@/compiler/ir/renderIR'
 import { parsePrompt } from '@/authoring/prompt/promptParser'
 import { parse as parseIntent } from '@/compiler/parser/ruleParser'
+import { useSettingsStore } from '@/preferences/settingsStore'
+import SettingsDialog from '@/components/editor/SettingsDialog.vue'
 
 const runtimeStore = useRuntimeStore()
 const timelineStore = useTimelineStore()
@@ -47,7 +47,14 @@ const historyStore = useHistoryStore()
 const projectStore = useProjectStore()
 const graphStore = useGraphStore()
 const materialStore = useMaterialGraphStore()
+const settingsStore = useSettingsStore()
+const showSettings = ref(false)
 const canvasRef = ref<HTMLCanvasElement | null>(null)
+
+const appWindow = getCurrentWindow()
+async function minimizeWindow() { await appWindow.minimize() }
+async function toggleMaximizeWindow() { await appWindow.toggleMaximize() }
+async function closeWindow() { await appWindow.close() }
 
 // —— 启用全局键盘快捷键(Ctrl+Z/Y, Space, ←→, Home/End) ——
 useKeyboardShortcuts()
@@ -97,7 +104,6 @@ const graphEditorVisible = ref(false)
 // 'pro'   = 专业时间轴(bigint 微秒精度,Clip CRUD)
 type TimelineMode = 'frame' | 'pro'
 const timelineMode = ref<TimelineMode>('frame')
-
 type LeftPanelMode = 'create' | 'assets'
 const leftPanelMode = ref<LeftPanelMode>('create')
 
@@ -742,18 +748,31 @@ void handleJumpEnd
 void handleUndo
 void handleRedo
 
+// —— 初始化设置(主题持久化 + 系统监听) ——
+settingsStore.init()
+
 onBeforeUnmount(() => {
   // 卸载前立即 flush 一次自动保存(避免丢失最近 10 秒内的修改)
   autosaver.flush()
   autosaver.stop()
   engine.dispose()
   void runtimeStore.flushRepository()
+  settingsStore.dispose()
 })
 </script>
 
 <template>
   <div class="editor-shell">
     <div class="app-frame">
+      <div class="window-drag-strip" data-tauri-drag-region>
+        <span>PixelForge</span>
+        <span class="drag-hint">星空湖泊项目 · 制作工作区</span>
+        <div class="window-controls">
+          <button class="window-button" aria-label="最小化" data-tip="最小化" @click="minimizeWindow"><span class="minimize-icon"></span></button>
+          <button class="window-button" aria-label="最大化" data-tip="最大化 / 还原" @click="toggleMaximizeWindow"><span class="maximize-icon"></span></button>
+          <button class="window-button close" aria-label="关闭" data-tip="关闭" @click="closeWindow"><span class="close-icon"></span></button>
+        </div>
+      </div>
       <aside class="app-sidebar">
         <div class="sidebar-logo">PF</div>
         <button class="sidebar-icon active" data-tip="工作区"><span>⌂</span></button>
@@ -771,33 +790,37 @@ onBeforeUnmount(() => {
         </div>
         <div class="editor-workspace">
           <aside class="editor-left">
-            <nav class="tool-rail" aria-label="工作区工具">
+            <nav class="tool-rail" aria-label="制作工具">
               <div class="rail-brand">PF</div>
-              <button class="rail-tool active"><span class="rail-icon">✦</span><span>输入</span></button>
-              <button class="rail-tool" @click="leftPanelMode = 'assets'"><span class="rail-icon">▧</span><span>场景</span></button>
+              <button class="rail-tool active" @click="leftPanelMode = 'create'"><span class="rail-icon">✦</span><span>输入</span></button>
+              <button class="rail-tool" @click="leftPanelMode = 'assets'"><span class="rail-icon">▧</span><span>素材</span></button>
               <button class="rail-tool" @click="handleOpenGraphEditor"><span class="rail-icon">⌘</span><span>节点</span></button>
               <div class="rail-spacer"></div>
-              <button class="rail-tool" @click="handleSaveProject"><span class="rail-icon">⚙</span><span>设置</span></button>
+              <button class="rail-tool" @click="showSettings = true"><span class="rail-icon">⚙</span><span>设置</span></button>
             </nav>
             <section class="tool-drawer">
-              <div class="drawer-head"><div><span class="context-kicker">创作流程</span><strong>{{ leftPanelMode === 'create' ? '输入你的画面' : '项目素材' }}</strong></div><span class="drawer-count">{{ leftPanelMode === 'create' ? '1 / 4' : 'LIB' }}</span></div>
+              <div class="drawer-head"><div><span class="context-kicker">Creation Workspace</span><strong>{{ leftPanelMode === 'create' ? '描述你的画面' : '项目素材' }}</strong></div><span class="drawer-count">{{ leftPanelMode === 'create' ? '01 / 04' : 'LIB' }}</span></div>
               <PromptPanel v-if="leftPanelMode === 'create'" :prompt="prompt" :llm-results="llmResults" :presets="presets" :parse-status="parseStatus" :parse-message="parseMessage" :quick-parse-status="quickParseStatus" :quick-parse-message="quickParseMessage" :quick-parse-source="quickParseSource" :quick-parse-confidence="quickParseConfidence" @update:prompt="prompt = $event" @parse="handleParse" @quick-parse="handleQuickParse" @clarify="handleClarify" @open-graph="handleOpenGraphEditor" />
               <AssetPanel v-else />
+              <div v-if="leftPanelMode === 'create'" class="creation-sections">
+                <section><h3>2. 风格与元素</h3><div class="creation-tags"><button>✦ 星空</button><button>◎ 银河</button><button>⌂ 山脉</button><button>◌ 湖泊</button></div></section>
+                <section><h3>3. 参数调节</h3><label>星星密度<input type="range" min="0" max="1" step="0.01" value="0.45" /></label><label>亮度<input type="range" min="0" max="1" step="0.01" value="0.6" /></label><label>色调<input type="range" min="0" max="360" value="270" /></label></section>
+                <section><h3>4. 输出设置</h3><div class="output-row"><span>分辨率</span><b>1920 × 1080</b></div><div class="output-row"><span>帧率</span><b>30 fps</b></div></section>
+              </div>
             </section>
           </aside>
 
           <section class="canvas-workspace">
-            <div class="workspace-context"><div><span class="context-kicker">画布</span><strong>星空湖泊 · 场景预览</strong></div><div class="context-actions"><span class="context-state"><i :class="{ live: runtimeStore.isReady }"></i>{{ runtimeStore.isReady ? '已就绪' : '未初始化' }}</span><button class="context-action" @click="handleInit">初始化</button></div></div>
+            <div class="workspace-context"><div><span class="context-kicker">画布</span><strong>星空湖泊演示</strong></div><div class="context-actions"><span class="context-state"><i :class="{ live: runtimeStore.isReady }"></i>{{ runtimeStore.isReady ? '已就绪' : '未初始化' }}</span><button class="context-action" @click="handleInit">初始化</button></div></div>
             <CanvasView :status="topbarStatus" :hud="canvasHud" @init="handleInit" @render="handleRender" @batch="handleBatch"><template #canvas><canvas ref="canvasRef" class="runtime-canvas" /></template></CanvasView>
-            <div class="canvas-controls"><button @click="handleJumpStart">⏮</button><button @click="handlePlay">▶</button><button @click="handleStepForward">⏭</button><span>{{ String(currentFrame).padStart(3, '0') }} / {{ totalFrames }}</span><div class="mini-progress"><i :style="{ width: `${(currentFrame / Math.max(totalFrames, 1)) * 100}%` }"></i></div></div>
+            <div class="canvas-controls"><button @click="handleJumpStart">⏮</button><button class="play-control" @click="handlePlay">▶</button><button @click="handleStepForward">⏭</button><span>{{ String(currentFrame).padStart(3, '0') }} / {{ totalFrames }}</span><div class="mini-progress"><i :style="{ width: `${(currentFrame / Math.max(totalFrames, 1)) * 100}%` }"></i></div></div>
           </section>
 
-          <section class="ir-workspace"><div class="panel-title-row"><strong>IR 预览</strong><button>×</button></div><RenderIRTree :tree="irTree" /></section>
-          <section class="inspect-workspace"><div class="panel-title-row"><strong>编辑视图</strong><button>×</button></div><Inspector /></section>
-
-          <section class="filmstrip-workspace"><div class="panel-title-row"><strong>帧列表 <small>({{ totalFrames }} 帧)</small></strong><span class="filmstrip-hint">滚动浏览并点击跳转</span></div><Timeline :frames="timelineFrames" @select="handleSelectFrame" @seek="handleTimelineSeek" /></section>
-          <section class="tracks-workspace"><div class="panel-title-row"><strong>时间轴</strong><div class="timeline-mode-switch"><button class="mode-btn" :class="{ active: timelineMode === 'frame' }" @click="setTimelineMode('frame')">预览</button><button class="mode-btn" :class="{ active: timelineMode === 'pro' }" @click="setTimelineMode('pro')">专业</button></div></div><ProTimeline v-if="timelineMode === 'pro'" /><ParameterTrack v-else /></section>
-          <footer class="metrics-workspace"><span class="metrics-state"><i></i>就绪</span><span>CPU <b>{{ canvasHud.gpuMs.toFixed(1) }} ms</b></span><span>GPU <b>{{ canvasHud.gpuMs.toFixed(1) }} ms</b></span><span>帧率 <b>{{ canvasHud.fps.toFixed(1) }}</b></span><span>显存 <b>{{ canvasHud.memMb.toFixed(1) }} MB</b></span><span>图层 <b>{{ runtimeStore.currentIr.layers.length }}</b></span><em>PixelForge v0.1.0</em></footer>
+          <section class="ir-workspace"><div class="panel-title-row"><strong>IR 预览</strong><span>Render IR</span></div><RenderIRTree :tree="irTree" /></section>
+          <section class="inspect-workspace" style="display:none"><Inspector /></section>
+          <section class="filmstrip-workspace"><div class="panel-title-row"><strong>帧列表 <small>({{ totalFrames }} 帧)</small></strong><span class="filmstrip-hint">选择帧查看历史渲染</span></div><Timeline :frames="timelineFrames" @select="handleSelectFrame" @seek="handleTimelineSeek" /></section>
+          <section class="tracks-workspace"><div class="panel-title-row"><strong>时间轴</strong><span class="timeline-live">{{ timelineStore.fps }} FPS · {{ totalFrames }} 帧</span></div><ParameterTrack /></section>
+          <footer class="metrics-workspace"><span class="metrics-state"><i></i>就绪</span><span>GPU <b>{{ canvasHud.gpuMs.toFixed(1) }} ms</b></span><span>CPU <b>{{ canvasHud.gpuMs.toFixed(1) }} ms</b></span><span>FPS <b>{{ canvasHud.fps.toFixed(1) }}</b></span><span>Memory <b>{{ canvasHud.memMb.toFixed(1) }} MB</b></span><span>Layers <b>{{ runtimeStore.currentIr.layers.length }}</b></span><em>PixelForge v0.1.0</em></footer>
         </div>
     </div>
     </div>
@@ -816,6 +839,12 @@ onBeforeUnmount(() => {
     <GraphEditor
       v-model:visible="graphEditorVisible"
       @apply-i-r="handleApplyIR"
+    />
+
+    <!-- 设置面板(Step 40.1) -->
+    <SettingsDialog
+      :open="showSettings"
+      @close="showSettings = false"
     />
   </div>
 </template>
@@ -849,25 +878,42 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .editor-shell {
+  position: relative;
+  width: 100%;
   height: 100vh;
+  min-height: 600px;
   background: var(--pf-paper);
   color: var(--pf-ink);
-  padding: 0;
-  display: grid;
-  grid-template-rows: minmax(0, 1fr);
   overflow: hidden;
   font-family: 'DM Sans', system-ui, sans-serif;
 }
 
 .editor-shell > :deep(.topbar) { display: none; }
-.app-frame { display: grid; grid-template-columns: 62px minmax(0, 1fr); min-height: 0; overflow: hidden; }
+.app-frame { position: absolute; inset: 0; display: grid; grid-template-columns: 62px minmax(0, 1fr); min-width: 0; min-height: 0; overflow: hidden; }
+.window-drag-strip { position: absolute; z-index: 20; top: 0; right: 0; left: 0; height: 34px; display: flex; align-items: center; padding-left: 76px; color: rgba(245,245,247,.58); font-size: 11px; pointer-events: auto; -webkit-app-region: drag; background: rgba(5,7,13,.18); }
+.window-drag-strip > span { pointer-events: none; }
+.window-drag-strip > span:first-child { color: rgba(245,245,247,.84); font-weight: 600; }
+.drag-hint { margin-left: 12px; color: rgba(245,245,247,.34) !important; }
+.window-controls { display: flex; align-items: center; height: 34px; margin-left: auto; -webkit-app-region: no-drag; }
+.window-button { width: 46px; height: 34px; display: grid; place-items: center; color: rgba(245,245,247,.64); cursor: pointer; transition: background .16s ease, color .16s ease; }
+.window-button:hover { color: #fff; background: rgba(255,255,255,.1); }
+.window-button.close:hover { background: #d94e5d; color: #fff; }
+.window-button, .window-button:hover, .window-button:focus, .window-button:active { outline: 0 !important; box-shadow: none !important; }
+.minimize-icon, .maximize-icon, .close-icon { position: relative; display: block; width: 12px; height: 12px; }
+.minimize-icon::before { content: ''; position: absolute; left: 1px; right: 1px; top: 7px; height: 1px; background: currentColor; }
+.maximize-icon { position: relative; width: 13px; height: 13px; border: 0; border-radius: 0; }
+.maximize-icon::before, .maximize-icon::after { content: ''; position: absolute; width: 8px; height: 8px; border: 1px solid currentColor; border-radius: 1px; }
+.maximize-icon::before { top: 1px; left: 1px; }
+.maximize-icon::after { right: 1px; bottom: 1px; background: transparent; }
+.close-icon::before, .close-icon::after { content: ''; position: absolute; top: 5px; left: 0; width: 13px; height: 1px; background: currentColor; transform: rotate(45deg); }
+.close-icon::after { transform: rotate(-45deg); }
 .app-sidebar { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 14px 8px; background: #0b0d0f; border-right: 1px solid var(--pf-line); }
 .sidebar-logo { width: 34px; height: 34px; display: grid; place-items: center; margin-bottom: 10px; background: var(--pf-accent); color: #17120f; border-radius: 9px; font: 700 12px 'JetBrains Mono', monospace; }
 .sidebar-icon { width: 42px; height: 42px; display: grid; place-items: center; color: var(--pf-ink-muted); border-radius: 9px; cursor: pointer; }
 .sidebar-icon span { font-size: 20px; line-height: 1; }
 .sidebar-icon:hover, .sidebar-icon.active { color: var(--pf-ink); background: var(--pf-accent-soft); }
 .sidebar-spacer { flex: 1; }
-.app-content { min-width: 0; min-height: 0; display: grid; grid-template-rows: 48px minmax(0, 1fr); overflow: hidden; }
+.app-content { min-width: 0; min-height: 0; display: grid; grid-template-rows: 48px minmax(0, 1fr); overflow: hidden; padding-top: 34px; }
 .project-strip { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 16px; padding: 0 18px; background: #151719; border-bottom: 1px solid var(--pf-line); }
 .project-strip-title, .project-strip-center, .project-strip-actions { display: flex; align-items: center; gap: 9px; }
 .project-strip-title { min-width: 0; }
@@ -883,25 +929,39 @@ onBeforeUnmount(() => {
 
 .editor-workspace {
   display: grid;
-  grid-template-columns: 300px minmax(380px, 1.45fr) minmax(220px, .85fr) minmax(240px, .9fr);
-  grid-template-rows: minmax(390px, 1fr) 86px 245px 46px;
+  grid-template-columns: 300px minmax(0, 1fr) 300px;
+  grid-template-rows: minmax(300px, 340px) 90px minmax(0, 1fr) 48px;
   grid-template-areas:
-    'left canvas ir inspect'
-    'left film film film'
-    'left tracks tracks tracks'
-    'left metrics metrics metrics';
+    'left canvas ir'
+    'left film ir'
+    'left tracks ir'
+    'metrics metrics metrics';
   gap: 8px;
   min-height: 0;
   padding: 8px;
   background: #080a0d;
 }
 .editor-left { grid-area: left; display: grid; grid-template-columns: 48px minmax(0, 1fr); min-height: 0; padding: 0; overflow: hidden; background: #101318; border: 1px solid var(--pf-line); border-radius: 8px; }
-.canvas-workspace { grid-area: canvas; display: grid; grid-template-rows: 42px minmax(0, 1fr) 38px; min-width: 0; min-height: 0; padding: 10px; background: #11151b; border: 1px solid var(--pf-line); border-radius: 8px; }
+.canvas-workspace { grid-area: canvas; display: grid; grid-template-rows: 38px minmax(0, 1fr) 38px; min-width: 0; min-height: 0; padding: 10px; background: #11151b; border: 1px solid var(--pf-line); border-radius: 8px; }
+.canvas-controls { display: flex; align-items: center; gap: 12px; color: var(--pf-ink-muted); font: 11px 'JetBrains Mono', monospace; }
+.canvas-controls button { width: 26px; height: 26px; color: var(--pf-ink-soft); border: 1px solid var(--pf-line); border-radius: 6px; cursor: pointer; }
+.canvas-controls button:hover, .canvas-controls .play-control { color: #fff; background: var(--pf-accent); border-color: var(--pf-accent); }
+.mini-progress { flex: 1; height: 3px; background: var(--pf-line-strong); border-radius: 99px; overflow: hidden; }
+.mini-progress i { display: block; height: 100%; background: var(--pf-accent); }
+.creation-sections { display: grid; gap: 18px; padding: 4px; overflow: auto; }
+.creation-sections h3 { margin-bottom: 10px; color: var(--pf-ink-soft); font-size: 12px; font-weight: 600; }
+.creation-tags { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+.creation-tags button { height: 31px; color: var(--pf-ink-soft); background: var(--pf-surface); border: 1px solid var(--pf-line); border-radius: 6px; font-size: 11px; cursor: pointer; }
+.creation-tags button:hover { color: var(--pf-accent); border-color: var(--pf-accent); }
+.creation-sections label { display: grid; grid-template-columns: 65px minmax(0, 1fr); align-items: center; gap: 8px; margin: 10px 0; color: var(--pf-ink-muted); font-size: 11px; }
+.creation-sections input[type='range'] { width: 100%; accent-color: var(--pf-accent); }
+.output-row { display: flex; justify-content: space-between; padding: 9px 0; color: var(--pf-ink-muted); font-size: 11px; border-bottom: 1px solid var(--pf-line); }
+.output-row b { color: var(--pf-ink-soft); font-weight: 500; }
 .ir-workspace { grid-area: ir; min-width: 0; min-height: 0; padding: 12px; overflow: auto; background: #101318; border: 1px solid var(--pf-line); border-radius: 8px; }
-.inspect-workspace { grid-area: inspect; min-width: 0; min-height: 0; padding: 12px; overflow: auto; background: #101318; border: 1px solid var(--pf-line); border-radius: 8px; }
+.inspect-workspace { display: none !important; }
 .filmstrip-workspace { grid-area: film; min-width: 0; min-height: 0; padding: 8px 12px; overflow: hidden; background: #101318; border: 1px solid var(--pf-line); border-radius: 8px; }
 .tracks-workspace { grid-area: tracks; min-width: 0; min-height: 0; padding: 8px 12px; overflow: hidden; background: #101318; border: 1px solid var(--pf-line); border-radius: 8px; }
-.metrics-workspace { grid-area: metrics; display: flex; align-items: center; gap: clamp(12px, 3vw, 48px); padding: 0 18px; color: var(--pf-ink-muted); background: #101318; border: 1px solid var(--pf-line); border-radius: 8px; font-size: 11px; }
+.metrics-workspace { grid-area: metrics; display: flex; align-items: center; gap: clamp(12px, 3vw, 48px); min-height: 0; padding: 0 18px; color: var(--pf-ink-muted); background: #101318; border: 1px solid var(--pf-line); border-radius: 8px; font-size: 11px; }
 .metrics-workspace b { margin-left: 5px; color: var(--pf-ink); font: 500 12px 'JetBrains Mono', monospace; }
 .metrics-workspace em { margin-left: auto; color: var(--pf-ink-faint); font-style: normal; }
 .metrics-state { display: inline-flex; align-items: center; gap: 7px; color: var(--pf-success); }
@@ -909,7 +969,7 @@ onBeforeUnmount(() => {
 .panel-title-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 24px; color: var(--pf-ink-soft); font-size: 12px; }
 .panel-title-row small, .filmstrip-hint { color: var(--pf-ink-muted); font-size: 10px; font-weight: 400; }
 .panel-title-row button { color: var(--pf-ink-muted); cursor: pointer; }
-.panel-title-row button:hover { color: var(--pf-ink); }
+.timeline-live { color: var(--pf-ink-muted); font: 10px 'JetBrains Mono', monospace; }
 .tracks-workspace > .timeline-mode-switch { float: right; margin-top: -26px; }
 .tracks-workspace > :deep(.pro-timeline), .tracks-workspace > :deep(.parameter-track) { height: calc(100% - 26px); }
 .tool-rail { border-right: 1px solid var(--pf-line); }
@@ -976,11 +1036,12 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 1280px) {
-  .editor-workspace { grid-template-columns: 280px minmax(360px, 1fr) minmax(220px, .8fr); grid-template-areas: 'left canvas ir' 'left film film' 'left tracks tracks' 'left metrics metrics'; }
-  .inspect-workspace { display: none; }
+  .editor-workspace { grid-template-columns: 280px minmax(0, 1fr); grid-template-rows: minmax(300px, 340px) 90px minmax(0, 1fr) 48px; grid-template-areas: 'left canvas' 'left film' 'left tracks' 'metrics metrics'; }
+  .ir-workspace { display: none; }
+  .inspect-workspace { display: none !important; }
 }
 @media (max-width: 900px) {
-  .editor-workspace { grid-template-columns: 1fr; grid-template-rows: auto 420px 90px 240px 46px; grid-template-areas: 'left' 'canvas' 'film' 'tracks' 'metrics'; overflow: auto; }
+  .editor-workspace { grid-template-columns: 1fr; grid-template-rows: auto 340px 90px 240px 48px; grid-template-areas: 'left' 'canvas' 'film' 'tracks' 'metrics'; overflow: auto; }
   .editor-left { min-height: 520px; }
   .ir-workspace { display: none; }
 }
