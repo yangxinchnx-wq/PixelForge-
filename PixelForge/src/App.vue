@@ -20,6 +20,7 @@ import { extractDroppedFiles } from '@/project/projectExport'
 import { deserializeProject } from '@/project/serializer'
 import { useProjectStore } from '@/project/projectStore'
 import type { PixelForgeProject } from '@/project/types'
+import { useErrorStore } from '@/stores/errorStore'
 import { useHistoryStore } from '@/stores/history'
 import { useRuntimeStore } from '@/stores/runtime'
 import { useTimelineStore } from '@/stores/timeline'
@@ -47,6 +48,7 @@ import { parse as parseIntent } from '@/compiler/parser/ruleParser'
 import { useSettingsStore } from '@/preferences/settingsStore'
 import SettingsDialog from '@/components/editor/SettingsDialog.vue'
 import CommandPalette from '@/components/editor/CommandPalette.vue'
+import ErrorToast from '@/components/editor/ErrorToast.vue'
 
 const runtimeStore = useRuntimeStore()
 const timelineStore = useTimelineStore()
@@ -56,6 +58,7 @@ const graphStore = useGraphStore()
 const materialStore = useMaterialGraphStore()
 const settingsStore = useSettingsStore()
 const recentProjectsStore = useRecentProjectsStore()
+const errorStore = useErrorStore()
 const showSettings = ref(false)
 const showCommandPalette = ref(false)
 const canvasRef = ref<HTMLCanvasElement | null>(null)
@@ -593,7 +596,7 @@ async function handleOpenProject() {
     recordRecentProject(project)
   } catch (e) {
     console.error('[project] 打开失败:', e)
-    window.alert(`打开项目失败: ${(e as Error).message}`)
+    errorStore.push(e, '请检查项目文件是否损坏')
   }
 }
 
@@ -636,12 +639,12 @@ async function handleDropProject(event: DragEvent): Promise<void> {
     const validation = validateProject(JSON.parse(text))
     if (!validation.valid) {
       const msg = formatValidationResult(validation)
-      window.alert(`项目文件校验失败:\n${msg}`)
+      errorStore.pushMessage(`项目文件校验失败:\n${msg}`, 'error', '请检查文件格式是否正确')
       return
     }
     if (validation.warningCount > 0) {
       const msg = formatValidationResult(validation)
-      console.warn('[project] 校验警告:', msg)
+      errorStore.pushMessage(msg, 'warning')
     }
     const project = deserializeProject(text)
     projectStore.openProject(project, runtimeStore, timelineStore, historyStore)
@@ -650,7 +653,7 @@ async function handleDropProject(event: DragEvent): Promise<void> {
     recordRecentProject(project)
   } catch (e) {
     console.error('[project] 拖拽导入失败:', e)
-    window.alert(`拖拽导入失败: ${(e as Error).message}`)
+    errorStore.push(e, '拖拽导入失败,请检查文件格式')
   }
 }
 
@@ -947,6 +950,9 @@ onBeforeUnmount(() => {
       :open="showCommandPalette"
       @close="showCommandPalette = false"
     />
+
+    <!-- 全局错误通知(Step 40.4) -->
+    <ErrorToast />
   </div>
 </template>
 
