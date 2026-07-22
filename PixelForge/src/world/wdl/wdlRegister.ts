@@ -17,6 +17,7 @@ import {
 } from './wdlMonarch'
 import { wdlLanguageConfiguration } from './wdlLanguageConfig'
 import { WDL_THEME_ID, wdlThemeDefinition } from './wdlTheme'
+import { registerWDLCompletion } from './wdlCompletion'
 
 /** 标记是否已注册(防止重复注册) */
 let registered = false
@@ -46,6 +47,9 @@ export function registerWDLLanguage(monaco: typeof Monaco): void {
 
   // 4. 定义主题
   monaco.editor.defineTheme(WDL_THEME_ID, wdlThemeDefinition)
+
+  // 5. 注册自动补全(Step 38.2)
+  registerWDLCompletion(monaco)
 
   registered = true
 }
