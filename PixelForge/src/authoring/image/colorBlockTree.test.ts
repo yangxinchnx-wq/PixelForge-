@@ -30,7 +30,6 @@ import {
   keepTopSignificant,
   describeBlockTree,
   extractBlocksAtDepth,
-  type ColorBlockNode,
 } from './colorBlockTree'
 import type { RawBlockNode } from './adaptiveSplit'
 

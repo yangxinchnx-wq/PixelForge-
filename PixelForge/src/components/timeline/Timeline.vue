@@ -17,10 +17,9 @@
 import { onMounted, onUnmounted, ref } from 'vue'
 import { useTimelineStore } from '@/timeline/store/timelineStore'
 import { TimelineCanvas, type Viewport } from './canvas/TimelineCanvas'
-import { TimelineRenderer, TRACK_HEIGHT, TRACK_HEADER_WIDTH, RULER_HEIGHT, startRenderLoop } from './canvas/TimelineRenderer'
+import { TimelineRenderer, TRACK_HEADER_WIDTH, startRenderLoop } from './canvas/TimelineRenderer'
 import TimeRuler from './ruler/TimeRuler.vue'
 import TrackHeader from './track/TrackHeader.vue'
-import TrackLane from './track/TrackLane.vue'
 
 const store = useTimelineStore()
 

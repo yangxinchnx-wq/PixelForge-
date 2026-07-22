@@ -225,7 +225,7 @@ function createRuntimeStore(frameRepository: FrameRepository) {
         const runtimeResult = await initRuntime({ canvas })
         runtime.value = runtimeResult
         // 绑定 GPU device 到 textureCache, 使后续 register 能上传纹理到 GPU
-        textureCache.bindDevice(runtimeResult.gpu.device)
+        textureCache.bindDevice(runtimeResult.gpu.device as unknown as GPUDevice)
         await renderCurrentIR(runtimeResult)
         status.value = 'ready'
       } catch (caughtError) {

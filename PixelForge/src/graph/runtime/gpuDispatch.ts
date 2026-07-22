@@ -20,7 +20,6 @@ import effectShaderSource from '@/shaders/graph_effect.wgsl?raw'
 import compositeShaderSource from '@/shaders/graph_composite.wgsl?raw'
 
 import type { GraphNode } from '../types'
-import type { TextureHandle } from './evaluator'
 
 // ============================================================================
 // GPUBufferUsage 在非浏览器环境中可能未定义, 使用数值 fallback

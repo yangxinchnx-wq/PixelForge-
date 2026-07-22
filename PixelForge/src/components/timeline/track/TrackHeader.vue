@@ -10,7 +10,6 @@
 -->
 <script setup lang="ts">
 import type { Track } from '@/timeline/core/track'
-import { TrackType } from '@/timeline/core/track'
 
 const props = defineProps<{
   track: Track
