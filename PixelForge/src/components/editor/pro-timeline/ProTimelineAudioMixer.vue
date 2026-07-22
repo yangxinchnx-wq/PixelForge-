@@ -13,7 +13,7 @@
  * - cubic-bezier(0.22, 1, 0.36, 1) 180ms 过渡
  * - 中文文字标签,JetBrains Mono 用于数字
  */
-import { ref, computed } from 'vue'
+import { ref, computed, watch, onBeforeUnmount } from 'vue'
 
 import { useProTimelineStore } from '@/editor/timeline/store/timelineStore'
 import { useAudioMixerStore } from '@/editor/audio/audioMixerStore'
@@ -102,6 +102,37 @@ function getEffectCount(trackId: string): number {
 async function initAudio() {
   await mixerStore.initAudioContext()
 }
+
+// —— 电平表 RAF 驱动 ——
+
+let rafId: number | null = null
+
+function tickLevels() {
+  mixerStore.updateLevels()
+  rafId = requestAnimationFrame(tickLevels)
+}
+
+function startLevels() {
+  if (rafId !== null) return
+  rafId = requestAnimationFrame(tickLevels)
+}
+
+function stopLevels() {
+  if (rafId !== null) {
+    cancelAnimationFrame(rafId)
+    rafId = null
+  }
+}
+
+// 面板可见时启动电平表,不可见时停止
+watch(visible, (v) => {
+  if (v) startLevels()
+  else stopLevels()
+})
+
+onBeforeUnmount(() => {
+  stopLevels()
+})
 
 /** 声像百分比转文字 */
 function panToText(pan: number): string {

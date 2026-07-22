@@ -256,14 +256,21 @@ describe('AE: 效果链操作', () => {
     expect(chain[2].id).toBe(fx2.id)
   })
 
-  it('AE11: moveEffect 边界(已在顶部)', () => {
+  it('AE11: moveEffect 上移边界(已在顶部)', () => {
     const fx1 = createEqEffect()
     const fx2 = createCompressorEffect()
     const chain = moveEffect([fx1, fx2], fx1.id, 'up')
     expect(chain[0].id).toBe(fx1.id)
   })
 
-  it('AE12: moveEffect 不存在 ID 返回原链', () => {
+  it('AE12: moveEffect 下移边界(已在底部)', () => {
+    const fx1 = createEqEffect()
+    const fx2 = createCompressorEffect()
+    const chain = moveEffect([fx1, fx2], fx2.id, 'down')
+    expect(chain[1].id).toBe(fx2.id)
+  })
+
+  it('AE13: moveEffect 不存在 ID 返回原链', () => {
     const fx1 = createEqEffect()
     const chain = moveEffect([fx1], 'nonexistent', 'up')
     expect(chain).toBe(chain)

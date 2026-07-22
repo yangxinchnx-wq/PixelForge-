@@ -32,9 +32,6 @@ export type VolumeValue = number // [0, ∞)
 /** 效果类型 */
 export type AudioEffectType = 'eq' | 'compressor' | 'reverb' | 'gain'
 
-/** EQ 频段 */
-export type EqBand = 'low' | 'mid' | 'high'
-
 /** 音频效果节点(效果链的一个环节) */
 export interface AudioEffect {
   /** 唯一 ID */

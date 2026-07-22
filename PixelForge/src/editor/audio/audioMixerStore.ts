@@ -96,10 +96,6 @@ export const useAudioMixerStore = defineStore('audioMixer', () => {
   const analyser = shallowRef<AnalyserNodeLike | null>(null)
   const levelData = ref({ left: 0, right: 0 })
 
-  // 轨道增益节点缓存(trackId → GainNode)
-  const trackGainNodes = new Map<string, GainNodeLike>()
-  const trackPannerNodes = new Map<string, StereoPannerNodeLike>()
-
   // —— 计算属性 ——
 
   /** 是否存在 solo 轨道 */
@@ -125,7 +121,6 @@ export const useAudioMixerStore = defineStore('audioMixer', () => {
   /** 设置轨道声像 */
   function setTrackPan(trackId: string, pan: PanValue): void {
     mixConfig.value = setTrackPanInConfig(mixConfig.value, trackId, pan)
-    updateAudioNodePan(trackId, pan)
   }
 
   /** 设置轨道独奏 */
@@ -136,7 +131,6 @@ export const useAudioMixerStore = defineStore('audioMixer', () => {
   /** 设置主音量 */
   function setMasterVolume(volume: VolumeValue): void {
     mixConfig.value = setMasterVolumeInConfig(mixConfig.value, volume)
-    updateMasterGain()
   }
 
   /** 设置主声像 */
@@ -209,8 +203,6 @@ export const useAudioMixerStore = defineStore('audioMixer', () => {
   /** 重置为默认配置 */
   function reset(): void {
     mixConfig.value = createDefaultMixConfig()
-    trackGainNodes.clear()
-    trackPannerNodes.clear()
   }
 
   // —— Web Audio API 集成 ——
@@ -246,26 +238,10 @@ export const useAudioMixerStore = defineStore('audioMixer', () => {
       analyser.value.disconnect()
       analyser.value = null
     }
-    trackGainNodes.clear()
-    trackPannerNodes.clear()
     if (audioContext.value) {
       await audioContext.value.close()
       audioContext.value = null
     }
-  }
-
-  /** 更新轨道声像节点 */
-  function updateAudioNodePan(trackId: string, pan: PanValue): void {
-    const panner = trackPannerNodes.get(trackId)
-    if (panner) {
-      panner.pan.value = pan
-    }
-  }
-
-  /** 更新主增益节点 */
-  function updateMasterGain(): void {
-    // 主增益由 AudioContext.destination 前的 GainNode 控制
-    // 实际实现需要维护 masterGainNode,此处简化
   }
 
   /** 读取电平表数据(每帧调用) */
