@@ -214,8 +214,8 @@ function isAddedAsLayer(assetId: string): boolean {
 .asset-panel {
   background: var(--pf-surface);
   border: 1px solid var(--pf-line);
-  border-radius: var(--pf-r-lg);
-  padding: 10px;
+  border-radius: 0;
+  padding: 10px 4px;
   display: flex;
   flex-direction: column;
   gap: 10px;

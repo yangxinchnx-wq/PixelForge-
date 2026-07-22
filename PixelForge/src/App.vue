@@ -99,6 +99,11 @@ const graphEditorVisible = ref(false)
 type TimelineMode = 'frame' | 'pro'
 const timelineMode = ref<TimelineMode>('frame')
 
+type LeftPanelMode = 'create' | 'assets'
+type RightPanelMode = 'inspect' | 'structure'
+const leftPanelMode = ref<LeftPanelMode>('create')
+const rightPanelMode = ref<RightPanelMode>('inspect')
+
 function setTimelineMode(mode: TimelineMode) {
   timelineMode.value = mode
 }
@@ -763,26 +768,58 @@ onBeforeUnmount(() => {
 
     <div class="editor-workspace">
       <aside class="editor-left">
-        <PromptPanel
-          :prompt="prompt"
-          :llm-results="llmResults"
-          :presets="presets"
-          :parse-status="parseStatus"
-          :parse-message="parseMessage"
-          :quick-parse-status="quickParseStatus"
-          :quick-parse-message="quickParseMessage"
-          :quick-parse-source="quickParseSource"
-          :quick-parse-confidence="quickParseConfidence"
-          @update:prompt="prompt = $event"
-          @parse="handleParse"
-          @quick-parse="handleQuickParse"
-          @clarify="handleClarify"
-          @open-graph="handleOpenGraphEditor"
-        />
-        <AssetPanel />
+        <nav class="tool-rail" aria-label="工作区工具">
+          <div class="rail-brand">PF</div>
+          <button class="rail-tool" :class="{ active: leftPanelMode === 'create' }" data-tip="创作" @click="leftPanelMode = leftPanelMode === 'create' ? 'create' : 'create'">
+            <span class="rail-icon">✦</span><span>创作</span>
+          </button>
+          <button class="rail-tool" :class="{ active: leftPanelMode === 'assets' }" data-tip="素材" @click="leftPanelMode = 'assets'">
+            <span class="rail-icon">▧</span><span>素材</span>
+          </button>
+          <div class="rail-spacer"></div>
+          <button class="rail-tool" data-tip="节点图" @click="handleOpenGraphEditor"><span class="rail-icon">⌘</span><span>节点</span></button>
+          <button class="rail-tool" data-tip="项目设置" @click="handleSaveProject"><span class="rail-icon">⚙</span><span>设置</span></button>
+        </nav>
+        <section class="tool-drawer" :class="{ open: leftPanelMode }">
+          <div class="drawer-head">
+            <div>
+              <span class="context-kicker">工作台</span>
+              <strong>{{ leftPanelMode === 'create' ? '创作指令' : '项目素材' }}</strong>
+            </div>
+            <span class="drawer-count">{{ leftPanelMode === 'create' ? 'AI' : 'LIB' }}</span>
+          </div>
+          <PromptPanel v-if="leftPanelMode === 'create'"
+            :prompt="prompt"
+            :llm-results="llmResults"
+            :presets="presets"
+            :parse-status="parseStatus"
+            :parse-message="parseMessage"
+            :quick-parse-status="quickParseStatus"
+            :quick-parse-message="quickParseMessage"
+            :quick-parse-source="quickParseSource"
+            :quick-parse-confidence="quickParseConfidence"
+            @update:prompt="prompt = $event"
+            @parse="handleParse"
+            @quick-parse="handleQuickParse"
+            @clarify="handleClarify"
+            @open-graph="handleOpenGraphEditor"
+          />
+          <AssetPanel v-else />
+        </section>
       </aside>
 
       <main class="editor-center">
+        <div class="canvas-workspace">
+          <div class="workspace-context">
+          <div>
+            <span class="context-kicker">工作区 / 预览</span>
+            <h1>把想法变成可编辑的画面</h1>
+          </div>
+          <div class="context-actions">
+            <span class="context-state"><i :class="{ live: runtimeStore.isReady }"></i>{{ runtimeStore.isReady ? '实时预览' : '等待初始化' }}</span>
+            <button class="context-action" @click="handleInit">初始化画布</button>
+          </div>
+        </div>
         <CanvasView
           :status="topbarStatus"
           :hud="canvasHud"
@@ -790,44 +827,40 @@ onBeforeUnmount(() => {
           @render="handleRender"
           @batch="handleBatch"
         >
-          <template #canvas>
-            <canvas ref="canvasRef" class="runtime-canvas" />
-          </template>
+          <template #canvas><canvas ref="canvasRef" class="runtime-canvas" /></template>
         </CanvasView>
-
-        <!-- 时间轴模式切换(Step 31.2) -->
-        <div class="timeline-mode-switch">
-          <button
-            class="mode-btn"
-            :class="{ active: timelineMode === 'frame' }"
-            data-tip="帧级时间轴(AI 生成预览)"
-            @click="setTimelineMode('frame')"
-          >帧级时间轴</button>
-          <button
-            class="mode-btn"
-            :class="{ active: timelineMode === 'pro' }"
-            data-tip="专业时间轴(Clip CRUD,bigint 微秒精度)"
-            @click="setTimelineMode('pro')"
-          >专业时间轴</button>
         </div>
-
-        <Timeline
-          v-if="timelineMode === 'frame'"
-          :frames="timelineFrames"
-          @select="handleSelectFrame"
-          @seek="handleTimelineSeek"
-        />
-
-        <ProTimeline
-          v-else
-        />
-
+        <div class="timeline-dock-head">
+          <div>
+            <span class="context-kicker">时间控制</span>
+            <strong>{{ timelineMode === 'frame' ? '预览时间轴' : '专业剪辑时间轴' }}</strong>
+          </div>
+          <div class="timeline-mode-switch">
+            <button class="mode-btn" :class="{ active: timelineMode === 'frame' }" @click="setTimelineMode('frame')">预览</button>
+            <button class="mode-btn" :class="{ active: timelineMode === 'pro' }" @click="setTimelineMode('pro')">专业</button>
+          </div>
+        </div>
+        <Timeline v-if="timelineMode === 'frame'" :frames="timelineFrames" @select="handleSelectFrame" @seek="handleTimelineSeek" />
+        <ProTimeline v-else />
         <ParameterTrack />
       </main>
 
       <aside class="editor-right">
-        <RenderIRTree :tree="irTree" />
-        <Inspector />
+        <div class="inspector-rail">
+          <div class="rail-brand">CHK</div>
+          <button class="rail-tool" :class="{ active: rightPanelMode === 'inspect' }" data-tip="属性检查" @click="rightPanelMode = 'inspect'"><span class="rail-icon">◉</span><span>属性</span></button>
+          <button class="rail-tool" :class="{ active: rightPanelMode === 'structure' }" data-tip="结构检查" @click="rightPanelMode = 'structure'"><span class="rail-icon">≡</span><span>结构</span></button>
+          <div class="rail-spacer"></div>
+          <span class="rail-status">{{ runtimeStore.isReady ? 'LIVE' : 'IDLE' }}</span>
+        </div>
+        <section class="inspector-drawer">
+          <div class="drawer-head">
+            <div><span class="context-kicker">检查器</span><strong>{{ rightPanelMode === 'inspect' ? '属性面板' : 'Render IR' }}</strong></div>
+            <span class="drawer-count">{{ rightPanelMode === 'inspect' ? 'EDIT' : 'DATA' }}</span>
+          </div>
+          <template v-if="rightPanelMode === 'inspect'"><Inspector /><div class="right-guide"><span class="context-kicker">当前上下文</span><strong>调整选中对象</strong><p>属性变化会立即反映到画布和时间轴。</p></div></template>
+          <RenderIRTree v-else :tree="irTree" />
+        </section>
       </aside>
     </div>
 
@@ -850,29 +883,29 @@ onBeforeUnmount(() => {
 </template>
 
 <style>
-/* editor 模块主题变量(简约圆角风格,独立于现有 ui 模块的 --bg/--text) */
+/* Editor theme tokens */
 :root {
-  --pf-paper: #faf7f0;
-  --pf-surface: #ffffff;
-  --pf-surface-soft: #f3efe5;
-  --pf-surface-sunk: #efe9dc;
-  --pf-line: rgba(30, 25, 20, 0.07);
-  --pf-line-strong: rgba(30, 25, 20, 0.14);
-  --pf-ink: #1a1814;
-  --pf-ink-soft: #4d4944;
-  --pf-ink-muted: #8a857d;
-  --pf-ink-faint: #b8b3a9;
-  --pf-accent: #b85c2e;
-  --pf-accent-soft: #f6ebe2;
-  --pf-accent-deep: #a44d24;
-  --pf-success: #4a7a3e;
-  --pf-warning: #b88424;
-  --pf-danger: #d44b4b;
-  --pf-r-xs: 7px;
-  --pf-r-sm: 10px;
-  --pf-r-md: 14px;
-  --pf-r-lg: 20px;
-  --pf-r-xl: 28px;
+  --pf-paper: #111315;
+  --pf-surface: #171a1d;
+  --pf-surface-soft: #1d2125;
+  --pf-surface-sunk: #101214;
+  --pf-line: rgba(255, 255, 255, 0.08);
+  --pf-line-strong: rgba(255, 255, 255, 0.15);
+  --pf-ink: #ece8e1;
+  --pf-ink-soft: #b8b4ac;
+  --pf-ink-muted: #817f79;
+  --pf-ink-faint: #5d5c58;
+  --pf-accent: #ef855d;
+  --pf-accent-soft: rgba(239, 133, 93, 0.14);
+  --pf-accent-deep: #d96945;
+  --pf-success: #71c69a;
+  --pf-warning: #e6b86a;
+  --pf-danger: #e8797f;
+  --pf-r-xs: 6px;
+  --pf-r-sm: 8px;
+  --pf-r-md: 10px;
+  --pf-r-lg: 12px;
+  --pf-r-xl: 14px;
 }
 </style>
 
@@ -881,75 +914,76 @@ onBeforeUnmount(() => {
   height: 100vh;
   background: var(--pf-paper);
   color: var(--pf-ink);
-  padding: 14px;
+  padding: 0;
   display: grid;
-  grid-template-rows: 56px minmax(0, 1fr);
-  gap: 12px;
+  grid-template-rows: 52px minmax(0, 1fr);
   overflow: hidden;
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: 'DM Sans', system-ui, sans-serif;
 }
 
 .editor-workspace {
   display: grid;
-  grid-template-columns: 300px minmax(0, 1fr) 320px;
-  gap: 12px;
+  grid-template-columns: 320px minmax(0, 1fr) 320px;
+  gap: 1px;
   min-height: 0;
+  padding: 0;
+  background: var(--pf-line);
 }
 
-.editor-left {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  min-height: 0;
-  overflow: hidden;
-}
+.editor-left, .editor-right { display: grid; grid-template-columns: 54px minmax(0, 1fr); min-height: 0; padding: 0; overflow: hidden; }
+.tool-rail, .inspector-rail { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 12px 6px; background: #0c0e10; border-right: 1px solid var(--pf-line); }
+.inspector-rail { border-right: 0; border-left: 1px solid var(--pf-line); order: 2; }
+.rail-brand { color: var(--pf-accent); font: 600 11px 'JetBrains Mono', monospace; padding: 8px 0 13px; }
+.rail-tool { width: 42px; min-height: 48px; display: grid; place-items: center; gap: 2px; color: var(--pf-ink-muted); cursor: pointer; border-radius: var(--pf-r-xs); font-size: 9px; }
+.rail-tool:hover, .rail-tool.active { color: var(--pf-ink); background: var(--pf-accent-soft); }
+.rail-icon { font-size: 17px; line-height: 1; }
+.rail-spacer { flex: 1; }
+.rail-status { writing-mode: vertical-rl; color: var(--pf-success); font: 9px 'JetBrains Mono', monospace; letter-spacing: .08em; padding-bottom: 8px; }
+.tool-drawer, .inspector-drawer { min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; padding: 12px; background: var(--pf-surface-sunk); }
+.inspector-drawer { order: 1; overflow: auto; }
+.drawer-head { display: flex; justify-content: space-between; align-items: flex-start; padding: 2px 2px 10px; border-bottom: 1px solid var(--pf-line); }
+.drawer-head strong { display: block; margin-top: 4px; font-size: 13px; font-weight: 600; }
+.drawer-count { color: var(--pf-ink-faint); font: 10px 'JetBrains Mono', monospace; }
 
 .editor-center {
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto auto auto;
-  gap: 12px;
-  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr) auto auto auto;
+  gap: 8px;
+  padding: 12px 14px 10px;
   overflow: hidden;
 }
 
-.editor-right {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  min-height: 0;
-  overflow: auto;
-}
+.workspace-context, .timeline-dock-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.workspace-context { padding: 2px 4px 5px; }
+.context-kicker { display: block; color: var(--pf-ink-muted); font: 500 10px 'JetBrains Mono', monospace; letter-spacing: .05em; text-transform: uppercase; }
+.workspace-context h1 { margin-top: 3px; font-size: 18px; font-weight: 600; letter-spacing: 0; }
+.context-actions { display: flex; align-items: center; gap: 12px; }
+.context-state { display: inline-flex; align-items: center; gap: 7px; color: var(--pf-ink-muted); font-size: 11px; }
+.context-state i { width: 6px; height: 6px; border-radius: 50%; background: var(--pf-warning); }
+.context-state i.live { background: var(--pf-success); box-shadow: 0 0 0 3px rgba(113, 198, 154, .12); }
+.context-action { height: 30px; padding: 0 10px; border: 1px solid var(--pf-line-strong); border-radius: var(--pf-r-xs); background: var(--pf-surface); color: var(--pf-ink-soft); font-size: 11px; cursor: pointer; }
+.context-action:hover { color: var(--pf-ink); border-color: var(--pf-accent); }
+.timeline-dock-head { min-height: 30px; padding: 3px 4px 0; }
+.timeline-dock-head strong { display: block; margin-top: 2px; font-size: 12px; font-weight: 600; }
 
-/* 时间轴模式切换(Step 31.2) */
+.editor-right { gap: 8px; padding: 10px; }
+.right-guide { padding: 13px; border-top: 1px solid var(--pf-line); color: var(--pf-ink-muted); }
+.right-guide strong { display: block; margin-top: 7px; color: var(--pf-ink-soft); font-size: 12px; }
+.right-guide p { margin-top: 5px; font-size: 11px; line-height: 1.5; }
+
+/* 时间轴模式切换 */
 .timeline-mode-switch {
   display: inline-flex;
-  gap: 4px;
-  padding: 3px;
-  background: var(--pf-surface-soft);
+  gap: 2px;
+  padding: 2px;
+  background: var(--pf-surface);
   border: 1px solid var(--pf-line);
-  border-radius: var(--pf-r-sm);
+  border-radius: var(--pf-r-xs);
   width: fit-content;
 }
-.mode-btn {
-  height: 24px;
-  padding: 0 12px;
-  border: none;
-  background: transparent;
-  color: var(--pf-ink-muted);
-  font-size: 11px;
-  font-weight: 500;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 180ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-.mode-btn:hover {
-  color: var(--pf-ink);
-}
-.mode-btn.active {
-  background: var(--pf-surface);
-  color: var(--pf-ink);
-  box-shadow: 0 1px 3px rgba(30, 25, 20, 0.1);
-}
+.mode-btn { height: 25px; padding: 0 10px; border: none; background: transparent; color: var(--pf-ink-muted); font-size: 11px; border-radius: 5px; cursor: pointer; }
+.mode-btn:hover { color: var(--pf-ink); }
+.mode-btn.active { background: var(--pf-accent-soft); color: var(--pf-accent); }
 
 .runtime-canvas {
   display: block;

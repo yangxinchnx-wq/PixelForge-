@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useHistoryStore } from '@/stores/history'
 import { useProjectStore } from '@/project/projectStore'
 
@@ -58,10 +59,25 @@ const projectTitle = computed(() => {
 const saveTip = computed(() =>
   project.dirty ? '保存项目(有未保存修改)' : '保存项目',
 )
+
+// —— 窗口控制（无边框窗口自定义标题栏按钮）——
+const appWindow = getCurrentWindow()
+
+async function handleMinimize() {
+  await appWindow.minimize()
+}
+
+async function handleToggleMaximize() {
+  await appWindow.toggleMaximize()
+}
+
+async function handleClose() {
+  await appWindow.close()
+}
 </script>
 
 <template>
-  <header class="topbar">
+  <header class="topbar" data-tauri-drag-region>
     <div class="topbar-left">
       <div class="brand"></div>
       <div class="title" v-html="projectTitle"></div>
@@ -105,20 +121,50 @@ const saveTip = computed(() =>
         <span class="dot" :style="{ background: statusInfo.color }"></span>
         {{ statusInfo.label }}
       </span>
+      <div class="window-controls">
+        <button class="wc-btn" data-tip="最小化" @click="handleMinimize">
+          <svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 5h10" stroke="currentColor" stroke-width="1.5"/></svg>
+        </button>
+        <button class="wc-btn" data-tip="最大化/还原" @click="handleToggleMaximize">
+          <svg width="10" height="10" viewBox="0 0 10 10"><rect x="0.75" y="0.75" width="8.5" height="8.5" fill="none" stroke="currentColor" stroke-width="1.5" rx="1.5"/></svg>
+        </button>
+        <button class="wc-btn wc-close" data-tip="关闭" @click="handleClose">
+          <svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 0L10 10M10 0L0 10" stroke="currentColor" stroke-width="1.5"/></svg>
+        </button>
+      </div>
     </div>
   </header>
 </template>
 
 <style scoped>
 .topbar {
-  background: var(--pf-surface);
-  border: 1px solid var(--pf-line);
-  border-radius: var(--pf-r-xl);
-  padding: 0 18px;
+  background: #151719;
+  border: none;
+  border-bottom: 1px solid var(--pf-line);
+  border-radius: 0;
+  padding: 0 14px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+  height: 52px;
+  flex-shrink: 0;
+  /* Tauri 无边框窗口拖拽区域 */
+}
+
+/* 空白区域可拖拽移动窗口（按钮和交互元素需排除） */
+.topbar-left,
+.topbar-left .brand,
+.topbar-left .title,
+.topbar-center,
+.topbar-right,
+.topbar-right .chip {
+  cursor: default;
+}
+.topbar-left,
+.topbar-center,
+.topbar-right {
+  -webkit-app-region: no-drag;
 }
 .topbar-left { display: flex; align-items: center; gap: 12px; }
 .brand {
@@ -250,4 +296,33 @@ const saveTip = computed(() =>
   z-index: 50;
 }
 [data-tip]:hover::after { opacity: 1; transform: translateX(-50%) scale(1); }
+
+/* 窗口控制按钮 */
+.window-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 8px;
+  -webkit-app-region: no-drag;
+}
+.wc-btn {
+  width: 30px;
+  height: 30px;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  color: var(--pf-ink-muted);
+  cursor: pointer;
+  transition: all 160ms ease;
+}
+.wc-btn:hover {
+  background: var(--pf-surface-soft);
+  color: var(--pf-ink);
+}
+.wc-btn.wc-close:hover {
+  background: #e85555;
+  color: #fff;
+}
 </style>

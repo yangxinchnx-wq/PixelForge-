@@ -45,8 +45,8 @@ defineProps<Props>()
 .ir-tree {
   background: var(--pf-surface);
   border: 1px solid var(--pf-line);
-  border-radius: var(--pf-r-xl);
-  padding: 14px;
+  border-radius: var(--pf-r-md);
+  padding: 12px;
   display: flex;
   flex-direction: column;
   gap: 10px;

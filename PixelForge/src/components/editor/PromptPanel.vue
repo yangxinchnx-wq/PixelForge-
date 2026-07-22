@@ -136,13 +136,13 @@ function formatConfidence(c: number | null | undefined): string {
 
 <style scoped>
 .prompt-panel {
-  background: var(--pf-surface);
-  border: 1px solid var(--pf-line);
-  border-radius: var(--pf-r-xl);
-  padding: 18px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 12px 4px 4px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
   overflow: auto;
 }
 .panel-title {

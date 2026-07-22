@@ -53,11 +53,11 @@ const emit = defineEmits<{
 .canvas-view {
   background: var(--pf-surface);
   border: 1px solid var(--pf-line);
-  border-radius: var(--pf-r-xl);
-  padding: 18px;
+  border-radius: var(--pf-r-md);
+  padding: 12px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 10px;
   min-height: 0;
   overflow: hidden;
 }

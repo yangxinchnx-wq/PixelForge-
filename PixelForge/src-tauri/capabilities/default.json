@@ -6,7 +6,11 @@
     "description": "Default capability for the main window",
     "windows": ["main"],
     "permissions": [
-      "shell:allow-open"
+      "shell:allow-open",
+      "core:window:allow-minimize",
+      "core:window:allow-toggle-maximize",
+      "core:window:allow-close",
+      "core:window:allow-start-dragging"
     ]
   }
 ]

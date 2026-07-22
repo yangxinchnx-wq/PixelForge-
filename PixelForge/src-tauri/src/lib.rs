@@ -1,17 +1,11 @@
 #![cfg_attr(not(debug_assertions), warn(unused_crate_dependencies))]
 
-use tauri::Manager;
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
-        .setup(|app| {
-            #[cfg(debug_assertions)]
-            {
-                let window = app.get_webview_window("main").unwrap();
-                window.open_devtools();
-            }
+        .setup(|_app| {
+            // DevTools 默认不自动打开，需要时按 F12 手动打开
             Ok(())
         })
         .run(tauri::generate_context!())
