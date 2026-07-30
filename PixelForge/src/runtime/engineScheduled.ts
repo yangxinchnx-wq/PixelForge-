@@ -29,13 +29,10 @@
  *   // 后台任务(预渲染):
  *   engine.enqueueTask('low', (budget) => preRenderFrame(budget))
  */
-import type { useTimelineStore } from '@/stores/timeline'
 import type { useRuntimeStore } from '@/stores/runtime'
 import type { useGraphStore } from '@/graph/graphStore'
 import type { useMaterialGraphStore } from '@/material/materialGraph'
-import { applyFrameToRuntime } from '@/editor/timeline/player'
 import { FeatureExtractor } from '@/input/audio/featureExtractor'
-import { InputDriver } from '@/animation/drivers/inputDriver'
 import { inputRouter } from '@/input/inputRouter'
 import type { RuntimeDeviceHandle } from './types'
 import {
@@ -55,7 +52,38 @@ import {
 // 1. 类型
 // ============================================================================
 
-type TimelineStore = ReturnType<typeof useTimelineStore>
+/** Timeline store 最小接口（替代已删除的 @/stores/timeline） */
+interface TimelineStoreLike {
+  fps: number
+  currentFrame: number
+  totalFrames: number
+  isPlaying: boolean
+  tracks: import('@/types').ParameterTrack[]
+  seek: (frame: number) => void
+  setPlaying: (playing: boolean) => void
+}
+
+/** InputDriver 最小接口（替代已删除的 @/animation/drivers/inputDriver） */
+interface InputDriver {
+  update: (
+    graphStore: GraphStore,
+    materialStore: MaterialStore,
+    runtimeStore: RuntimeStore,
+  ) => number
+}
+
+/** applyFrameToRuntime 存根（替代已删除的 @/editor/timeline/player） */
+function applyFrameToRuntime(
+  tracks: import('@/types').ParameterTrack[],
+  currentFrame: number,
+  runtimeStore: RuntimeStore,
+): void {
+  void tracks
+  void currentFrame
+  void runtimeStore
+}
+
+type TimelineStore = TimelineStoreLike
 type RuntimeStore = ReturnType<typeof useRuntimeStore>
 type GraphStore = ReturnType<typeof useGraphStore>
 type MaterialStore = ReturnType<typeof useMaterialGraphStore>

@@ -1,7 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
+import { useAppStore } from '../stores/app';
 import type { Clip, Track } from '../types';
-import { initialTracks, initialClips, TOTAL_DURATION, FPS, formatTimecode } from '../data';
+import { TOTAL_DURATION, FPS, formatTimecode } from '../data';
+import { collectSnapTargets, snapOrDefault, DEFAULT_SNAP_THRESHOLD } from '../utils/snapEngine';
+import { resolveCollision } from '../utils/collision';
+import type { Command } from '../utils/commandHistory';
 
 const props = defineProps<{
   currentTime: number;
@@ -13,11 +17,23 @@ const emit = defineEmits<{
   togglePlay: [];
 }>();
 
-// ─── State ────────────────────────────────────────────
-const tracks = ref<Track[]>([...initialTracks]);
-const clips = ref<Clip[]>([...initialClips]);
+const store = useAppStore();
+
+// ─── State (from store) ──────────────────────────────
+const tracks = computed(() => store.tracks);
+const clips = computed(() => store.clips);
+const selectedClipIds = computed(() => store.selectedClipIds);
+const hasSelectedClips = computed(() => selectedClipIds.value.size > 0);
+const canUndoTimeline = computed(() => store.canUndoTimeline);
+const canRedoTimeline = computed(() => store.canRedoTimeline);
+
 const pps = ref(30);
-const selectedClipId = ref<string | null>(null);
+
+// ─── Snap indicator ──────────────────────────────────
+const snapIndicatorTime = ref<number | null>(null);
+
+// ─── Drag snapshot (for undo/redo) ───────────────────
+let dragBeforeClips: Clip[] | null = null;
 
 type DragState =
   | { type: 'playhead' }
@@ -29,11 +45,14 @@ type DragState =
 
 const dragState = ref<DragState>(null);
 const tracksScrollRef = ref<HTMLElement | null>(null);
+const trackHeadersListRef = ref<HTMLElement | null>(null);
+const zoomSliderRef = ref<HTMLElement | null>(null);
 
 // ─── Constants ────────────────────────────────────────
 const MIN_PPS = 8;
 const MAX_PPS = 120;
 const MIN_CLIP_DURATION = 0.5;
+const SNAP_THRESHOLD = DEFAULT_SNAP_THRESHOLD;
 
 // ─── Keyboard ─────────────────────────────────────────
 function handleKeyDown(e: KeyboardEvent) {
@@ -56,11 +75,20 @@ function handleKeyDown(e: KeyboardEvent) {
     e.preventDefault();
     emit('seek', TOTAL_DURATION);
   } else if ((e.key === 'Delete' || e.key === 'Backspace') && !isEditingText) {
-    if (selectedClipId.value) {
+    if (hasSelectedClips.value) {
       e.preventDefault();
-      clips.value = clips.value.filter((c) => c.id !== selectedClipId.value);
-      selectedClipId.value = null;
+      store.deleteSelectedClips();
     }
+  } else if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !isEditingText) {
+    e.preventDefault();
+    if (e.shiftKey) {
+      store.redoTimeline();
+    } else {
+      store.undoTimeline();
+    }
+  } else if ((e.ctrlKey || e.metaKey) && e.key === 'y' && !isEditingText) {
+    e.preventDefault();
+    store.redoTimeline();
   }
 }
 
@@ -71,6 +99,11 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeyDown);
 });
+
+// ─── Helper: set clips via store ─────────────────────
+function updateClips(newClips: Clip[]): void {
+  store.setClips(newClips);
+}
 
 // ─── Pointer move (drag) ──────────────────────────────
 function handlePointerMove(e: PointerEvent) {
@@ -88,40 +121,128 @@ function handlePointerMove(e: PointerEvent) {
   }
 
   if (ds.type === 'clip-move') {
-    const newStart = Math.max(0, timeFromX(x - ds.grabOffsetX));
-    clips.value = clips.value.map((c) =>
-      c.id === ds.clipId
-        ? { ...c, start: Math.min(newStart, TOTAL_DURATION - c.duration) }
-        : c
+    let newStart = Math.max(0, timeFromX(x - ds.grabOffsetX));
+    newStart = Math.min(newStart, TOTAL_DURATION - (clips.value.find(c => c.id === ds.clipId)?.duration ?? 0));
+
+    // ── 吸附引擎 ──
+    const snapTargets = collectSnapTargets(
+      clips.value,
+      ds.clipId,
+      props.currentTime,
+    );
+    const clip = clips.value.find(c => c.id === ds.clipId);
+    if (clip) {
+      const snappedStart = snapOrDefault(newStart, snapTargets, SNAP_THRESHOLD);
+      const snappedEnd = snapOrDefault(newStart + clip.duration, snapTargets, SNAP_THRESHOLD);
+
+      // 优先吸附起点，其次吸附终点
+      if (snappedStart !== newStart) {
+        newStart = snappedStart;
+        snapIndicatorTime.value = snappedStart;
+      } else if (snappedEnd !== newStart + clip.duration) {
+        newStart = snappedEnd - clip.duration;
+        snapIndicatorTime.value = snappedEnd;
+      } else {
+        snapIndicatorTime.value = null;
+      }
+    }
+
+    // ── 碰撞检测 ──
+    newStart = resolveCollision(clips.value, ds.clipId, newStart, TOTAL_DURATION);
+
+    updateClips(
+      clips.value.map((c) =>
+        c.id === ds.clipId ? { ...c, start: newStart } : c,
+      ),
     );
     return;
   }
 
   if (ds.type === 'clip-resize-left') {
-    const newStart = Math.max(0, timeFromX(x));
+    let newStart = Math.max(0, timeFromX(x));
     const maxStart = ds.originalStart + ds.originalDuration - MIN_CLIP_DURATION;
-    const clampedStart = Math.min(newStart, maxStart);
-    const newDuration = ds.originalStart + ds.originalDuration - clampedStart;
-    clips.value = clips.value.map((c) =>
-      c.id === ds.clipId ? { ...c, start: clampedStart, duration: newDuration } : c
+    newStart = Math.min(newStart, maxStart);
+
+    // ── 吸附左边缘 ──
+    const snapTargets = collectSnapTargets(
+      clips.value,
+      ds.clipId,
+      props.currentTime,
+    );
+    newStart = snapOrDefault(newStart, snapTargets, SNAP_THRESHOLD);
+    snapIndicatorTime.value = newStart !== timeFromX(x) ? newStart : null;
+
+    const newDuration = ds.originalStart + ds.originalDuration - newStart;
+    updateClips(
+      clips.value.map((c) =>
+        c.id === ds.clipId ? { ...c, start: newStart, duration: newDuration } : c,
+      ),
     );
     return;
   }
 
   if (ds.type === 'clip-resize-right') {
-    const newEnd = timeFromX(x);
+    let newEnd = timeFromX(x);
     const clip = clips.value.find((c) => c.id === ds.clipId);
     if (!clip) return;
-    const newDuration = Math.max(MIN_CLIP_DURATION, newEnd - clip.start);
-    const clampedDuration = Math.min(newDuration, TOTAL_DURATION - clip.start);
-    clips.value = clips.value.map((c) =>
-      c.id === ds.clipId ? { ...c, duration: clampedDuration } : c
+    let newDuration = Math.max(MIN_CLIP_DURATION, newEnd - clip.start);
+    newDuration = Math.min(newDuration, TOTAL_DURATION - clip.start);
+
+    // ── 吸附右边缘 ──
+    const snapTargets = collectSnapTargets(
+      clips.value,
+      ds.clipId,
+      props.currentTime,
+    );
+    const snappedEnd = snapOrDefault(clip.start + newDuration, snapTargets, SNAP_THRESHOLD);
+    if (snappedEnd !== clip.start + newDuration) {
+      newDuration = Math.max(MIN_CLIP_DURATION, snappedEnd - clip.start);
+      snapIndicatorTime.value = snappedEnd;
+    } else {
+      snapIndicatorTime.value = null;
+    }
+
+    updateClips(
+      clips.value.map((c) =>
+        c.id === ds.clipId ? { ...c, duration: newDuration } : c,
+      ),
     );
     return;
   }
 }
 
 function handlePointerUp() {
+  const ds = dragState.value;
+
+  // ── 提交 undo/redo 命令 ──
+  if (ds && dragBeforeClips) {
+    const before = dragBeforeClips;
+    const after = [...clips.value];
+
+    // 检查是否有实际变化
+    const changed = before.some((b, i) => {
+      const a = after[i];
+      return !a || b.start !== a.start || b.duration !== a.duration;
+    }) || before.length !== after.length;
+
+    if (changed) {
+      const labelMap: Record<string, string> = {
+        'clip-move': '移动片段',
+        'clip-resize-left': '修剪片段（左）',
+        'clip-resize-right': '修剪片段（右）',
+      };
+      const label = ds.type in labelMap ? labelMap[ds.type] : '编辑片段';
+      const cmd: Command = {
+        label,
+        execute() { store.setClips([...after]); },
+        undo() { store.setClips([...before]); },
+      };
+      store.executeTimelineCommand(cmd);
+    }
+  }
+
+  dragBeforeClips = null;
+  snapIndicatorTime.value = null;
   dragState.value = null;
 }
 
@@ -139,6 +260,8 @@ watch(dragState, (newVal) => {
 onUnmounted(() => {
   window.removeEventListener('pointermove', handlePointerMove);
   window.removeEventListener('pointerup', handlePointerUp);
+  window.removeEventListener('pointermove', handleZoomSliderPointerMove);
+  window.removeEventListener('pointerup', handleZoomSliderPointerUp);
 });
 
 // ─── Ruler seek ───────────────────────────────────────
@@ -163,7 +286,13 @@ function handlePlayheadPointerDown(e: PointerEvent) {
 function handleClipPointerDown(e: PointerEvent, clip: Clip) {
   e.preventDefault();
   e.stopPropagation();
-  selectedClipId.value = clip.id;
+
+  // ── 多选支持 ──
+  if (e.ctrlKey || e.metaKey) {
+    store.selectClip(clip.id, true);
+  } else if (!selectedClipIds.value.has(clip.id)) {
+    store.selectClip(clip.id, false);
+  }
 
   const clipEl = e.currentTarget as HTMLElement;
   const clipRect = clipEl.getBoundingClientRect();
@@ -171,6 +300,7 @@ function handleClipPointerDown(e: PointerEvent, clip: Clip) {
 
   const target = e.target as HTMLElement;
   if (target.classList.contains('clip-handle-left')) {
+    dragBeforeClips = [...clips.value];
     dragState.value = {
       type: 'clip-resize-left',
       clipId: clip.id,
@@ -180,17 +310,17 @@ function handleClipPointerDown(e: PointerEvent, clip: Clip) {
     return;
   }
   if (target.classList.contains('clip-handle-right')) {
+    dragBeforeClips = [...clips.value];
     dragState.value = { type: 'clip-resize-right', clipId: clip.id };
     return;
   }
+  dragBeforeClips = [...clips.value];
   dragState.value = { type: 'clip-move', clipId: clip.id, grabOffsetX };
 }
 
 // ─── Track toggle ─────────────────────────────────────
 function toggleTrack(trackId: string, prop: 'muted' | 'soloed' | 'locked' | 'visible') {
-  tracks.value = tracks.value.map((t) =>
-    t.id === trackId ? { ...t, [prop]: !t[prop] } : t
-  );
+  store.toggleTrackProp(trackId, prop);
 }
 
 // ─── Zoom ─────────────────────────────────────────────
@@ -199,29 +329,79 @@ function handleZoom(dir: 'in' | 'out') {
   pps.value = Math.max(MIN_PPS, Math.min(MAX_PPS, next));
 }
 
-function handleZoomSliderClick(e: MouseEvent) {
-  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-  const ratio = (e.clientX - rect.left) / rect.width;
+function updateZoomFromClientX(clientX: number) {
+  const slider = zoomSliderRef.value;
+  if (!slider) return;
+  const rect = slider.getBoundingClientRect();
+  const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
   pps.value = MIN_PPS + ratio * (MAX_PPS - MIN_PPS);
 }
 
-// ─── Cut ──────────────────────────────────────────────
+function handleZoomSliderPointerDown(e: PointerEvent) {
+  e.preventDefault();
+  updateZoomFromClientX(e.clientX);
+  window.addEventListener('pointermove', handleZoomSliderPointerMove);
+  window.addEventListener('pointerup', handleZoomSliderPointerUp);
+}
+
+function handleZoomSliderPointerMove(e: PointerEvent) {
+  updateZoomFromClientX(e.clientX);
+}
+
+function handleZoomSliderPointerUp() {
+  window.removeEventListener('pointermove', handleZoomSliderPointerMove);
+  window.removeEventListener('pointerup', handleZoomSliderPointerUp);
+}
+
+// ─── Track header / lane scroll sync ──────────────────
+function handleTracksScroll() {
+  const scrollEl = tracksScrollRef.value;
+  const headersEl = trackHeadersListRef.value;
+  if (!scrollEl || !headersEl) return;
+  headersEl.scrollTop = scrollEl.scrollTop;
+}
+
+// ─── Cut (with undo/redo) ─────────────────────────────
 function handleCut() {
-  if (!selectedClipId.value) return;
-  const clip = clips.value.find((c) => c.id === selectedClipId.value);
+  const selectedId = [...selectedClipIds.value][0];
+  if (!selectedId) return;
+  const clip = clips.value.find((c) => c.id === selectedId);
   if (!clip) return;
   if (props.currentTime <= clip.start || props.currentTime >= clip.start + clip.duration) return;
+
+  const before = [...clips.value];
   const firstHalf: Clip = { ...clip, duration: props.currentTime - clip.start };
   const secondHalf: Clip = {
     ...clip,
-    id: clip.id + '-split',
+    id: clip.id + '-split-' + Date.now().toString(36),
     start: props.currentTime,
     duration: clip.start + clip.duration - props.currentTime,
   };
-  clips.value = clips.value.flatMap((c) =>
-    c.id === selectedClipId.value ? [firstHalf, secondHalf] : [c]
+  const after = clips.value.flatMap((c) =>
+    c.id === selectedId ? [firstHalf, secondHalf] : [c],
   );
-  selectedClipId.value = secondHalf.id;
+
+  const cmd: Command = {
+    label: '切割片段',
+    execute() { store.setClips([...after]); },
+    undo() { store.setClips([...before]); },
+  };
+  store.executeTimelineCommand(cmd);
+  store.selectClip(secondHalf.id, false);
+}
+
+// ─── Undo / Redo ──────────────────────────────────────
+function handleUndo() {
+  store.undoTimeline();
+}
+
+function handleRedo() {
+  store.redoTimeline();
+}
+
+// ─── Background click (clear selection) ───────────────
+function handleBackgroundClick() {
+  store.clearSelection();
 }
 
 // ─── Derived ──────────────────────────────────────────
@@ -298,6 +478,10 @@ function isDragging(clipId: string): boolean {
   );
 }
 
+function isClipSelected(clipId: string): boolean {
+  return selectedClipIds.value.has(clipId);
+}
+
 const zoomPercent = computed(() => ((pps.value - MIN_PPS) / (MAX_PPS - MIN_PPS)) * 100);
 </script>
 
@@ -346,6 +530,36 @@ const zoomPercent = computed(() => ((pps.value - MIN_PPS) / (MAX_PPS - MIN_PPS))
 
       <div class="toolbar-divider" />
 
+      <!-- Undo / Redo -->
+      <div class="toolbar-section">
+        <button
+          class="btn btn-icon"
+          :disabled="!canUndoTimeline"
+          :class="{ 'btn-disabled': !canUndoTimeline }"
+          title="撤销 (Ctrl+Z)"
+          @click="handleUndo"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+            <path d="M3 7v6h6" />
+            <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13" />
+          </svg>
+        </button>
+        <button
+          class="btn btn-icon"
+          :disabled="!canRedoTimeline"
+          :class="{ 'btn-disabled': !canRedoTimeline }"
+          title="重做 (Ctrl+Shift+Z)"
+          @click="handleRedo"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+            <path d="M21 7v6h-6" />
+            <path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3L21 13" />
+          </svg>
+        </button>
+      </div>
+
+      <div class="toolbar-divider" />
+
       <div class="toolbar-section">
         <button class="btn btn-icon" title="剪切" @click="handleCut">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
@@ -354,6 +568,19 @@ const zoomPercent = computed(() => ((pps.value - MIN_PPS) / (MAX_PPS - MIN_PPS))
             <line x1="20" y1="4" x2="8.12" y2="15.88" />
             <line x1="14.47" y1="14.48" x2="20" y2="20" />
             <line x1="8.12" y1="8.12" x2="12" y2="12" />
+          </svg>
+        </button>
+        <button
+          class="btn btn-icon"
+          :disabled="!hasSelectedClips"
+          :class="{ 'btn-disabled': !hasSelectedClips }"
+          title="删除选中"
+          @click="store.deleteSelectedClips()"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+            <path d="M3 6h18" />
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+            <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
           </svg>
         </button>
       </div>
@@ -369,7 +596,7 @@ const zoomPercent = computed(() => ((pps.value - MIN_PPS) / (MAX_PPS - MIN_PPS))
               <line x1="16" y1="16" x2="21" y2="21" />
             </svg>
           </button>
-          <div class="zoom-slider" @click="handleZoomSliderClick">
+          <div class="zoom-slider" ref="zoomSliderRef" @pointerdown="handleZoomSliderPointerDown">
             <div class="zoom-slider-fill" :style="{ width: zoomPercent + '%' }" />
             <div class="zoom-slider-thumb" :style="{ left: zoomPercent + '%' }" />
           </div>
@@ -393,7 +620,7 @@ const zoomPercent = computed(() => ((pps.value - MIN_PPS) / (MAX_PPS - MIN_PPS))
           <div class="track-headers-ruler-spacer">
             <span>轨道</span>
           </div>
-          <div class="track-headers-list">
+          <div class="track-headers-list" ref="trackHeadersListRef">
             <div v-for="track in tracks" :key="track.id" class="track-header">
               <div class="track-header-top">
                 <span class="track-header-name">{{ track.name }}</span>
@@ -453,8 +680,12 @@ const zoomPercent = computed(() => ((pps.value - MIN_PPS) / (MAX_PPS - MIN_PPS))
 
         <!-- Timeline Tracks -->
         <div class="timeline-tracks">
-          <div class="tracks-scroll" ref="tracksScrollRef">
-            <div class="tracks-inner" :style="{ width: TOTAL_DURATION * pps + 'px' }">
+          <div class="tracks-scroll" ref="tracksScrollRef" @scroll="handleTracksScroll">
+            <div
+              class="tracks-inner"
+              :style="{ width: TOTAL_DURATION * pps + 'px' }"
+              @click.self="handleBackgroundClick"
+            >
               <!-- Ruler -->
               <div class="timeline-ruler" @pointerdown="handleRulerPointerDown">
                 <template v-for="(tick, i) in ticks" :key="i">
@@ -474,19 +705,20 @@ const zoomPercent = computed(() => ((pps.value - MIN_PPS) / (MAX_PPS - MIN_PPS))
               </div>
 
               <!-- Tracks -->
-              <div class="tracks-content">
+              <div class="tracks-content" @click.self="handleBackgroundClick">
                 <div
                   v-for="track in tracks"
                   :key="track.id"
                   class="track"
                   :class="{ dimmed: !isTrackActive(track) }"
+                  @click.self="handleBackgroundClick"
                 >
                   <div
                     v-for="clip in clipsForTrack(track.id)"
                     :key="clip.id"
                     class="clip"
                     :class="{
-                      'clip-selected': clip.id === selectedClipId,
+                      'clip-selected': isClipSelected(clip.id),
                       'dragging': isDragging(clip.id)
                     }"
                     :style="{ left: clip.start * pps + 'px', width: clip.duration * pps + 'px' }"
@@ -532,6 +764,13 @@ const zoomPercent = computed(() => ((pps.value - MIN_PPS) / (MAX_PPS - MIN_PPS))
                   </div>
                 </div>
               </div>
+
+              <!-- Snap indicator -->
+              <div
+                v-if="snapIndicatorTime !== null"
+                class="snap-indicator"
+                :style="{ left: snapIndicatorTime * pps + 'px' }"
+              />
 
               <!-- Playhead -->
               <div class="playhead" :style="{ left: currentTime * pps + 'px' }">

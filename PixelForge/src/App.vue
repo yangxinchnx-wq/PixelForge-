@@ -14,10 +14,10 @@ import ExportModal from './components/ExportModal.vue';
 import SettingsModal from './components/SettingsModal.vue';
 import { pageEnter } from './composables/useAnime';
 import { TOTAL_DURATION } from './data';
+import { unifiedStore, type UnifiedStoreStats } from './storage';
 
 const store = useAppStore();
 const {
-  activeTopTab,
   activeLeftTab,
   livePromptText,
   activeSnapshot,
@@ -80,6 +80,8 @@ function handleKeyDown(e: KeyboardEvent) {
 onMounted(() => {
   document.documentElement.dataset.theme = theme.value;
   window.addEventListener('keydown', handleKeyDown);
+  // 初始化完成后从三层统一存储异步加载项目快照（覆盖 localStorage 同步加载结果）
+  void store.loadFromUnifiedStore();
 });
 
 onUnmounted(() => {
@@ -121,6 +123,61 @@ watch(activeLeftTab, async () => {
     pageEnter(contentRef.value);
   }
 });
+
+// ─── Prompt 历史（从数据库加载）────────────────────────
+const promptHistory = ref<Array<{ timestampMs: number; text: string }>>([]);
+
+async function refreshPromptHistory() {
+  promptHistory.value = await store.loadPromptHistory();
+}
+
+function formatPromptTime(ms: number): string {
+  const d = new Date(ms);
+  return d.toLocaleTimeString('zh-CN', { hour12: false });
+}
+
+function truncateText(text: string, max = 60): string {
+  return text.length > max ? text.slice(0, max) + '…' : text;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
+}
+
+function applyPromptFromHistory(text: string) {
+  store.handlePromptTextChange(text);
+}
+
+// ─── 存储统计（性能页 / 设置弹窗用）────────────────────
+const storageStats = ref<UnifiedStoreStats | null>(null);
+const storagePath = ref<string | null>(null);
+const isStorageLoading = ref(false);
+
+async function refreshStorageStats() {
+  isStorageLoading.value = true;
+  try {
+    const [stats, path] = await Promise.all([
+      unifiedStore.stats(),
+      import('./storage').then((m) => m.tauriDb.getDbPath()),
+    ]);
+    storageStats.value = stats;
+    storagePath.value = path;
+  } catch (e) {
+    console.warn('[App] 存储统计加载失败', e);
+  } finally {
+    isStorageLoading.value = false;
+  }
+}
+
+// 切换到历史/性能页时自动加载数据
+watch(activeLeftTab, (tab) => {
+  if (tab === 'history') void refreshPromptHistory();
+  if (tab === 'performance') void refreshStorageStats();
+});
 </script>
 
 <template>
@@ -128,16 +185,10 @@ watch(activeLeftTab, async () => {
     <AmbientFluidCanvas />
 
     <TopHeader
-      :active-tab="activeTopTab"
-      :can-undo="canUndo"
-      :can-redo="canRedo"
       :theme="theme"
       :is-generating="isGenerating"
-      @update:active-tab="activeTopTab = $event"
       @export-click="isExportOpen = true"
       @settings-click="isSettingsOpen = true"
-      @undo="store.undo"
-      @redo="store.redo"
       @toggle-theme="store.toggleTheme"
       @generate="store.handleGenerate"
     />
@@ -295,7 +346,7 @@ watch(activeLeftTab, async () => {
             </button>
             <span class="pf-page-title">历史</span>
           </div>
-          <div class="pf-page-body" style="display: flex">
+          <div class="pf-page-body" style="display: flex; gap: 12px">
             <div class="pf-panel" style="flex: 1; min-height: 0">
               <div class="pf-panel-header">
                 <span class="pf-panel-title">操作历史</span>
@@ -310,6 +361,36 @@ watch(activeLeftTab, async () => {
                 >
                   <span class="pf-tree-label">{{ record.actionName }}</span>
                   <span class="pf-tree-badge">{{ record.timestamp }}</span>
+                </div>
+              </div>
+            </div>
+            <div class="pf-panel" style="flex: 1; min-height: 0">
+              <div class="pf-panel-header">
+                <span class="pf-panel-title">Prompt 历史</span>
+                <button class="btn btn-icon" title="刷新" @click="refreshPromptHistory" style="margin-left: auto">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                    <polyline points="23 4 23 10 17 10" />
+                    <polyline points="1 20 1 14 7 14" />
+                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+                  </svg>
+                </button>
+              </div>
+              <div class="pf-panel-body">
+                <div v-if="promptHistory.length === 0" class="pf-canvas-placeholder">
+                  暂无 Prompt 历史
+                </div>
+                <div
+                  v-for="(item, i) in promptHistory"
+                  :key="i"
+                  class="pf-tree-row"
+                  style="cursor: pointer"
+                  :title="item.text"
+                  @click="applyPromptFromHistory(item.text)"
+                >
+                  <span class="pf-tree-label" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 280px">
+                    {{ truncateText(item.text) }}
+                  </span>
+                  <span class="pf-tree-badge">{{ formatPromptTime(item.timestampMs) }}</span>
                 </div>
               </div>
             </div>
@@ -401,13 +482,64 @@ watch(activeLeftTab, async () => {
             </button>
             <span class="pf-page-title">性能</span>
           </div>
-          <div class="pf-page-body" style="display: flex">
+          <div class="pf-page-body" style="display: flex; gap: 12px">
             <div class="pf-panel" style="flex: 1; min-height: 0">
               <div class="pf-panel-header">
-                <span class="pf-panel-title">性能监控</span>
+                <span class="pf-panel-title">三层存储统计</span>
+                <button class="btn btn-icon" title="刷新" @click="refreshStorageStats" style="margin-left: auto">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                    <polyline points="23 4 23 10 17 10" />
+                    <polyline points="1 20 1 14 7 14" />
+                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+                  </svg>
+                </button>
               </div>
               <div class="pf-panel-body">
-                <div class="pf-canvas-placeholder">性能监控面板</div>
+                <div v-if="isStorageLoading" class="pf-canvas-placeholder">加载中…</div>
+                <template v-else-if="storageStats">
+                  <!-- L1 帧缓存 -->
+                  <div class="pf-panel-section">
+                    <div class="pf-panel-label">L1 帧缓存（内存 LRU）</div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 13px">
+                      <div>条目数：<strong>{{ storageStats.frameMemory.entries }}</strong></div>
+                      <div>占用：<strong>{{ formatBytes(storageStats.frameMemory.bytes) }}</strong> / {{ formatBytes(storageStats.frameMemory.maxBytes) }}</div>
+                      <div>命中：<strong>{{ storageStats.frameMemory.hits }}</strong></div>
+                      <div>未命中：<strong>{{ storageStats.frameMemory.misses }}</strong></div>
+                      <div>命中率：<strong>{{ (storageStats.frameMemory.hitRate * 100).toFixed(1) }}%</strong></div>
+                      <div>淘汰：<strong>{{ storageStats.frameMemory.evictions }}</strong></div>
+                    </div>
+                  </div>
+                  <!-- L1 文本缓存 -->
+                  <div class="pf-panel-section">
+                    <div class="pf-panel-label">L1 文本缓存（内存 LRU）</div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 13px">
+                      <div>条目数：<strong>{{ storageStats.textMemory.entries }}</strong></div>
+                      <div>占用：<strong>{{ formatBytes(storageStats.textMemory.bytes) }}</strong> / {{ formatBytes(storageStats.textMemory.maxBytes) }}</div>
+                      <div>命中：<strong>{{ storageStats.textMemory.hits }}</strong></div>
+                      <div>未命中：<strong>{{ storageStats.textMemory.misses }}</strong></div>
+                      <div>命中率：<strong>{{ (storageStats.textMemory.hitRate * 100).toFixed(1) }}%</strong></div>
+                      <div>淘汰：<strong>{{ storageStats.textMemory.evictions }}</strong></div>
+                    </div>
+                  </div>
+                  <!-- L2 OPFS -->
+                  <div class="pf-panel-section">
+                    <div class="pf-panel-label">L2 OPFS 文件存储</div>
+                    <div style="font-size: 13px">
+                      状态：<strong :style="{ color: storageStats.opfsAvailable ? 'var(--accent-green, #22c55e)' : 'var(--accent-red, #ef4444)' }">
+                        {{ storageStats.opfsAvailable ? '可用' : '不可用（已降级）' }}
+                      </strong>
+                    </div>
+                  </div>
+                  <!-- L3 数据库路径 -->
+                  <div class="pf-panel-section">
+                    <div class="pf-panel-label">L3 Redb 数据库</div>
+                    <div style="font-size: 13px; word-break: break-all">
+                      <span v-if="storagePath">{{ storagePath }}</span>
+                      <span v-else style="color: var(--text-secondary)">浏览器环境未启用（需 Tauri 桌面运行时）</span>
+                    </div>
+                  </div>
+                </template>
+                <div v-else class="pf-canvas-placeholder">无统计数据</div>
               </div>
             </div>
           </div>

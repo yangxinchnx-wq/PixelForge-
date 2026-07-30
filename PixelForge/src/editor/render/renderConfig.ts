@@ -14,8 +14,8 @@
  * - 帧范围基于 Sequence.duration 计算
  */
 
-import type { Sequence } from '../timeline/core/sequence'
-import { seconds, type Time } from '../timeline/core/time'
+import type { Sequence } from './timelineTypes'
+import { seconds, type Time } from './timelineTypes'
 
 // ============================================================================
 // 1. 类型定义

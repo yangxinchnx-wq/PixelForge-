@@ -25,7 +25,19 @@
  * Step 27 仅实现骨架(类型 + evaluator),完整 UI(轨道编辑 / 关键帧拖动)留待 Step 28。
  */
 
-import type { Easing, Keyframe } from '@/editor/timeline/types'
+/**
+ * 局部关键帧类型（帧基，与 @/types 中的秒基 Keyframe 不同）。
+ * Graph 动画系统使用帧号而非秒。
+ */
+export type Easing = 'linear' | 'ease' | 'hold'
+
+export interface Keyframe {
+  id: string
+  frame: number
+  value: number
+  easing: Easing
+}
+
 import type { JsonLiteral } from '@/shared/types'
 
 /**

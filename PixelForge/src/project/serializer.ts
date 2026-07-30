@@ -1,7 +1,6 @@
 import type { RenderIR } from '@/compiler/ir/renderIR'
 import type { HistoryEntry } from '@/stores/history'
 import type { useRuntimeStore } from '@/stores/runtime'
-import type { useTimelineStore } from '@/stores/timeline'
 
 import {
   PROJECT_FILE_VERSION,
@@ -9,10 +8,11 @@ import {
   type PixelForgeProject,
   type ProjectMetadata,
   type TimelineSnapshot,
+  type TimelineStoreLike,
 } from './types'
 
 type RuntimeStore = ReturnType<typeof useRuntimeStore>
-type TimelineStore = ReturnType<typeof useTimelineStore>
+type TimelineStore = TimelineStoreLike
 
 /**
  * 项目序列化器 —— 把 runtime + timeline + history 的当前状态打包成 PixelForgeProject。

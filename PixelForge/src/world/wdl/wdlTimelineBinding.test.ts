@@ -25,7 +25,7 @@ import {
   type ClipBindableProperty,
   type ClipWdlBinding,
 } from './wdlTimelineBinding'
-import type { Clip } from '@/editor/timeline/core/clip'
+import type { Clip } from '@/types'
 
 // ============================================================================
 // 辅助函数
@@ -35,18 +35,14 @@ import type { Clip } from '@/editor/timeline/core/clip'
 function makeClip(overrides: Partial<Clip> = {}): Clip {
   return {
     id: 'clip_1',
-    assetId: 'asset_1',
-    kind: 'video',
-    timelineStart: 0n,
-    duration: 1000000n,
-    sourceStart: 0n,
-    sourceEnd: 1000000n,
+    trackId: 'track_1',
+    name: 'Test Clip',
+    start: 0,
+    duration: 10,
+    type: 'video',
     transform: { x: 100, y: 50, scale: 1.5, rotation: 30, opacity: 0.8 },
     speed: 1.0,
     volume: 0.7,
-    enabled: true,
-    locked: false,
-    effects: [],
     ...overrides,
   }
 }

@@ -10,8 +10,8 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
-import { createSequence } from '../timeline/core/sequence'
-import { seconds } from '../timeline/core/time'
+import { createSequence } from './timelineTypes'
+import { seconds } from './timelineTypes'
 import {
   RENDER_PRESETS,
   createRenderConfigFromSequence,

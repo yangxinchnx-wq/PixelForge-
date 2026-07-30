@@ -3,7 +3,6 @@ import { computed, ref } from 'vue'
 
 import type { RenderIR } from '@/compiler/ir/renderIR'
 import type { useRuntimeStore } from '@/stores/runtime'
-import type { useTimelineStore } from '@/stores/timeline'
 import type { useHistoryStore } from '@/stores/history'
 
 import { createProjectSnapshot } from './serializer'
@@ -12,10 +11,10 @@ import {
   loadProjectFromLocalStorage,
   saveProjectToLocalStorage,
 } from './fileSystem'
-import type { PixelForgeProject, ProjectMetadata, TimelineSnapshot } from './types'
+import type { PixelForgeProject, ProjectMetadata, TimelineSnapshot, TimelineStoreLike } from './types'
 
 type RuntimeStore = ReturnType<typeof useRuntimeStore>
-type TimelineStore = ReturnType<typeof useTimelineStore>
+type TimelineStore = TimelineStoreLike
 type HistoryStore = ReturnType<typeof useHistoryStore>
 
 const AUTOSAVE_KEY = 'pixelforge:autosave'

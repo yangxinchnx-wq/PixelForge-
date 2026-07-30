@@ -13,7 +13,7 @@
  * - 绑定关系存在独立 store(符合 RenderIR 静态边界约束)
  * - Clip 固定字段(label/speed/volume/transform.*)直接映射到 Layer.params 的 key
  */
-import type { Clip } from '@/editor/timeline/core/clip'
+import type { Clip } from '@/types'
 
 // ============================================================================
 // 1. 类型定义
@@ -148,13 +148,13 @@ export function getClipPropertyValue(
   property: ClipBindableProperty,
 ): number | null {
   switch (property) {
-    case 'speed': return clip.speed
-    case 'volume': return clip.volume
-    case 'transform.x': return clip.transform.x
-    case 'transform.y': return clip.transform.y
-    case 'transform.scale': return clip.transform.scale
-    case 'transform.rotation': return clip.transform.rotation
-    case 'transform.opacity': return clip.transform.opacity
+    case 'speed': return clip.speed ?? null
+    case 'volume': return clip.volume ?? null
+    case 'transform.x': return clip.transform?.x ?? null
+    case 'transform.y': return clip.transform?.y ?? null
+    case 'transform.scale': return clip.transform?.scale ?? null
+    case 'transform.rotation': return clip.transform?.rotation ?? null
+    case 'transform.opacity': return clip.transform?.opacity ?? null
     default: return null
   }
 }

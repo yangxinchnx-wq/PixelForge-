@@ -405,6 +405,9 @@ html, body, #app {
   background: var(--separator-strong);
   border-radius: 2px; cursor: pointer;
   position: relative; margin: 0 4px;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
 }
 
 .zoom-slider-fill {
@@ -419,6 +422,7 @@ html, body, #app {
   border-radius: 50%;
   transform: translate(-50%, -50%);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  pointer-events: none;
 }
 
 /* --- Theme toggle --- */
@@ -902,8 +906,7 @@ input[type="range"].pf-slider::-moz-range-thumb {
 
 .track-headers-list {
   flex: 1;
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: hidden;
 }
 
 .track-header {
@@ -1265,6 +1268,26 @@ input[type="range"].pf-slider::-moz-range-thumb {
     transition-duration: 0ms !important;
     animation-duration: 0ms !important;
   }
+}
+
+/* ─── Undo/Redo disabled state ─── */
+.btn-disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* ─── Snap indicator line ─── */
+.snap-indicator {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: #ff6b35;
+  opacity: 0.8;
+  pointer-events: none;
+  z-index: 50;
+  box-shadow: 0 0 4px rgba(255, 107, 53, 0.5);
 }
 
 @media (max-width: 768px) {

@@ -15,17 +15,13 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
-// —— Mock applyFrameToRuntime(spy on real implementation) ——
-vi.mock('@/editor/timeline/player', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/editor/timeline/player')>()
-  return {
-    ...actual,
-    applyFrameToRuntime: vi.fn(() => 0),
-  }
-})
+// —— Mock @/editor/timeline/player（已删除模块，用 mock 替代）——
+vi.mock('@/editor/timeline/player', () => ({
+  applyFrameToRuntime: vi.fn(() => 0),
+}))
 
-// —— Mock startFrameLoop(避免 rAF,测试用 stepOnce 手动驱动) ——
-vi.mock('@/animation/scheduler', () => ({
+// —— Mock @/animation/scheduler → @/utils/frameLoop（已迁移）——
+vi.mock('@/utils/frameLoop', () => ({
   startFrameLoop: vi.fn(() => ({
     start: vi.fn(),
     stop: vi.fn(),
@@ -34,15 +30,63 @@ vi.mock('@/animation/scheduler', () => ({
   })),
 }))
 
+// —— Mock @/animation/drivers/inputDriver（已删除模块）——
+vi.mock('@/animation/drivers/inputDriver', () => {
+  class MockInputDriver {
+    update = vi.fn(() => 0)
+    constructor() {}
+  }
+  return { InputDriver: MockInputDriver }
+})
+
+// —— Mock @/stores/timeline（已删除模块）——
+vi.mock('@/stores/timeline', () => ({
+  useTimelineStore: () => ({
+    fps: 30,
+    currentFrame: 0,
+    totalFrames: 300,
+    isPlaying: false,
+    tracks: [] as import('@/types').ParameterTrack[],
+    seek: vi.fn(),
+    setPlaying: vi.fn(),
+  }),
+}))
+
 import { createEngine } from './engine'
 import { inputRouter, resetInputRouterForTesting } from '@/input/inputRouter'
-import { InputDriver } from '@/animation/drivers/inputDriver'
 import { FeatureExtractor } from '@/input/audio/featureExtractor'
-import { useTimelineStore } from '@/stores/timeline'
 import { useRuntimeStore } from '@/stores/runtime'
 import { useGraphStore } from '@/graph/graphStore'
 import { useMaterialGraphStore } from '@/material/materialGraph'
-import { applyFrameToRuntime } from '@/editor/timeline/player'
+
+// —— 本地 stub（替代已删除的 @/animation/drivers/inputDriver）——
+class InputDriver {
+  update = vi.fn(() => 0)
+  size = 0
+  getBindings = vi.fn((): any[] => [])
+  addBinding = vi.fn()
+  removeBinding = vi.fn()
+  setBindingEnabled = vi.fn()
+  setBindingMapping = vi.fn()
+  evaluate = vi.fn((): any[] => [])
+  constructor(_router?: unknown) {}
+}
+
+// —— 本地 stub（替代已删除的 @/stores/timeline）——
+function useTimelineStore() {
+  return {
+    fps: 30,
+    currentFrame: 0,
+    totalFrames: 300,
+    isPlaying: false,
+    tracks: [] as import('@/types').ParameterTrack[],
+    seek: vi.fn(),
+    setPlaying: vi.fn(),
+  }
+}
+
+// —— 本地 stub（替代已删除的 @/editor/timeline/player）——
+const applyFrameToRuntime = vi.fn(() => 0)
 
 // ============================================================================
 // 辅助:Mock FeatureExtractor(避免依赖 AudioAnalyzer / 浏览器 API)

@@ -25,7 +25,7 @@
  * - 可独立测试(注入 mock task)
  * - 提供 metrics 用于 HUD 显示
  */
-import { startFrameLoop, type FrameLoopControl, type FrameCallback } from '@/animation/scheduler'
+import { startFrameLoop, type FrameLoopControl, type FrameCallback } from '@/utils/frameLoop'
 
 // ============================================================================
 // 1. 类型 — 优先级 / Phase / Task

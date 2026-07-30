@@ -28,7 +28,7 @@ import {
   frameIndexToTime,
   validateRenderConfig,
 } from './renderConfig'
-import type { Time } from '../timeline/core/time'
+import type { Time } from './timelineTypes'
 
 // ============================================================================
 // 1. 类型

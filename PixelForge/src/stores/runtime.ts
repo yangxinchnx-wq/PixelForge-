@@ -40,6 +40,7 @@ import type { ReplayErrorInfo, RuntimeErrorInfo, RuntimeFrameRecord } from '@/ru
 import { classifyError, createReplayError as createStructuredReplayError } from '@/shared/errors'
 import { IndexedDBFrameRepository } from '@/services/frame/indexedDbRepository'
 import { InMemoryFrameRepository } from '@/services/frame/repository'
+import { UnifiedFrameRepository } from '@/services/frame/unifiedFrameRepository'
 import type { FrameRepository } from '@/services/frame/types'
 import { textureCache } from '@/assets/textureCache'
 import { useHistoryStore } from '@/stores/history'
@@ -968,10 +969,18 @@ function replacerForVerification(key: string, value: unknown) {
 /**
  * 创建帧仓储实例。
  *
- * 优先使用 IndexedDB 持久化仓储，如果 IndexedDB 不可用则降级为内存仓储。
+ * 优先级：
+ *   1. UnifiedFrameRepository — 三层存储（L1 LRU + L2 OPFS + L3 Redb），生产首选
+ *   2. IndexedDBFrameRepository — 传统 IndexedDB 持久化，作为降级备选
+ *   3. InMemoryFrameRepository — 纯内存兜底
+ *
  * 在测试环境中，由测试代码通过 createRuntimeStore 注入 InMemoryFrameRepository。
  */
 function createDefaultFrameRepository(): FrameRepository {
+  // 优先使用三层统一存储
+  if (typeof window !== 'undefined' || typeof indexedDB !== 'undefined') {
+    return new UnifiedFrameRepository()
+  }
   if (typeof indexedDB !== 'undefined') {
     return new IndexedDBFrameRepository()
   }

@@ -3,10 +3,20 @@ import { beforeEach, describe, expect, it } from 'vitest'
 
 import { createPhaseADemoIR } from '@/compiler/region/demoIR'
 import { useHistoryStore } from '@/stores/history'
-import { useTimelineStore } from '@/stores/timeline'
 
 import { deserializeProject, serializeProject, createProjectSnapshot } from './serializer'
-import type { PixelForgeProject } from './types'
+import type { PixelForgeProject, TimelineStoreLike } from './types'
+
+// —— 模拟 timeline store（替代已删除的 @/stores/timeline）——
+function createMockTimeline(): TimelineStoreLike {
+  return {
+    currentFrame: 0,
+    totalFrames: 300,
+    fps: 30,
+    tracks: [],
+    seek: () => {},
+  }
+}
 
 // —— 模拟 runtime store 的最小接口(createProjectSnapshot 只用到 currentIr / currentScenario) ——
 function createMockRuntime(currentIr: ReturnType<typeof createPhaseADemoIR>) {
@@ -23,7 +33,7 @@ describe('project serializer', () => {
 
   describe('createProjectSnapshot', () => {
     it('从 store 状态创建快照,包含完整 metadata', () => {
-      const timeline = useTimelineStore()
+      const timeline = createMockTimeline()
       const ir = createPhaseADemoIR('blend_demo')
       const runtime = createMockRuntime(ir)
 
@@ -39,7 +49,7 @@ describe('project serializer', () => {
     })
 
     it('快照中的 renderIR 是深拷贝(不共享引用)', () => {
-      const timeline = useTimelineStore()
+      const timeline = createMockTimeline()
       const ir = createPhaseADemoIR('blend_demo')
       const runtime = createMockRuntime(ir)
 
@@ -50,7 +60,7 @@ describe('project serializer', () => {
     })
 
     it('快照中的 timeline.tracks 是深拷贝', () => {
-      const timeline = useTimelineStore()
+      const timeline = createMockTimeline()
       const ir = createPhaseADemoIR('blend_demo')
       const runtime = createMockRuntime(ir)
 
@@ -61,7 +71,7 @@ describe('project serializer', () => {
     })
 
     it('传入 history 时,历史栈被序列化', () => {
-      const timeline = useTimelineStore()
+      const timeline = createMockTimeline()
       const history = useHistoryStore()
       const ir = createPhaseADemoIR('blend_demo')
       const runtime = createMockRuntime(ir)
@@ -82,7 +92,7 @@ describe('project serializer', () => {
     })
 
     it('不传 history 时,history 字段为 undefined', () => {
-      const timeline = useTimelineStore()
+      const timeline = createMockTimeline()
       const ir = createPhaseADemoIR('blend_demo')
       const runtime = createMockRuntime(ir)
 
@@ -91,7 +101,7 @@ describe('project serializer', () => {
     })
 
     it('baseOn 参数:保留 id / createdAt,更新 name / updatedAt', () => {
-      const timeline = useTimelineStore()
+      const timeline = createMockTimeline()
       const ir = createPhaseADemoIR('blend_demo')
       const runtime = createMockRuntime(ir)
 
@@ -114,7 +124,7 @@ describe('project serializer', () => {
 
   describe('serializeProject / deserializeProject', () => {
     it('序列化 → 反序列化 往返一致', () => {
-      const timeline = useTimelineStore()
+      const timeline = createMockTimeline()
       const ir = createPhaseADemoIR('blend_demo')
       const runtime = createMockRuntime(ir)
 

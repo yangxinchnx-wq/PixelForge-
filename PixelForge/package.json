@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@guolao/vue-monaco-editor": "^1.6.0",
+    "@phosphor-icons/vue": "^2.2.1",
     "@tauri-apps/api": "^2.11.1",
     "animejs": "^4.5.0",
     "monaco-editor": "^0.56.0",

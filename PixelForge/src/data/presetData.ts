@@ -2,11 +2,7 @@ import type { ElementTag, TuningParams, IRTreeNode } from '../types';
 
 export const initialPromptText = `壮丽的高分辨率电影级夜景:一座静谧的水晶般高山湖泊,倒映着深邃的星空与闪耀的银河系。湖面飘荡着轻柔薄雾,远处是松林。8K 分辨率,照片级真实感,程序化光照。`;
 
-export const initialElements: ElementTag[] = [
-  { id: 'elem-sky', name: '星空背景层', type: 'sky', active: true, opacity: 1.0, blendMode: 'screen', properties: { starCount: 15000, twinkleSpeed: 0.85, nebulaIntensity: 0.65 } },
-  { id: 'elem-milkyway', name: '银河核心层', type: 'galaxy', active: true, opacity: 0.9, blendMode: 'add', properties: { coreGlow: 0.8, dustDensity: 0.5, colorShift: 0.2 } },
-  { id: 'elem-water', name: '湖面水体层', type: 'water', active: true, opacity: 0.95, blendMode: 'normal', properties: { waveSpeed: 0.4, reflectionDistortion: 0.35, mistDensity: 0.2 } },
-];
+export const initialElements: ElementTag[] = [];
 
 export const initialTuningParams: TuningParams = {
   starDensity: 0.45,

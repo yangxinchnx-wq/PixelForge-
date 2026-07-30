@@ -32,7 +32,7 @@ import {
   type FrameRenderer,
   type FrameExporter,
 } from './renderPipeline'
-import type { Sequence } from '../timeline/core/sequence'
+import type { Sequence } from './timelineTypes'
 
 // ============================================================================
 // Store 定义

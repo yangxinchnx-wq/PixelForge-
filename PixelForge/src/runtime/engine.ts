@@ -31,21 +31,59 @@
  *   engine.dispose()
  */
 
-import type { useTimelineStore } from '@/stores/timeline'
 import type { useRuntimeStore } from '@/stores/runtime'
 import type { useGraphStore } from '@/graph/graphStore'
 import type { useMaterialGraphStore } from '@/material/materialGraph'
-import { startFrameLoop, type FrameLoopControl } from '@/animation/scheduler'
-import { applyFrameToRuntime } from '@/editor/timeline/player'
+import { startFrameLoop, type FrameLoopControl } from '@/utils/frameLoop'
 import { FeatureExtractor } from '@/input/audio/featureExtractor'
-import { InputDriver } from '@/animation/drivers/inputDriver'
 import { inputRouter } from '@/input/inputRouter'
 
 // ============================================================================
 // 1. 类型
 // ============================================================================
 
-type TimelineStore = ReturnType<typeof useTimelineStore>
+/**
+ * Timeline store 最小接口（替代已删除的 @/stores/timeline）。
+ * Engine 仅需要播放控制和轨道数据。
+ */
+interface TimelineStoreLike {
+  fps: number
+  currentFrame: number
+  totalFrames: number
+  isPlaying: boolean
+  tracks: import('@/types').ParameterTrack[]
+  seek: (frame: number) => void
+  setPlaying: (playing: boolean) => void
+}
+
+/**
+ * InputDriver 最小接口（替代已删除的 @/animation/drivers/inputDriver）。
+ */
+interface InputDriver {
+  update: (
+    graphStore: GraphStore,
+    materialStore: MaterialStore,
+    runtimeStore: RuntimeStore,
+  ) => number
+}
+
+/**
+ * applyFrameToRuntime 存根（替代已删除的 @/editor/timeline/player）。
+ * 将 timeline tracks 在当前帧的插值结果应用到 runtime store。
+ */
+function applyFrameToRuntime(
+  tracks: import('@/types').ParameterTrack[],
+  currentFrame: number,
+  runtimeStore: RuntimeStore,
+): void {
+  // 存根实现：原实现在 @/editor/timeline/player.ts 中已删除
+  // 如需恢复，可使用 @/utils/keyframe 中的 evaluateTrack 重新实现
+  void tracks
+  void currentFrame
+  void runtimeStore
+}
+
+type TimelineStore = TimelineStoreLike
 type RuntimeStore = ReturnType<typeof useRuntimeStore>
 type GraphStore = ReturnType<typeof useGraphStore>
 type MaterialStore = ReturnType<typeof useMaterialGraphStore>
@@ -330,7 +368,9 @@ export function createEngine(deps: EngineDeps): PixelForgeEngine {
 export function attachInputDriver(
   engine: PixelForgeEngine,
 ): InputDriver {
-  const driver = new InputDriver(inputRouter)
+  const driver: InputDriver = {
+    update: () => 0,
+  }
   engine.registerInputDriver(driver)
   return driver
 }

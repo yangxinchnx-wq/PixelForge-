@@ -10,6 +10,17 @@ export default defineConfig({
     },
   },
   clearScreen: false,
+  // 显式预构建所有依赖，避免运行时发现新依赖触发重新预构建（导致 ERR_ABORTED）
+  optimizeDeps: {
+    include: [
+      'vue',
+      'vue-router',
+      'pinia',
+      '@tauri-apps/api/core',
+      '@guolao/vue-monaco-editor',
+      'animejs',
+    ],
+  },
   build: {
     rollupOptions: {
       output: {

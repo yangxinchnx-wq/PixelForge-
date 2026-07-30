@@ -1,5 +1,17 @@
 import type { RenderIR } from '@/compiler/ir/renderIR'
-import type { ParameterTrack } from '@/editor/timeline/types'
+import type { ParameterTrack } from '@/types'
+
+/**
+ * Timeline store 的最小接口（用于 project 模块序列化/恢复）。
+ * 替代已删除的 @/stores/timeline 中的 useTimelineStore 返回类型。
+ */
+export interface TimelineStoreLike {
+  currentFrame: number
+  totalFrames: number
+  fps: number
+  tracks: ParameterTrack[]
+  seek: (frame: number) => void
+}
 
 /**
  * PixelForge 项目文件类型定义。
