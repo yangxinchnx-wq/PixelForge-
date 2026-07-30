@@ -14,7 +14,6 @@
  */
 import { ref, computed, nextTick } from 'vue';
 import { useAppStore } from '../stores/app';
-import { useAssetStore } from '../assets/assetStore';
 import {
   createConversation,
   addUserMessage,
@@ -27,7 +26,6 @@ import {
 } from '../world/director/directorConversation';
 import { parseEnhancedIntent } from '../world/director/directorEnhanced';
 import type { LLMOutput } from '../authoring/llm/types';
-import type { ParameterTrack, Keyframe } from '../types';
 
 const props = defineProps<{
   visible: boolean;
@@ -94,19 +92,17 @@ async function sendMessage() {
 
       // 注入到 appStore 的 paramTracks
       for (const track of timeline.tracks) {
-        const paramTrack: ParameterTrack = {
-          id: track.id,
-          label: track.name,
-          layerId: track.targetId,
-          parameter: track.paramKey,
-          keyframes: track.keyframes.map((kf): Keyframe => ({
-            id: kf.id,
-            time: kf.time,
-            value: typeof kf.value === 'number' ? kf.value : 0,
-            interpolation: kf.interpolation as 'linear' | 'ease' | 'hold' | 'bezier' | 'step',
-          })),
-        };
-        appStore.addParamTrack(paramTrack);
+        // 使用 store API 创建参数轨道，再逐个添加关键帧
+        const trackId = appStore.addParamTrack(
+          track.name,
+          track.targetId,
+          track.paramKey,
+        );
+        for (const kf of track.keyframes) {
+          const value = typeof kf.value === 'number' ? kf.value : 0;
+          const interp = kf.interpolation as 'linear' | 'ease' | 'hold' | 'bezier' | 'step';
+          appStore.addKeyframe(trackId, kf.time, value, interp);
+        }
         patchCount++;
       }
     }

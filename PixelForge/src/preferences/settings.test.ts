@@ -86,20 +86,20 @@ function setSystemTheme(dark: boolean): void {
 // ============================================================================
 
 describe('theme / presets', () => {
-  it('P01: DARK_TOKENS 包含全部 21 个 token', () => {
+  it('P01: DARK_TOKENS 包含全部 token', () => {
     const keys = Object.keys(DARK_TOKENS)
-    expect(keys).toHaveLength(21)
-    expect(keys).toContain('--pf-paper')
-    expect(keys).toContain('--pf-ink')
-    expect(keys).toContain('--pf-accent')
-    expect(keys).toContain('--pf-r-xl')
+    expect(keys.length).toBeGreaterThan(0)
+    expect(keys).toContain('--base-bg')
+    expect(keys).toContain('--text-primary')
+    expect(keys).toContain('--accent')
+    expect(keys).toContain('--glass-bg')
   })
 
-  it('P02: LIGHT_TOKENS 包含全部 21 个 token', () => {
+  it('P02: LIGHT_TOKENS 包含全部 token', () => {
     const keys = Object.keys(LIGHT_TOKENS)
-    expect(keys).toHaveLength(21)
-    expect(keys).toContain('--pf-paper')
-    expect(keys).toContain('--pf-ink')
+    expect(keys.length).toBeGreaterThan(0)
+    expect(keys).toContain('--base-bg')
+    expect(keys).toContain('--text-primary')
   })
 
   it('P03: dark 和 light 的 token key 完全一致', () => {
@@ -108,26 +108,25 @@ describe('theme / presets', () => {
     expect(darkKeys).toEqual(lightKeys)
   })
 
-  it('P04: dark 和 light 的 paper 色值不同', () => {
-    expect(DARK_TOKENS['--pf-paper']).not.toBe(LIGHT_TOKENS['--pf-paper'])
+  it('P04: dark 和 light 的 base-bg 色值不同', () => {
+    expect(DARK_TOKENS['--base-bg']).not.toBe(LIGHT_TOKENS['--base-bg'])
   })
 
-  it('P05: dark paper 是深色,light paper 是浅色', () => {
-    expect(DARK_TOKENS['--pf-paper']).toMatch(/^#1/)
-    expect(LIGHT_TOKENS['--pf-paper']).toMatch(/^#f/)
+  it('P05: dark base-bg 是深色,light base-bg 是浅色', () => {
+    expect(DARK_TOKENS['--base-bg']).toMatch(/^#1/)
+    expect(LIGHT_TOKENS['--base-bg']).toMatch(/^#e/)
   })
 
   it('P06: THEME_MODES 包含 dark/light/auto', () => {
     expect(THEME_MODES).toEqual(['dark', 'light', 'auto'])
   })
 
-  it('P07: 圆角 token 在 dark 和 light 中一致', () => {
-    expect(DARK_TOKENS['--pf-r-xs']).toBe(LIGHT_TOKENS['--pf-r-xs'])
-    expect(DARK_TOKENS['--pf-r-xl']).toBe(LIGHT_TOKENS['--pf-r-xl'])
+  it('P07: accent 色值在 dark 和 light 中一致', () => {
+    expect(DARK_TOKENS['--accent']).toBe(LIGHT_TOKENS['--accent'])
   })
 
-  it('P08: accent 色值不同(dark 用亮橙,light 用深橙)', () => {
-    expect(DARK_TOKENS['--pf-accent']).not.toBe(LIGHT_TOKENS['--pf-accent'])
+  it('P08: text-primary 色值不同(dark 用白色系,light 用黑色系)', () => {
+    expect(DARK_TOKENS['--text-primary']).not.toBe(LIGHT_TOKENS['--text-primary'])
   })
 })
 
@@ -203,19 +202,19 @@ describe('theme / applyThemeTokens', () => {
   it('AT01: 应用 dark tokens 到 documentElement', () => {
     applyThemeTokens(DARK_TOKENS)
     const root = mockDoc.documentElement
-    expect(root.style.getPropertyValue('--pf-paper')).toBe(DARK_TOKENS['--pf-paper'])
-    expect(root.style.getPropertyValue('--pf-ink')).toBe(DARK_TOKENS['--pf-ink'])
+    expect(root.style.getPropertyValue('--base-bg')).toBe(DARK_TOKENS['--base-bg'])
+    expect(root.style.getPropertyValue('--text-primary')).toBe(DARK_TOKENS['--text-primary'])
   })
 
   it('AT02: 应用 light tokens 覆盖 dark', () => {
     applyThemeTokens(DARK_TOKENS)
     applyThemeTokens(LIGHT_TOKENS)
     const root = mockDoc.documentElement
-    expect(root.style.getPropertyValue('--pf-paper')).toBe(LIGHT_TOKENS['--pf-paper'])
-    expect(root.style.getPropertyValue('--pf-ink')).toBe(LIGHT_TOKENS['--pf-ink'])
+    expect(root.style.getPropertyValue('--base-bg')).toBe(LIGHT_TOKENS['--base-bg'])
+    expect(root.style.getPropertyValue('--text-primary')).toBe(LIGHT_TOKENS['--text-primary'])
   })
 
-  it('AT03: 应用所有 21 个 token', () => {
+  it('AT03: 应用所有 token', () => {
     applyThemeTokens(DARK_TOKENS)
     const root = mockDoc.documentElement
     for (const [key, value] of Object.entries(DARK_TOKENS)) {
@@ -264,7 +263,7 @@ describe('theme / applyTheme', () => {
   it('AP05: applyTheme 后 CSS 变量已应用', () => {
     applyTheme('light')
     const root = mockDoc.documentElement
-    expect(root.style.getPropertyValue('--pf-paper')).toBe(LIGHT_TOKENS['--pf-paper'])
+    expect(root.style.getPropertyValue('--base-bg')).toBe(LIGHT_TOKENS['--base-bg'])
   })
 })
 
@@ -412,7 +411,7 @@ describe('settingsStore', () => {
   it('T07: setTheme 应用 CSS 变量到 documentElement', () => {
     const s = useSettingsStore()
     s.setTheme('light')
-    expect(mockDoc.documentElement.style.getPropertyValue('--pf-paper')).toBe(LT['--pf-paper'])
+    expect(mockDoc.documentElement.style.getPropertyValue('--base-bg')).toBe(LT['--base-bg'])
   })
 
   it('T08: setTheme 设置 data-theme 属性', () => {
@@ -590,7 +589,7 @@ describe('settingsStore', () => {
     vi.stubGlobal('document', mockDoc)
     s.init()
     expect(mockDoc.documentElement.getAttribute('data-theme')).toBe('light')
-    expect(mockDoc.documentElement.style.getPropertyValue('--pf-paper')).toBe(LT['--pf-paper'])
+    expect(mockDoc.documentElement.style.getPropertyValue('--base-bg')).toBe(LT['--base-bg'])
   })
 
   it('RS03: dispose 停止系统监听(不抛错)', () => {

@@ -2,11 +2,10 @@
  * Theme Presets(Step 40.1)— 主题预设与切换。
  *
  * 设计:
- * - dark preset 复用 App.vue 现有 :root tokens(零迁移成本)
- * - light preset 为新增(对齐 dark 的 14 个 token)
+ * - dark/light preset 使用 index.css 的 --glass- / --text- / --accent 令牌
  * - auto 模式跟随 prefers-color-scheme
  * - 切换机制:document.documentElement.setAttribute('data-theme', 'dark'|'light')
- * - CSS 变量定义在 App.vue <style> 中(:root[data-theme="..."]),
+ * - CSS 变量定义在 index.css 中(:root / [data-theme="dark"]),
  *   本模块只负责 JS 侧的预设定义 + 切换函数 + 系统偏好监听
  */
 
@@ -19,82 +18,92 @@ export type ThemeMode = 'dark' | 'light' | 'auto'
 /** 实际生效的主题(解析 auto 后) */
 export type ResolvedTheme = 'dark' | 'light'
 
+/**
+ * 主题令牌 — 与 index.css 中的 CSS 变量名对齐。
+ * 通过 setProperty 注入时覆盖 CSS 默认值。
+ */
 export interface ThemeTokens {
-  '--pf-paper': string
-  '--pf-surface': string
-  '--pf-surface-soft': string
-  '--pf-surface-sunk': string
-  '--pf-line': string
-  '--pf-line-strong': string
-  '--pf-ink': string
-  '--pf-ink-soft': string
-  '--pf-ink-muted': string
-  '--pf-ink-faint': string
-  '--pf-accent': string
-  '--pf-accent-soft': string
-  '--pf-accent-deep': string
-  '--pf-success': string
-  '--pf-warning': string
-  '--pf-danger': string
-  '--pf-r-xs': string
-  '--pf-r-sm': string
-  '--pf-r-md': string
-  '--pf-r-lg': string
-  '--pf-r-xl': string
+  '--base-bg': string
+  '--glass-bg': string
+  '--glass-bg-hover': string
+  '--glass-bg-pressed': string
+  '--glass-border': string
+  '--glass-edge': string
+  '--track-bg': string
+  '--track-bg-hover': string
+  '--separator': string
+  '--separator-strong': string
+  '--accent': string
+  '--accent-hover': string
+  '--accent-pressed': string
+  '--accent-text': string
+  '--text-primary': string
+  '--text-secondary': string
+  '--text-tertiary': string
+  '--text-quaternary': string
+  '--canvas-bg': string
+  '--playhead': string
+  '--toggle-mute': string
+  '--toggle-solo': string
+  '--toggle-lock': string
 }
 
 // ============================================================================
 // 主题预设
 // ============================================================================
 
-/** Dark 主题(对齐 App.vue 现有 :root tokens) */
+/** Dark 主题(对齐 index.css [data-theme="dark"] 的值) */
 export const DARK_TOKENS: ThemeTokens = {
-  '--pf-paper': '#111315',
-  '--pf-surface': '#171a1d',
-  '--pf-surface-soft': '#1d2125',
-  '--pf-surface-sunk': '#101214',
-  '--pf-line': 'rgba(255, 255, 255, 0.08)',
-  '--pf-line-strong': 'rgba(255, 255, 255, 0.15)',
-  '--pf-ink': '#ece8e1',
-  '--pf-ink-soft': '#b8b4ac',
-  '--pf-ink-muted': '#817f79',
-  '--pf-ink-faint': '#5d5c58',
-  '--pf-accent': '#ef855d',
-  '--pf-accent-soft': 'rgba(239, 133, 93, 0.14)',
-  '--pf-accent-deep': '#d96945',
-  '--pf-success': '#71c69a',
-  '--pf-warning': '#e6b86a',
-  '--pf-danger': '#e8797f',
-  '--pf-r-xs': '6px',
-  '--pf-r-sm': '8px',
-  '--pf-r-md': '10px',
-  '--pf-r-lg': '12px',
-  '--pf-r-xl': '14px',
+  '--base-bg': '#1c1c1e',
+  '--glass-bg': 'rgba(40, 40, 48, 0.6)',
+  '--glass-bg-hover': 'rgba(55, 55, 65, 0.7)',
+  '--glass-bg-pressed': 'rgba(30, 30, 38, 0.5)',
+  '--glass-border': 'rgba(255, 255, 255, 0.08)',
+  '--glass-edge': 'rgba(255, 255, 255, 0.12)',
+  '--track-bg': 'rgba(255, 255, 255, 0.02)',
+  '--track-bg-hover': 'rgba(255, 255, 255, 0.04)',
+  '--separator': 'rgba(255, 255, 255, 0.06)',
+  '--separator-strong': 'rgba(255, 255, 255, 0.1)',
+  '--accent': '#0a84ff',
+  '--accent-hover': '#3a9fff',
+  '--accent-pressed': '#0060df',
+  '--accent-text': 'rgba(255, 255, 255, 0.95)',
+  '--text-primary': 'rgba(255, 255, 255, 0.92)',
+  '--text-secondary': 'rgba(255, 255, 255, 0.6)',
+  '--text-tertiary': 'rgba(255, 255, 255, 0.38)',
+  '--text-quaternary': 'rgba(255, 255, 255, 0.12)',
+  '--canvas-bg': '#0a0a0c',
+  '--playhead': '#ff453a',
+  '--toggle-mute': '#ff453a',
+  '--toggle-solo': '#ff9f0a',
+  '--toggle-lock': '#30d158',
 }
 
-/** Light 主题(新增,色值对齐 dark 的语义角色) */
+/** Light 主题(对齐 index.css :root / [data-theme="light"] 的值) */
 export const LIGHT_TOKENS: ThemeTokens = {
-  '--pf-paper': '#f5f4f1',
-  '--pf-surface': '#ffffff',
-  '--pf-surface-soft': '#f0efec',
-  '--pf-surface-sunk': '#e8e7e3',
-  '--pf-line': 'rgba(0, 0, 0, 0.08)',
-  '--pf-line-strong': 'rgba(0, 0, 0, 0.15)',
-  '--pf-ink': '#1a1c1e',
-  '--pf-ink-soft': '#4a4c4f',
-  '--pf-ink-muted': '#7a7c7f',
-  '--pf-ink-faint': '#a8aaad',
-  '--pf-accent': '#d96945',
-  '--pf-accent-soft': 'rgba(217, 105, 69, 0.12)',
-  '--pf-accent-deep': '#c4552f',
-  '--pf-success': '#3da872',
-  '--pf-warning': '#c9952f',
-  '--pf-danger': '#d65560',
-  '--pf-r-xs': '6px',
-  '--pf-r-sm': '8px',
-  '--pf-r-md': '10px',
-  '--pf-r-lg': '12px',
-  '--pf-r-xl': '14px',
+  '--base-bg': '#e8e8ed',
+  '--glass-bg': 'rgba(255, 255, 255, 0.8)',
+  '--glass-bg-hover': 'rgba(255, 255, 255, 0.9)',
+  '--glass-bg-pressed': 'rgba(255, 255, 255, 0.7)',
+  '--glass-border': 'rgba(0, 0, 0, 0.12)',
+  '--glass-edge': 'rgba(0, 0, 0, 0.08)',
+  '--track-bg': 'rgba(0, 0, 0, 0.04)',
+  '--track-bg-hover': 'rgba(0, 0, 0, 0.06)',
+  '--separator': 'rgba(0, 0, 0, 0.1)',
+  '--separator-strong': 'rgba(0, 0, 0, 0.16)',
+  '--accent': '#0a84ff',
+  '--accent-hover': '#3a9fff',
+  '--accent-pressed': '#0060df',
+  '--accent-text': 'rgba(255, 255, 255, 0.95)',
+  '--text-primary': 'rgba(0, 0, 0, 0.92)',
+  '--text-secondary': 'rgba(0, 0, 0, 0.62)',
+  '--text-tertiary': 'rgba(0, 0, 0, 0.4)',
+  '--text-quaternary': 'rgba(0, 0, 0, 0.15)',
+  '--canvas-bg': '#f0f0f5',
+  '--playhead': '#ff3b30',
+  '--toggle-mute': '#ff3b30',
+  '--toggle-solo': '#ff9500',
+  '--toggle-lock': '#24a045',
 }
 
 /** 所有可用主题模式 */
@@ -128,7 +137,7 @@ export function getThemeTokens(theme: ResolvedTheme): ThemeTokens {
 
 /**
  * 将 tokens 应用到 document.documentElement(SSR 安全)。
- * 通过 CSS 自定义属性(setProperty)注入,不依赖 :root[data-theme] CSS 规则。
+ * 通过 CSS 自定义属性(setProperty)注入,与 index.css 的变量名对齐。
  */
 export function applyThemeTokens(tokens: ThemeTokens): void {
   if (typeof document === 'undefined') return

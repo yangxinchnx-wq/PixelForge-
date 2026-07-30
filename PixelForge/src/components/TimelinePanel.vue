@@ -8,6 +8,7 @@ import { resolveCollision, clampResizeLeft, clampResizeRight } from '../utils/co
 import { getSplicedGroup } from '../utils/clipUtils';
 import type { Command } from '../utils/commandHistory';
 import AudioMixerPanel from './AudioMixerPanel.vue';
+import DirectorPanel from './DirectorPanel.vue';
 
 const props = defineProps<{
   currentTime: number;
@@ -33,6 +34,9 @@ const pps = ref(30);
 
 // ─── 音频混音器面板 ───────────────────────────────────
 const showMixer = ref(false);
+
+// ─── AI Director 面板 ───────────────────────────────
+const showDirector = ref(false);
 
 // ─── Snap indicator ──────────────────────────────────
 const snapIndicatorTime = ref<number | null>(null);
@@ -698,6 +702,16 @@ const zoomPercent = computed(() => ((pps.value - MIN_PPS) / (MAX_PPS - MIN_PPS))
             <line x1="17" y1="16" x2="23" y2="16" />
           </svg>
         </button>
+        <button
+          class="btn btn-icon"
+          :class="{ 'btn-active': showDirector }"
+          title="AI Director · 时间轴动画"
+          @click="showDirector = !showDirector"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2a3 3 0 0 0-3 3 3 3 0 0 0-3 3 3 3 0 0 0-1 5.87V17a3 3 0 0 0 3 3 3 3 0 0 0 4 0 3 3 0 0 0 4 0 3 3 0 0 0 3-3v-3.13A3 3 0 0 0 18 8a3 3 0 0 0-3-3 3 3 0 0 0-3-3z" />
+          </svg>
+        </button>
       </div>
 
       <div class="toolbar-section">
@@ -893,4 +907,7 @@ const zoomPercent = computed(() => ((pps.value - MIN_PPS) / (MAX_PPS - MIN_PPS))
 
   <!-- 音频混音器面板 -->
   <AudioMixerPanel v-model:visible="showMixer" />
+
+  <!-- AI Director 面板 -->
+  <DirectorPanel v-model:visible="showDirector" />
 </template>

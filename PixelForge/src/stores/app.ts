@@ -44,14 +44,6 @@ export interface AccentColors {
 
 const DEFAULT_ACCENT: AccentColors = { settings: '', image: '', video: '' };
 
-/** 将 hex 色值转为带透明度的 rgba */
-function hexToRgba(hex: string, alpha: number): string {
-  const r = parseInt(hex.slice(1, 3), 16);
-  const g = parseInt(hex.slice(3, 5), 16);
-  const b = parseInt(hex.slice(5, 7), 16);
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}
-
 /** 将 hex 色值加深 */
 function darkenHex(hex: string, amount: number): string {
   const r = Math.max(0, parseInt(hex.slice(1, 3), 16) - amount);
@@ -145,9 +137,6 @@ export const useAppStore = defineStore('app', () => {
   function buildAccentVars(hex: string): Record<string, string> | undefined {
     if (!hex) return undefined;
     return {
-      '--pf-accent': hex,
-      '--pf-accent-soft': hexToRgba(hex, 0.14),
-      '--pf-accent-deep': darkenHex(hex, 30),
       '--accent': hex,
       '--accent-hover': darkenHex(hex, 20),
       '--accent-pressed': darkenHex(hex, 40),

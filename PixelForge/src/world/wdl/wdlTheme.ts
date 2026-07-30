@@ -3,20 +3,20 @@
  *
  * 职责:
  * - 定义适配 PixelForge 暗色主题的 Monaco editor 主题
- * - 颜色值与 src/style.css 的 --pf-* 设计令牌保持一致
+ * - 颜色值与 index.css 的 --glass / --text 设计令牌保持一致
  *
- * 颜色映射(--pf-* → Monaco theme):
- *   --pf-surface     rgba(18,24,39,0.58) → editor.background
- *   --pf-ink         #f5f5f7             → editor.foreground
- *   --pf-line        rgba(255,255,255,0.11) → editorLineNumber.foreground
- *   --pf-accent      #9b6cff             → editorCursor.foreground
+ * 颜色映射(主系统令牌 → Monaco theme):
+ *   --glass-bg      rgba(40,40,48,0.6)   → editor.background
+ *   --text-primary  rgba(255,255,255,0.92) → editor.foreground
+ *   --separator     rgba(255,255,255,0.06) → editorLineNumber.foreground
+ *   --accent        #0a84ff              → editorCursor.foreground
  */
 import type { editor } from 'monaco-editor'
 
 /** PixelForge 暗色主题 ID */
 export const WDL_THEME_ID = 'pixelforge-dark'
 
-/** PixelForge 暗色主题定义(与 style.css --pf-* 令牌对齐) */
+/** PixelForge 暗色主题定义(与 index.css 主系统令牌对齐) */
 export const wdlThemeDefinition: editor.IStandaloneThemeData = {
   base: 'vs-dark',
   inherit: true,
@@ -43,14 +43,14 @@ export const wdlThemeDefinition: editor.IStandaloneThemeData = {
     { token: '@brackets', foreground: 'abb2bf' },
   ],
   colors: {
-    // 编辑器背景 — --pf-surface
+    // 编辑器背景 — --glass-bg
     'editor.background': '#12182700',
-    // 编辑器前景文字 — --pf-ink
+    // 编辑器前景文字 — --text-primary
     'editor.foreground': '#f5f5f7',
-    // 行号 — --pf-ink-faint
+    // 行号 — --text-quaternary
     'editorLineNumber.foreground': 'rgba(245,245,247,0.32)',
     'editorLineNumber.activeForeground': 'rgba(245,245,247,0.78)',
-    // 光标 — --pf-accent
+    // 光标 — --accent
     'editorCursor.foreground': '#9b6cff',
     // 选中高亮
     'editor.selectionBackground': 'rgba(155,108,255,0.25)',

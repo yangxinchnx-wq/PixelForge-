@@ -33,28 +33,20 @@ import {
 import {
   getDownstreamImpact,
   getUpstreamDependencies,
-  detectCycles,
-  topologicalSort,
 } from '../editor/asset-genome/impactAnalysis';
 import {
   computeContentHash,
   findDuplicates,
-  findSimilar,
-  type DedupSuggestion,
 } from '../editor/asset-genome/contentHash';
 import {
   createLoadStatusTable,
   markLoading,
   markLoaded,
-  markError,
-  getLoadState,
   type LoadState,
 } from '../editor/asset-genome/lazyLoader';
 import {
   createPackage,
   serializePackage,
-  deserializePackage,
-  type AssetPackage,
 } from '../editor/asset-genome/assetPackaging';
 
 const registry = useAssetRegistryStore();

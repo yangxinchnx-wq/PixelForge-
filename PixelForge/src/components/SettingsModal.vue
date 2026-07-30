@@ -120,27 +120,26 @@ const modalHeight = ref(640);
 const modalX = ref(0);
 const modalY = ref(0);
 
-const modalStyle = computed(() => {
-  const base: Record<string, string> = {};
-  // 应用设置页主题色调
-  if (props.accentColors.settings) {
-    const hex = props.accentColors.settings;
-    base['--accent'] = hex;
-    base['--accent-pressed'] = darkenHex(hex, 30);
-  }
-  if (!hasCustomSize.value) return base;
-  return {
-    ...base,
-    position: 'absolute',
-    left: `${modalX.value}px`,
-    top: `${modalY.value}px`,
-    width: `${modalWidth.value}px`,
-    height: `${modalHeight.value}px`,
-    maxWidth: 'none',
-    maxHeight: 'none',
-    margin: '0',
-  };
-});
+const modalStyle = ref<Record<string, string>>({});
+
+// 直接在 DOM 上设置 accent CSS 变量（绕过 Vue 响应式传播问题）
+watch(
+  () => props.accentColors.settings,
+  (hex) => {
+    const el = modalRef.value;
+    if (!el) return;
+    if (hex) {
+      el.style.setProperty('--pf-accent', hex);
+      el.style.setProperty('--pf-accent-soft', hexToRgba(hex, 0.14));
+      el.style.setProperty('--pf-accent-deep', darkenHex(hex, 30));
+    } else {
+      el.style.removeProperty('--pf-accent');
+      el.style.removeProperty('--pf-accent-soft');
+      el.style.removeProperty('--pf-accent-deep');
+    }
+  },
+  { immediate: true },
+);
 
 function getCursorForCorner(corner: ResizeCorner): string {
   return (corner === 'tl' || corner === 'br') ? 'nwse-resize' : 'nesw-resize';
