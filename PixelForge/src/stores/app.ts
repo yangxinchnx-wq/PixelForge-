@@ -26,6 +26,16 @@ export interface HistoryRecord {
   state: AppStateSnapshot;
 }
 
+export interface ModelConfig {
+  id: string;
+  name: string;
+  provider: 'openai' | 'anthropic' | 'google' | 'custom';
+  modelId: string;
+  apiKey: string;
+  baseUrl: string;
+  enabled: boolean;
+}
+
 const AUTOSAVE_KEY = 'pixelforge_autosave_v2';
 const MAX_HISTORY_LENGTH = 50;
 
@@ -61,7 +71,7 @@ export const useAppStore = defineStore('app', () => {
 
   // ─── App State ──────────────────────────────────────
   const activeTopTab = ref<'creation' | 'timeline' | 'preview'>('creation');
-  const activeLeftTab = ref<'input' | 'scene' | 'elements' | 'effects' | 'history' | 'render' | 'performance' | 'settings'>('input');
+  const activeLeftTab = ref<'input' | 'image' | 'elements' | 'effects' | 'history' | 'render' | 'performance' | 'settings'>('image');
 
   const livePromptText = ref(activeSnapshot.value.promptText);
   let promptDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -80,9 +90,32 @@ export const useAppStore = defineStore('app', () => {
   const isGenerating = ref(false);
 
   const autoSaveEnabled = ref(true);
+  const autoSaveInterval = ref(1500);
   const saveStatus = ref<'saved' | 'saving' | 'unsaved'>('saved');
   const lastSavedTime = ref<string | null>(loadedData?.savedTime || null);
   let isInitialMount = true;
+
+  // ─── Model Configs ──────────────────────────────────
+  const modelConfigs = ref<ModelConfig[]>(
+    Array.isArray(loadedData?.modelConfigs) ? loadedData.modelConfigs : []
+  );
+
+  function addModelConfig(config: Omit<ModelConfig, 'id'>): string {
+    const id = `model-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    modelConfigs.value.push({ ...config, id });
+    return id;
+  }
+
+  function updateModelConfig(id: string, patch: Partial<Omit<ModelConfig, 'id'>>): void {
+    const idx = modelConfigs.value.findIndex((m) => m.id === id);
+    if (idx !== -1) {
+      modelConfigs.value[idx] = { ...modelConfigs.value[idx], ...patch };
+    }
+  }
+
+  function removeModelConfig(id: string): void {
+    modelConfigs.value = modelConfigs.value.filter((m) => m.id !== id);
+  }
 
   // ─── Timeline State ────────────────────────────────
   const tracks = ref<Track[]>([...initialTracks]);
@@ -464,6 +497,7 @@ export const useAppStore = defineStore('app', () => {
       resolution: resolution.value,
       frameRate: frameRate.value,
       theme: theme.value,
+      modelConfigs: modelConfigs.value,
       savedTime: time,
     });
     void unifiedStore.writeMetadata(AUTOSAVE_KEY, payload).catch((e) => {
@@ -483,6 +517,7 @@ export const useAppStore = defineStore('app', () => {
         resolution: resolution.value,
         frameRate: frameRate.value,
         theme: theme.value,
+        modelConfigs: modelConfigs.value,
         savedTime: time,
       });
       // 同步写 localStorage（向后兼容，保证刷新即恢复）
@@ -512,6 +547,10 @@ export const useAppStore = defineStore('app', () => {
     clearHistory();
   }
 
+  function setAutoSaveInterval(ms: number) {
+    autoSaveInterval.value = Math.max(500, Math.min(30000, ms));
+  }
+
   // ─── Autosave ───────────────────────────────────────
   function triggerAutosave() {
     if (isInitialMount) {
@@ -532,6 +571,7 @@ export const useAppStore = defineStore('app', () => {
           resolution: resolution.value,
           frameRate: frameRate.value,
           theme: theme.value,
+          modelConfigs: modelConfigs.value,
           savedTime: time,
         });
         // 同步写 localStorage（向后兼容）
@@ -543,7 +583,7 @@ export const useAppStore = defineStore('app', () => {
       } catch (e) {
         console.error(e);
       }
-    }, 1500);
+    }, autoSaveInterval.value);
   }
 
   /**
@@ -563,6 +603,7 @@ export const useAppStore = defineStore('app', () => {
         resolution?: string;
         frameRate?: string;
         theme?: string;
+        modelConfigs?: ModelConfig[];
         savedTime?: string;
       };
       // 统一存储有数据，覆盖 localStorage 的同步加载结果
@@ -572,6 +613,7 @@ export const useAppStore = defineStore('app', () => {
       if (data.theme !== undefined) theme.value = data.theme;
       if (data.treeData !== undefined) treeData.value = data.treeData;
       if (data.savedTime !== undefined) lastSavedTime.value = data.savedTime;
+      if (data.modelConfigs !== undefined) modelConfigs.value = data.modelConfigs;
       // 将当前状态推入 history 作为初始快照
       if (data.promptText !== undefined || data.elements !== undefined) {
         history.value = [{
@@ -618,8 +660,10 @@ export const useAppStore = defineStore('app', () => {
     theme,
     isGenerating,
     autoSaveEnabled,
+    autoSaveInterval,
     saveStatus,
     lastSavedTime,
+    modelConfigs,
     // Timeline State
     tracks,
     clips,
@@ -656,9 +700,13 @@ export const useAppStore = defineStore('app', () => {
     handleGenerate,
     handleForceSave,
     handleResetProject,
+    setAutoSaveInterval,
     triggerAutosave,
     loadFromUnifiedStore,
     loadPromptHistory,
+    addModelConfig,
+    updateModelConfig,
+    removeModelConfig,
     // Timeline Actions
     executeTimelineCommand,
     undoTimeline,

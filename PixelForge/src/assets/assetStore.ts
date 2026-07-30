@@ -23,15 +23,19 @@ export const useAssetStore = defineStore('assets', () => {
   const totalCount = computed(() => items.value.length)
   const imageCount = computed(() => items.value.filter((a) => a.type === 'image').length)
   const textureCount = computed(() => items.value.filter((a) => a.type === 'texture').length)
+  const videoCount = computed(() => items.value.filter((a) => a.type === 'video').length)
   const images = computed(() => items.value.filter((a) => a.type === 'image'))
   const textures = computed(() => items.value.filter((a) => a.type === 'texture'))
+  const videos = computed(() => items.value.filter((a) => a.type === 'video'))
 
-  /** 添加资源(若 id 已存在则忽略), 同时异步上传到 GPU 纹理缓存 */
+  /** 添加资源(若 id 已存在则忽略), 图片/纹理异步上传到 GPU 纹理缓存 */
   function add(asset: Asset): void {
     if (items.value.some((a) => a.id === asset.id)) return
     items.value.push(asset)
-    // 异步上传到 GPU(textureCache 内部处理 device 未绑定时的降级)
-    void textureCache.register(asset)
+    // 仅图片/纹理类型上传到 GPU 纹理缓存,视频由 <video> 元素直接播放
+    if (asset.type === 'image' || asset.type === 'texture') {
+      void textureCache.register(asset)
+    }
   }
 
   /** 批量添加 */
@@ -81,8 +85,10 @@ export const useAssetStore = defineStore('assets', () => {
     totalCount,
     imageCount,
     textureCount,
+    videoCount,
     images,
     textures,
+    videos,
     add,
     addMany,
     remove,

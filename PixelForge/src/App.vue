@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { watch, onMounted, onUnmounted, ref, nextTick } from 'vue';
+import { watch, onMounted, onUnmounted, ref, nextTick, computed } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useAppStore } from './stores/app';
 import TopHeader from './components/TopHeader.vue';
@@ -8,13 +8,17 @@ import ControlPanel from './components/ControlPanel.vue';
 import CanvasViewport from './components/CanvasViewport.vue';
 import IRPreviewPanel from './components/IRPreviewPanel.vue';
 import TimelinePanel from './components/TimelinePanel.vue';
+import PerformancePanel from './components/PerformancePanel.vue';
 import StatusBar from './components/StatusBar.vue';
+import AIChatPanel from './components/AIChatPanel.vue';
+import ResourceManagerPanel from './components/ResourceManagerPanel.vue';
+import WorkflowPanel from './components/WorkflowPanel.vue';
 import AmbientFluidCanvas from './components/AmbientFluidCanvas.vue';
 import ExportModal from './components/ExportModal.vue';
 import SettingsModal from './components/SettingsModal.vue';
+import PfSelect from './components/ui/PfSelect.vue';
 import { pageEnter } from './composables/useAnime';
 import { TOTAL_DURATION } from './data';
-import { unifiedStore, type UnifiedStoreStats } from './storage';
 
 const store = useAppStore();
 const {
@@ -31,13 +35,21 @@ const {
   theme,
   isGenerating,
   autoSaveEnabled,
+  autoSaveInterval,
   saveStatus,
   lastSavedTime,
+  modelConfigs,
   history,
   currentIndex,
   canUndo,
   canRedo,
 } = storeToRefs(store);
+
+// ─── 项目实际时长（基于 clips 计算，无 clips 时为 0） ──
+const projectDuration = computed(() => {
+  if (store.clips.length === 0) return 0;
+  return Math.max(...store.clips.map(c => c.start + c.duration));
+});
 
 // ─── Theme application ────────────────────────────────
 watch(theme, (val) => {
@@ -80,12 +92,14 @@ function handleKeyDown(e: KeyboardEvent) {
 onMounted(() => {
   document.documentElement.dataset.theme = theme.value;
   window.addEventListener('keydown', handleKeyDown);
+  document.addEventListener('click', onTuningDocClick);
   // 初始化完成后从三层统一存储异步加载项目快照（覆盖 localStorage 同步加载结果）
   void store.loadFromUnifiedStore();
 });
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeyDown);
+  document.removeEventListener('click', onTuningDocClick);
   store.stopPlayback();
 });
 
@@ -98,20 +112,79 @@ watch(
 );
 
 // ─── Page content ─────────────────────────────────────
-const slidersConfig = [
-  { key: 'starDensity' as const, label: '星空密度', min: 0, max: 1, step: 0.01, fmt: (v: number) => `${Math.round(v * 100)}%` },
-  { key: 'brightness' as const, label: '亮度', min: 0, max: 1, step: 0.01, fmt: (v: number) => `${Math.round(v * 100)}%` },
-  { key: 'hue' as const, label: '色相', min: 0, max: 360, step: 1, fmt: (v: number) => `${Math.round(v)}°` },
-  { key: 'contrast' as const, label: '对比度', min: 0, max: 1, step: 0.01, fmt: (v: number) => `${Math.round(v * 100)}%` },
+const tuningSelects = [
+  {
+    key: 'starDensity' as const,
+    label: '星空密度',
+    options: [
+      { value: 0, label: '关闭' },
+      { value: 0.25, label: '低' },
+      { value: 0.5, label: '中' },
+      { value: 0.75, label: '高' },
+      { value: 1, label: '满' },
+    ],
+  },
+  {
+    key: 'brightness' as const,
+    label: '亮度',
+    options: [
+      { value: 0.2, label: '暗' },
+      { value: 0.4, label: '偏暗' },
+      { value: 0.6, label: '正常' },
+      { value: 0.8, label: '明亮' },
+      { value: 1, label: '最亮' },
+    ],
+  },
+  {
+    key: 'hue' as const,
+    label: '色相',
+    options: [
+      { value: 0, label: '红色' },
+      { value: 30, label: '橙色' },
+      { value: 60, label: '黄色' },
+      { value: 120, label: '绿色' },
+      { value: 180, label: '青色' },
+      { value: 240, label: '蓝色' },
+      { value: 300, label: '紫色' },
+    ],
+  },
+  {
+    key: 'contrast' as const,
+    label: '对比度',
+    options: [
+      { value: 0.25, label: '低' },
+      { value: 0.5, label: '中' },
+      { value: 0.75, label: '高' },
+      { value: 1, label: '最大' },
+    ],
+  },
 ];
 
-function onSliderChange(key: string, event: Event) {
-  const value = parseFloat((event.target as HTMLInputElement).value);
-  store.setTuningParams((prev) => ({ ...prev, [key]: value }));
+function onTuningSelectChange(key: string, value: string) {
+const parsed = parseFloat(value);
+store.setTuningParams((prev) => ({ ...prev, [key]: parsed }));
+}
+
+const isTuningPopoverOpen = ref(false);
+const tuningPopoverWrapRef = ref<HTMLElement | null>(null);
+
+function onTuningDocClick(e: MouseEvent) {
+  if (!isTuningPopoverOpen.value) return;
+  const wrap = tuningPopoverWrapRef.value;
+  if (wrap && !wrap.contains(e.target as Node)) {
+    isTuningPopoverOpen.value = false;
+  }
 }
 
 function goBackToInput() {
-  activeLeftTab.value = 'input';
+  activeLeftTab.value = 'image';
+}
+
+// ─── 图片工作台：资源管理联动 ────────────────────────
+const imageTabSelectedAssetId = ref<string | null>(null);
+
+function onResourceSelect(id: string) {
+  imageTabSelectedAssetId.value = id;
 }
 
 // ─── 页面切换动画 (anime.js v4) ────────────────────────
@@ -140,44 +213,72 @@ function truncateText(text: string, max = 60): string {
   return text.length > max ? text.slice(0, max) + '…' : text;
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
-}
-
 function applyPromptFromHistory(text: string) {
   store.handlePromptTextChange(text);
 }
 
-// ─── 存储统计（性能页 / 设置弹窗用）────────────────────
-const storageStats = ref<UnifiedStoreStats | null>(null);
-const storagePath = ref<string | null>(null);
-const isStorageLoading = ref(false);
-
-async function refreshStorageStats() {
-  isStorageLoading.value = true;
-  try {
-    const [stats, path] = await Promise.all([
-      unifiedStore.stats(),
-      import('./storage').then((m) => m.tauriDb.getDbPath()),
-    ]);
-    storageStats.value = stats;
-    storagePath.value = path;
-  } catch (e) {
-    console.warn('[App] 存储统计加载失败', e);
-  } finally {
-    isStorageLoading.value = false;
-  }
-}
-
-// 切换到历史/性能页时自动加载数据
+// 切换到历史页时自动加载数据
 watch(activeLeftTab, (tab) => {
   if (tab === 'history') void refreshPromptHistory();
-  if (tab === 'performance') void refreshStorageStats();
 });
+
+// ─── 渲染/导出设置 (Adobe Media Encoder 风格) ─────────
+const renderFormat = ref('H.264');
+const renderPreset = ref('Match Source - High');
+const renderProfile = ref('High');
+const renderLevel = ref('4.1');
+const renderBitrateMode = ref<'CBR' | 'VBR 1-pass' | 'VBR 2-pass'>('VBR 1-pass');
+const renderTargetBitrate = ref(10);
+const renderMaxBitrate = ref(14);
+const renderAudioCodec = ref('AAC');
+const renderSampleRate = ref('48 kHz');
+const renderAudioChannels = ref('Stereo');
+const renderAudioBitrate = ref(320);
+const renderOutputName = ref('PixelForge_Export');
+const isExporting = ref(false);
+const exportProgress = ref(0);
+
+const formatOptions = ['H.264', 'HEVC (H.265)', 'ProRes 422 HQ', 'AV1', 'WebM VP9'];
+const presetOptions = ['Match Source - High', 'Match Source - Medium', 'Match Source - Low', 'Custom'];
+const profileOptions = ['High', 'Main', 'Baseline'];
+const levelOptions = ['4.0', '4.1', '4.2', '5.0', '5.1', '5.2'];
+const audioCodecOptions = ['AAC', 'MP3', 'PCM 24-bit'];
+const sampleRateOptions = ['48 kHz', '44.1 kHz', '96 kHz'];
+const channelOptions = ['Stereo', 'Mono', '5.1 Surround'];
+const audioBitrateOptions = [320, 256, 192, 128, 96];
+
+// PfSelect options (string value/label pairs)
+const formatOpts = formatOptions.map((f) => ({ value: f, label: f }));
+const presetOpts = presetOptions.map((p) => ({ value: p, label: p }));
+const profileOpts = profileOptions.map((p) => ({ value: p, label: p }));
+const levelOpts = levelOptions.map((l) => ({ value: l, label: `Level ${l}` }));
+const audioCodecOpts = audioCodecOptions.map((c) => ({ value: c, label: c }));
+const sampleRateOpts = sampleRateOptions.map((s) => ({ value: s, label: s }));
+const channelOpts = channelOptions.map((c) => ({ value: c, label: c }));
+
+const estimatedFileSize = computed(() => {
+  const totalBitrate = renderTargetBitrate.value + renderAudioBitrate.value / 1000;
+  const sizeMB = (totalBitrate * projectDuration.value) / 8; // Mbps * seconds / 8 = MB
+  if (sizeMB >= 1024) return `${(sizeMB / 1024).toFixed(2)} GB`;
+  return `${sizeMB.toFixed(1)} MB`;
+});
+
+function startExport() {
+  if (isExporting.value) return;
+  isExporting.value = true;
+  exportProgress.value = 0;
+  const timer = setInterval(() => {
+    exportProgress.value += Math.random() * 4 + 1;
+    if (exportProgress.value >= 100) {
+      exportProgress.value = 100;
+      clearInterval(timer);
+      setTimeout(() => {
+        isExporting.value = false;
+        exportProgress.value = 0;
+      }, 1500);
+    }
+  }, 200);
+}
 </script>
 
 <template>
@@ -187,10 +288,8 @@ watch(activeLeftTab, (tab) => {
     <TopHeader
       :theme="theme"
       :is-generating="isGenerating"
-      @export-click="isExportOpen = true"
-      @settings-click="isSettingsOpen = true"
       @toggle-theme="store.toggleTheme"
-      @generate="store.handleGenerate"
+      @export="isExportOpen = true"
     />
 
     <div class="pf-main">
@@ -216,7 +315,7 @@ watch(activeLeftTab, (tab) => {
             />
             <CanvasViewport
               :current-time="currentTime"
-              :duration="TOTAL_DURATION"
+              :duration="projectDuration"
               :is-playing="isPlaying"
               @toggle-play="store.togglePlay"
               @step-forward="store.stepForward"
@@ -238,30 +337,35 @@ watch(activeLeftTab, (tab) => {
           />
         </div>
 
-        <!-- Scene Page -->
-        <div v-else-if="activeLeftTab === 'scene'" class="pf-page">
-          <div class="pf-page-header">
-            <button class="btn btn-icon" title="返回" @click="goBackToInput">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
-                <line x1="19" y1="12" x2="5" y2="12" />
-                <polyline points="12 19 5 12 12 5" />
-              </svg>
-            </button>
-            <span class="pf-page-title">场景</span>
-          </div>
-          <div class="pf-page-body" style="display: flex">
-            <div class="pf-panel" style="flex: 1; min-height: 0">
-              <div class="pf-panel-header">
-                <span class="pf-panel-title">场景图</span>
-              </div>
-              <div class="pf-panel-body">
-                <IRPreviewPanel
-                  :tree-data="treeData"
-                  @toggle-visibility="store.toggleIRVisibility"
-                />
-              </div>
+        <!-- 图片工作台 — 左AI对话 + 中画布 + 底部工作流 + 右资源管理 -->
+        <div v-else-if="activeLeftTab === 'image'" class="pf-workspace">
+          <div class="pf-workspace-top">
+            <!-- 左侧：AI 对话 -->
+            <AIChatPanel />
+
+            <!-- 中间：画布 -->
+            <div class="pf-image-center">
+              <CanvasViewport
+                :current-time="currentTime"
+                :duration="TOTAL_DURATION"
+                :is-playing="isPlaying"
+                :external-selected-id="imageTabSelectedAssetId"
+                :hide-asset-strip="true"
+                @toggle-play="store.togglePlay"
+                @step-forward="store.stepForward"
+                @step-backward="store.stepBackward"
+                @reset="store.resetTime"
+              />
+            </div>
+
+            <!-- 右侧：资源管理 -->
+            <div style="width: var(--panel-right-width); flex-shrink: 0; min-height: 0">
+              <ResourceManagerPanel @select-asset="onResourceSelect" />
             </div>
           </div>
+
+          <!-- 底部：工作流（贯穿整个底部） -->
+          <WorkflowPanel />
         </div>
 
         <!-- Elements Page -->
@@ -314,21 +418,35 @@ watch(activeLeftTab, (tab) => {
               <div class="pf-panel-header">
                 <span class="pf-panel-title">画面调节</span>
               </div>
-              <div class="pf-panel-body">
-                <div v-for="slider in slidersConfig" :key="slider.key" class="pf-slider-row">
-                  <div class="pf-slider-header">
-                    <span class="pf-slider-label">{{ slider.label }}</span>
-                    <span class="pf-slider-value">{{ slider.fmt(activeSnapshot.tuningParams[slider.key]) }}</span>
+              <div class="pf-panel-body" ref="tuningPopoverWrapRef" style="position: relative">
+                <button class="pf-tuning-trigger" @click="isTuningPopoverOpen = !isTuningPopoverOpen">
+                  <span>调整画面参数</span>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                    <polyline points="9 18 15 12 9 6" />
+                  </svg>
+                </button>
+
+                <!-- Tuning Floating Panel -->
+                <div v-if="isTuningPopoverOpen" class="pf-popover">
+                  <div class="pf-popover-header">
+                    <span class="pf-popover-title">画面调节</span>
+                    <button class="btn btn-icon" title="关闭" @click="isTuningPopoverOpen = false">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                        <line x1="6" y1="6" x2="18" y2="18" />
+                      </svg>
+                    </button>
                   </div>
-                  <input
-                    type="range"
-                    class="pf-slider"
-                    :min="slider.min"
-                    :max="slider.max"
-                    :step="slider.step"
-                    :value="activeSnapshot.tuningParams[slider.key]"
-                    @input="onSliderChange(slider.key, $event)"
-                  />
+                  <div class="pf-popover-body">
+                    <div v-for="sel in tuningSelects" :key="sel.key" class="pf-tuning-row">
+                      <label class="pf-tuning-label">{{ sel.label }}</label>
+                      <PfSelect
+                        :model-value="String(activeSnapshot.tuningParams[sel.key])"
+                        :options="sel.options.map((o) => ({ value: String(o.value), label: o.label }))"
+                        @update:model-value="onTuningSelectChange(sel.key, $event)"
+                      />
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -397,153 +515,187 @@ watch(activeLeftTab, (tab) => {
           </div>
         </div>
 
-        <!-- Render Page -->
-        <div v-else-if="activeLeftTab === 'render'" class="pf-page">
-          <div class="pf-page-header">
-            <button class="btn btn-icon" title="返回" @click="goBackToInput">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
-                <line x1="19" y1="12" x2="5" y2="12" />
-                <polyline points="12 19 5 12 12 5" />
-              </svg>
-            </button>
-            <span class="pf-page-title">渲染</span>
-          </div>
-          <div class="pf-page-body" style="display: flex">
-            <div class="pf-panel" style="flex: 1; min-height: 0; max-width: 400px">
+        <!-- Performance Page -->
+        <PerformancePanel
+          v-else-if="activeLeftTab === 'performance'"
+          @back="goBackToInput"
+        />
+
+        <!-- Render Page — Adobe Media Encoder 风格导出界面 -->
+        <div v-else-if="activeLeftTab === 'render'" class="pf-render">
+          <!-- 左栏：设置区 -->
+          <div class="pf-render-settings">
+            <!-- 格式与预设 -->
+            <div class="pf-panel">
               <div class="pf-panel-header">
-                <span class="pf-panel-title">渲染设置</span>
+                <span class="pf-panel-title">格式与预设</span>
               </div>
               <div class="pf-panel-body">
-                <div class="pf-panel-section">
-                  <div class="pf-panel-label">分辨率</div>
+                <div class="pf-render-row">
+                  <label class="pf-render-label">格式</label>
+                  <PfSelect v-model="renderFormat" :options="formatOpts" />
+                </div>
+                <div class="pf-render-row">
+                  <label class="pf-render-label">预设</label>
+                  <PfSelect v-model="renderPreset" :options="presetOpts" />
+                </div>
+              </div>
+            </div>
+
+            <!-- 视频设置 -->
+            <div class="pf-panel">
+              <div class="pf-panel-header">
+                <span class="pf-panel-title">视频</span>
+                <span class="pf-render-tab-active">视频</span>
+              </div>
+              <div class="pf-panel-body">
+                <div class="pf-render-row">
+                  <label class="pf-render-label">分辨率</label>
                   <div class="pf-seg">
-                    <button
-                      class="pf-seg-btn"
-                      :class="{ active: resolution === '1280 × 720' }"
-                      @click="resolution = '1280 × 720'"
-                    >
-                      720p
-                    </button>
-                    <button
-                      class="pf-seg-btn"
-                      :class="{ active: resolution === '1920 × 1080' }"
-                      @click="resolution = '1920 × 1080'"
-                    >
-                      1080p
-                    </button>
-                    <button
-                      class="pf-seg-btn"
-                      :class="{ active: resolution === '3840 × 2160' }"
-                      @click="resolution = '3840 × 2160'"
-                    >
-                      4K
-                    </button>
+                    <button class="pf-seg-btn" :class="{ active: resolution === '1280 × 720' }" @click="resolution = '1280 × 720'">720p</button>
+                    <button class="pf-seg-btn" :class="{ active: resolution === '1920 × 1080' }" @click="resolution = '1920 × 1080'">1080p</button>
+                    <button class="pf-seg-btn" :class="{ active: resolution === '3840 × 2160' }" @click="resolution = '3840 × 2160'">4K</button>
                   </div>
                 </div>
-                <div class="pf-panel-section">
-                  <div class="pf-panel-label">帧率</div>
+                <div class="pf-render-row">
+                  <label class="pf-render-label">帧率</label>
                   <div class="pf-seg">
-                    <button
-                      class="pf-seg-btn"
-                      :class="{ active: frameRate === '24 fps' }"
-                      @click="frameRate = '24 fps'"
-                    >
-                      24
-                    </button>
-                    <button
-                      class="pf-seg-btn"
-                      :class="{ active: frameRate === '30 fps' }"
-                      @click="frameRate = '30 fps'"
-                    >
-                      30
-                    </button>
-                    <button
-                      class="pf-seg-btn"
-                      :class="{ active: frameRate === '60 fps' }"
-                      @click="frameRate = '60 fps'"
-                    >
-                      60
-                    </button>
+                    <button class="pf-seg-btn" :class="{ active: frameRate === '24 fps' }" @click="frameRate = '24 fps'">24</button>
+                    <button class="pf-seg-btn" :class="{ active: frameRate === '30 fps' }" @click="frameRate = '30 fps'">30</button>
+                    <button class="pf-seg-btn" :class="{ active: frameRate === '60 fps' }" @click="frameRate = '60 fps'">60</button>
                   </div>
                 </div>
+                <div class="pf-render-row">
+                  <label class="pf-render-label">编解码器配置</label>
+                  <div style="display: flex; gap: 8px;">
+                    <PfSelect v-model="renderProfile" :options="profileOpts" size="small" />
+                    <PfSelect v-model="renderLevel" :options="levelOpts" size="small" />
+                  </div>
+                </div>
+                <div class="pf-render-row">
+                  <label class="pf-render-label">码率模式</label>
+                  <div class="pf-seg">
+                    <button class="pf-seg-btn" :class="{ active: renderBitrateMode === 'CBR' }" @click="renderBitrateMode = 'CBR'">CBR</button>
+                    <button class="pf-seg-btn" :class="{ active: renderBitrateMode === 'VBR 1-pass' }" @click="renderBitrateMode = 'VBR 1-pass'">VBR 1-pass</button>
+                    <button class="pf-seg-btn" :class="{ active: renderBitrateMode === 'VBR 2-pass' }" @click="renderBitrateMode = 'VBR 2-pass'">VBR 2-pass</button>
+                  </div>
+                </div>
+                <div class="pf-render-row">
+                  <label class="pf-render-label">目标码率</label>
+                  <div class="pf-render-bitrate">
+                    <input type="range" class="pf-slider" min="1" max="50" step="0.5" v-model.number="renderTargetBitrate" />
+                    <span class="pf-render-bitrate-val">{{ renderTargetBitrate }} Mbps</span>
+                  </div>
+                </div>
+                <div v-if="renderBitrateMode !== 'CBR'" class="pf-render-row">
+                  <label class="pf-render-label">最大码率</label>
+                  <div class="pf-render-bitrate">
+                    <input type="range" class="pf-slider" min="1" max="60" step="0.5" v-model.number="renderMaxBitrate" />
+                    <span class="pf-render-bitrate-val">{{ renderMaxBitrate }} Mbps</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 音频设置 -->
+            <div class="pf-panel">
+              <div class="pf-panel-header">
+                <span class="pf-panel-title">音频</span>
+              </div>
+              <div class="pf-panel-body">
+                <div class="pf-render-row">
+                  <label class="pf-render-label">音频编解码器</label>
+                  <PfSelect v-model="renderAudioCodec" :options="audioCodecOpts" />
+                </div>
+                <div class="pf-render-row">
+                  <label class="pf-render-label">采样率</label>
+                  <PfSelect v-model="renderSampleRate" :options="sampleRateOpts" />
+                </div>
+                <div class="pf-render-row">
+                  <label class="pf-render-label">声道</label>
+                  <PfSelect v-model="renderAudioChannels" :options="channelOpts" />
+                </div>
+                <div class="pf-render-row">
+                  <label class="pf-render-label">音频码率</label>
+                  <div class="pf-seg">
+                    <button
+                      v-for="b in audioBitrateOptions"
+                      :key="b"
+                      class="pf-seg-btn"
+                      :class="{ active: renderAudioBitrate === b }"
+                      @click="renderAudioBitrate = b"
+                    >{{ b }}k</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 右栏：输出摘要 -->
+          <div class="pf-render-summary">
+            <div class="pf-panel">
+              <div class="pf-panel-header">
+                <span class="pf-panel-title">输出</span>
+              </div>
+              <div class="pf-panel-body">
+                <div class="pf-render-row">
+                  <label class="pf-render-label">文件名</label>
+                  <input v-model="renderOutputName" class="pf-input" type="text" />
+                </div>
+                <div class="pf-render-summary-grid">
+                  <div class="pf-render-summary-item">
+                    <span class="pf-render-summary-label">格式</span>
+                    <span class="pf-render-summary-val">{{ renderFormat }}</span>
+                  </div>
+                  <div class="pf-render-summary-item">
+                    <span class="pf-render-summary-label">分辨率</span>
+                    <span class="pf-render-summary-val">{{ resolution }}</span>
+                  </div>
+                  <div class="pf-render-summary-item">
+                    <span class="pf-render-summary-label">帧率</span>
+                    <span class="pf-render-summary-val">{{ frameRate }}</span>
+                  </div>
+                  <div class="pf-render-summary-item">
+                    <span class="pf-render-summary-label">时长</span>
+                    <span class="pf-render-summary-val">{{ projectDuration.toFixed(1) }} s</span>
+                  </div>
+                  <div class="pf-render-summary-item">
+                    <span class="pf-render-summary-label">视频码率</span>
+                    <span class="pf-render-summary-val">{{ renderTargetBitrate }} Mbps</span>
+                  </div>
+                  <div class="pf-render-summary-item">
+                    <span class="pf-render-summary-label">音频码率</span>
+                    <span class="pf-render-summary-val">{{ renderAudioBitrate }} kbps</span>
+                  </div>
+                  <div class="pf-render-summary-item pf-render-summary-highlight">
+                    <span class="pf-render-summary-label">预估大小</span>
+                    <span class="pf-render-summary-val">{{ estimatedFileSize }}</span>
+                  </div>
+                </div>
+
+                <!-- 导出进度 -->
+                <div v-if="isExporting" class="pf-render-progress">
+                  <div class="pf-render-progress-bar">
+                    <div class="pf-render-progress-fill" :style="{ width: exportProgress + '%' }" />
+                  </div>
+                  <span class="pf-render-progress-text">{{ Math.round(exportProgress) }}%</span>
+                </div>
+
+                <button
+                  class="btn-primary pf-render-export-btn"
+                  :disabled="isExporting"
+                  @click="startExport"
+                >
+                  <PhPlay v-if="!isExporting" :size="14" weight="fill" />
+                  <PhSpinner v-else :size="14" />
+                  {{ isExporting ? '渲染中…' : '开始导出' }}
+                </button>
               </div>
             </div>
           </div>
         </div>
 
-        <!-- Performance Page -->
-        <div v-else-if="activeLeftTab === 'performance'" class="pf-page">
-          <div class="pf-page-header">
-            <button class="btn btn-icon" title="返回" @click="goBackToInput">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
-                <line x1="19" y1="12" x2="5" y2="12" />
-                <polyline points="12 19 5 12 12 5" />
-              </svg>
-            </button>
-            <span class="pf-page-title">性能</span>
-          </div>
-          <div class="pf-page-body" style="display: flex; gap: 12px">
-            <div class="pf-panel" style="flex: 1; min-height: 0">
-              <div class="pf-panel-header">
-                <span class="pf-panel-title">三层存储统计</span>
-                <button class="btn btn-icon" title="刷新" @click="refreshStorageStats" style="margin-left: auto">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
-                    <polyline points="23 4 23 10 17 10" />
-                    <polyline points="1 20 1 14 7 14" />
-                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
-                  </svg>
-                </button>
-              </div>
-              <div class="pf-panel-body">
-                <div v-if="isStorageLoading" class="pf-canvas-placeholder">加载中…</div>
-                <template v-else-if="storageStats">
-                  <!-- L1 帧缓存 -->
-                  <div class="pf-panel-section">
-                    <div class="pf-panel-label">L1 帧缓存（内存 LRU）</div>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 13px">
-                      <div>条目数：<strong>{{ storageStats.frameMemory.entries }}</strong></div>
-                      <div>占用：<strong>{{ formatBytes(storageStats.frameMemory.bytes) }}</strong> / {{ formatBytes(storageStats.frameMemory.maxBytes) }}</div>
-                      <div>命中：<strong>{{ storageStats.frameMemory.hits }}</strong></div>
-                      <div>未命中：<strong>{{ storageStats.frameMemory.misses }}</strong></div>
-                      <div>命中率：<strong>{{ (storageStats.frameMemory.hitRate * 100).toFixed(1) }}%</strong></div>
-                      <div>淘汰：<strong>{{ storageStats.frameMemory.evictions }}</strong></div>
-                    </div>
-                  </div>
-                  <!-- L1 文本缓存 -->
-                  <div class="pf-panel-section">
-                    <div class="pf-panel-label">L1 文本缓存（内存 LRU）</div>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 13px">
-                      <div>条目数：<strong>{{ storageStats.textMemory.entries }}</strong></div>
-                      <div>占用：<strong>{{ formatBytes(storageStats.textMemory.bytes) }}</strong> / {{ formatBytes(storageStats.textMemory.maxBytes) }}</div>
-                      <div>命中：<strong>{{ storageStats.textMemory.hits }}</strong></div>
-                      <div>未命中：<strong>{{ storageStats.textMemory.misses }}</strong></div>
-                      <div>命中率：<strong>{{ (storageStats.textMemory.hitRate * 100).toFixed(1) }}%</strong></div>
-                      <div>淘汰：<strong>{{ storageStats.textMemory.evictions }}</strong></div>
-                    </div>
-                  </div>
-                  <!-- L2 OPFS -->
-                  <div class="pf-panel-section">
-                    <div class="pf-panel-label">L2 OPFS 文件存储</div>
-                    <div style="font-size: 13px">
-                      状态：<strong :style="{ color: storageStats.opfsAvailable ? 'var(--accent-green, #22c55e)' : 'var(--accent-red, #ef4444)' }">
-                        {{ storageStats.opfsAvailable ? '可用' : '不可用（已降级）' }}
-                      </strong>
-                    </div>
-                  </div>
-                  <!-- L3 数据库路径 -->
-                  <div class="pf-panel-section">
-                    <div class="pf-panel-label">L3 Redb 数据库</div>
-                    <div style="font-size: 13px; word-break: break-all">
-                      <span v-if="storagePath">{{ storagePath }}</span>
-                      <span v-else style="color: var(--text-secondary)">浏览器环境未启用（需 Tauri 桌面运行时）</span>
-                    </div>
-                  </div>
-                </template>
-                <div v-else class="pf-canvas-placeholder">无统计数据</div>
-              </div>
-            </div>
-          </div>
-        </div>
+        <!-- Performance Page (moved to PerformancePanel component above) -->
       </div>
     </div>
 
@@ -558,7 +710,13 @@ watch(activeLeftTab, (tab) => {
       :is-open="isExportOpen"
       :resolution="resolution"
       :frame-rate="frameRate"
-      :duration="TOTAL_DURATION"
+      :duration="projectDuration"
+      :clips="store.clips"
+      :tracks="store.tracks"
+      :prompt-text="livePromptText"
+      :elements="activeSnapshot.elements"
+      :tuning-params="activeSnapshot.tuningParams"
+      :ir-tree="treeData"
       @close="isExportOpen = false"
     />
 
@@ -566,12 +724,17 @@ watch(activeLeftTab, (tab) => {
       :is-open="isSettingsOpen"
       :theme="theme"
       :auto-save-enabled="autoSaveEnabled"
+      :auto-save-interval="autoSaveInterval"
       :last-saved-time="lastSavedTime"
+      :model-configs="modelConfigs"
       @close="isSettingsOpen = false"
       @select-theme="store.setTheme"
       @toggle-auto-save="(enabled) => autoSaveEnabled = enabled"
+      @update-auto-save-interval="store.setAutoSaveInterval"
       @force-save="store.handleForceSave"
-      @reset-project="store.handleResetProject"
+      @add-model="store.addModelConfig"
+      @update-model="store.updateModelConfig"
+      @remove-model="store.removeModelConfig"
     />
   </div>
 </template>

@@ -58,6 +58,7 @@
   --ambient-1: rgba(10, 132, 255, 0.08);
   --ambient-2: rgba(175, 82, 222, 0.06);
   --ambient-3: rgba(48, 209, 88, 0.05);
+  --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='none' stroke='%23999' stroke-width='1.5' d='M1 1l4 4 4-4'/%3E%3C/svg%3E");
 }
 
 [data-theme="dark"] {
@@ -100,6 +101,7 @@
   --ambient-1: rgba(10, 132, 255, 0.12);
   --ambient-2: rgba(175, 82, 222, 0.1);
   --ambient-3: rgba(48, 209, 88, 0.08);
+  --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='none' stroke='%23aaa' stroke-width='1.5' d='M1 1l4 4 4-4'/%3E%3C/svg%3E");
 }
 
 /* ==========================================================
@@ -286,6 +288,20 @@ html, body, #app {
   min-height: 0;
 }
 
+/* ── 图片工作台：中间画布列 ── */
+.pf-image-center {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.pf-image-center > .pf-panel-center {
+  flex: 1;
+  min-height: 0;
+}
+
 /* ==========================================================
    Toolbar — glass floating bar (from 新建文件夹)
    ========================================================== */
@@ -339,29 +355,36 @@ html, body, #app {
 }
 
 .btn-primary {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 32px;
-  padding: 0 16px;
-  background: var(--accent);
-  color: var(--accent-text);
-  border-radius: var(--radius-sm);
-  box-shadow: 0 1px 3px rgba(10, 132, 255, 0.3);
-  font-size: 12px;
-  font-weight: 600;
+display: flex;
+align-items: center;
+justify-content: center;
+height: 32px;
+padding: 0 16px;
+border: 1px solid var(--separator);
+background: var(--glass-bg);
+color: var(--text-primary);
+border-radius: var(--radius-sm);
+font-size: 12px;
+font-weight: 600;
+cursor: pointer;
+transition-property: transform, background, border-color, box-shadow;
+transition-duration: 150ms;
+transition-timing-function: var(--ease-out);
+-webkit-tap-highlight-color: transparent;
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .btn-primary:hover { background: var(--accent-hover); }
+.btn-primary:hover {
+background: var(--glass-bg-hover);
+border-color: var(--separator-strong);
+}
 }
 
 .btn-primary:active {
-  background: var(--accent-pressed);
-  transform: scale(0.96);
+transform: scale(0.96);
 }
 
-.btn-primary svg { width: 14px; height: 14px; }
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* --- Time display --- */
 .time-display {
@@ -371,10 +394,11 @@ html, body, #app {
   border-radius: var(--radius-sm);
   font-size: 12px; font-weight: 500;
   color: var(--text-primary);
-  min-width: 110px; justify-content: center;
+  justify-content: center;
 }
 
 .time-display .time-separator { color: var(--text-tertiary); }
+.time-display .time-slash { margin: 0 4px; }
 .time-display .time-frame { color: var(--text-secondary); font-size: 11px; }
 
 /* --- Zoom control --- */
@@ -589,6 +613,112 @@ html, body, #app {
   font-variant-numeric: tabular-nums;
 }
 
+/* --- Tuning select row --- */
+.pf-tuning-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.pf-tuning-row:last-child {
+  margin-bottom: 0;
+}
+
+.pf-tuning-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+/* --- Tuning trigger button --- */
+.pf-tuning-trigger {
+  width: 100%;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  border: 1px solid var(--separator);
+  background: var(--track-bg);
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 150ms var(--ease-out), border-color 150ms var(--ease-out);
+  -webkit-tap-highlight-color: transparent;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .pf-tuning-trigger:hover {
+    background: var(--glass-bg-hover);
+    border-color: var(--separator-strong);
+    color: var(--text-primary);
+  }
+}
+
+.pf-tuning-trigger:active {
+/* no transform — keep button stationary on click */
+}
+
+/* --- Popover (tuning floating panel) --- */
+.pf-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 100;
+  min-width: 260px;
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-top: 1px solid var(--glass-edge);
+  box-shadow: var(--glass-shadow);
+  border-radius: var(--radius-lg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: popoverEnter 150ms var(--ease-out);
+}
+
+@keyframes popoverEnter {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.pf-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--separator);
+  flex-shrink: 0;
+}
+
+.pf-popover-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.pf-popover-body {
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 input[type="range"].pf-slider {
   -webkit-appearance: none;
   appearance: none;
@@ -768,10 +898,10 @@ input[type="range"].pf-slider::-moz-range-thumb {
 }
 
 .pf-tree-action {
-  width: 20px; height: 20px;
-  display: flex; align-items: center; justify-content: center;
-  color: var(--text-tertiary);
-  flex-shrink: 0;
+width: 20px; height: 20px;
+display: flex; align-items: center; justify-content: center;
+color: var(--text-secondary);
+flex-shrink: 0;
 }
 
 .pf-tree-children {
@@ -1039,25 +1169,24 @@ input[type="range"].pf-slider::-moz-range-thumb {
   display: flex; flex-direction: column;
   background: var(--clip-bg);
   box-shadow: var(--clip-shadow);
-  transition: transform, box-shadow, background 200ms var(--ease-out);
-  will-change: transform;
+  transition: box-shadow 150ms ease, background 150ms ease;
 }
 
 @media (hover: hover) and (pointer: fine) {
   .clip:hover {
     background: var(--clip-bg-hover);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 4px 12px rgba(0, 0, 0, 0.08);
-    transform: translateY(-1px);
   }
 }
 
 .clip.dragging {
   cursor: grabbing;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18), 0 2px 6px rgba(0, 0, 0, 0.1);
   z-index: 10;
 }
 
-.clip-selected { box-shadow: var(--clip-selected) !important; }
+.clip-selected {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
 
 .clip-header {
   display: flex; align-items: center; gap: 4px;
@@ -1261,6 +1390,129 @@ input[type="range"].pf-slider::-moz-range-thumb {
 .tabular-nums { font-variant-numeric: tabular-nums; }
 
 /* ==========================================================
+   Global Tooltip — Apple Liquid Glass style
+   ========================================================== */
+.pf-tooltip {
+  position: absolute;
+  z-index: 10000;
+  padding: 6px 12px;
+  background: rgba(0, 0, 0, 0.78);
+  backdrop-filter: blur(12px) saturate(180%);
+  -webkit-backdrop-filter: blur(12px) saturate(180%);
+  color: rgba(255, 255, 255, 0.95);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  opacity: 0;
+  transform: scale(0.92);
+  transition: opacity 150ms var(--ease-out), transform 150ms var(--ease-out);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2), 0 4px 16px rgba(0, 0, 0, 0.15);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+[data-theme="light"] .pf-tooltip {
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--text-primary);
+  border: 1px solid var(--glass-border);
+}
+
+[data-theme="dark"] .pf-tooltip {
+  background: rgba(30, 30, 36, 0.92);
+  color: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.pf-tooltip-visible {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.pf-tooltip-hiding {
+  opacity: 0;
+  transform: scale(0.92);
+}
+
+/* Tooltip arrow based on position */
+.pf-tooltip[data-position="top"]::after,
+.pf-tooltip[data-position="bottom"]::after,
+.pf-tooltip[data-position="left"]::after,
+.pf-tooltip[data-position="right"]::after {
+  content: "";
+  position: absolute;
+  width: 0;
+  height: 0;
+  border: 5px solid transparent;
+}
+
+.pf-tooltip[data-position="top"]::after {
+  bottom: -10px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-top-color: rgba(0, 0, 0, 0.78);
+}
+
+[data-theme="light"] .pf-tooltip[data-position="top"]::after {
+  border-top-color: rgba(255, 255, 255, 0.92);
+}
+
+[data-theme="dark"] .pf-tooltip[data-position="top"]::after {
+  border-top-color: rgba(30, 30, 36, 0.92);
+}
+
+.pf-tooltip[data-position="bottom"]::after {
+  top: -10px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-bottom-color: rgba(0, 0, 0, 0.78);
+}
+
+[data-theme="light"] .pf-tooltip[data-position="bottom"]::after {
+  border-bottom-color: rgba(255, 255, 255, 0.92);
+}
+
+[data-theme="dark"] .pf-tooltip[data-position="bottom"]::after {
+  border-bottom-color: rgba(30, 30, 36, 0.92);
+}
+
+.pf-tooltip[data-position="left"]::after {
+  right: -10px;
+  top: 50%;
+  transform: translateY(-50%);
+  border-left-color: rgba(0, 0, 0, 0.78);
+}
+
+[data-theme="light"] .pf-tooltip[data-position="left"]::after {
+  border-left-color: rgba(255, 255, 255, 0.92);
+}
+
+[data-theme="dark"] .pf-tooltip[data-position="left"]::after {
+  border-left-color: rgba(30, 30, 36, 0.92);
+}
+
+.pf-tooltip[data-position="right"]::after {
+  left: -10px;
+  top: 50%;
+  transform: translateY(-50%);
+  border-right-color: rgba(0, 0, 0, 0.78);
+}
+
+[data-theme="light"] .pf-tooltip[data-position="right"]::after {
+  border-right-color: rgba(255, 255, 255, 0.92);
+}
+
+[data-theme="dark"] .pf-tooltip[data-position="right"]::after {
+  border-right-color: rgba(30, 30, 36, 0.92);
+}
+
+/* ==========================================================
    Accessibility
    ========================================================== */
 @media (prefers-reduced-motion: reduce) {
@@ -1297,4 +1549,505 @@ input[type="range"].pf-slider::-moz-range-thumb {
     --panel-left-width: 240px;
     --panel-right-width: 200px;
   }
+}
+
+/* ==========================================================
+   Render Page — Adobe Media Encoder 风格导出界面
+   ========================================================== */
+.pf-render {
+  flex: 1;
+  display: flex;
+  gap: var(--workspace-gap);
+  padding: var(--workspace-gap);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.pf-render-settings {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--workspace-gap);
+  min-width: 0;
+  overflow-y: auto;
+}
+
+.pf-render-settings > .pf-panel {
+  flex-shrink: 0;
+}
+
+.pf-render-summary {
+  width: 300px;
+  flex-shrink: 0;
+  min-height: 0;
+}
+
+/* --- AME 表单行 --- */
+.pf-render-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.pf-render-row:last-child {
+  margin-bottom: 0;
+}
+
+.pf-render-label {
+  width: 100px;
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-align: right;
+}
+
+.pf-render-row > .pf-seg,
+.pf-render-row > .pf-select,
+.pf-render-row > .pf-input,
+.pf-render-row > div {
+  flex: 1;
+  min-width: 0;
+}
+
+/* --- 下拉选择框 --- */
+.pf-select {
+  height: 30px;
+  padding: 0 28px 0 10px;
+  background-color: var(--track-bg);
+  background-image: var(--select-arrow);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 10px 6px;
+  transition: border-color 200ms var(--ease-out), box-shadow 200ms var(--ease-out);
+}
+
+.pf-select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.12);
+}
+
+.pf-select-sm {
+  height: 28px;
+  padding: 0 24px 0 8px;
+  font-size: 11px;
+  background-position: right 8px center;
+}
+
+/* --- 文本输入框 --- */
+.pf-input {
+  height: 30px;
+  padding: 0 10px;
+  background: var(--track-bg);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 12px;
+  outline: none;
+  transition: border-color 200ms var(--ease-out), box-shadow 200ms var(--ease-out);
+}
+
+.pf-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.12);
+}
+
+/* --- 码率滑块行 --- */
+.pf-render-bitrate {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.pf-render-bitrate input[type="range"].pf-slider {
+  flex: 1;
+  min-width: 0;
+}
+
+.pf-render-bitrate-val {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  min-width: 64px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+/* --- AME Tab 标记 --- */
+.pf-render-tab-active {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent);
+  padding: 2px 8px;
+  border-radius: var(--radius-xs);
+  background: rgba(10, 132, 255, 0.1);
+}
+
+/* --- 输出摘要网格 --- */
+.pf-render-summary-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-bottom: 16px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--separator);
+}
+
+.pf-render-summary-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--track-bg);
+}
+
+.pf-render-summary-label {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.pf-render-summary-val {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.pf-render-summary-highlight {
+  background: rgba(10, 132, 255, 0.06);
+}
+
+.pf-render-summary-highlight .pf-render-summary-label {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.pf-render-summary-highlight .pf-render-summary-val {
+  font-size: 14px;
+  color: var(--accent);
+}
+
+/* --- 导出进度条 --- */
+.pf-render-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.pf-render-progress-bar {
+  flex: 1;
+  height: 6px;
+  background: var(--separator-strong);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.pf-render-progress-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 3px;
+  transition: width 200ms ease-out;
+}
+
+.pf-render-progress-text {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  min-width: 36px;
+  text-align: right;
+}
+
+/* --- 导出按钮 --- */
+.pf-render-export-btn {
+  width: 100%;
+  height: 38px;
+  justify-content: center;
+  font-size: 13px;
+}
+
+.pf-render-export-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ==========================================================
+   Performance Panel
+   ========================================================== */
+.pf-perf-body {
+  flex: 1;
+  display: flex;
+  gap: var(--workspace-gap);
+  padding: var(--workspace-gap);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.pf-perf-left {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--workspace-gap);
+  min-width: 0;
+  overflow-y: auto;
+}
+
+.pf-perf-left > .pf-panel {
+  flex-shrink: 0;
+}
+
+.pf-perf-right {
+  width: 340px;
+  flex-shrink: 0;
+  min-height: 0;
+}
+
+/* --- 渲染性能指标 --- */
+.pf-perf-metric-row {
+  display: flex;
+  gap: 24px;
+  margin-bottom: 12px;
+}
+
+.pf-perf-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pf-perf-metric-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.pf-perf-metric-value {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.pf-perf-warn {
+  color: var(--toggle-solo);
+}
+
+/* --- FPS 折线图 --- */
+.pf-perf-chart {
+  width: 100%;
+  height: 40px;
+  overflow: hidden;
+}
+
+.pf-perf-chart svg {
+  display: block;
+}
+
+/* --- 内存进度条 --- */
+.pf-perf-bar-group {
+  margin-bottom: 12px;
+}
+
+.pf-perf-bar-group:last-child {
+  margin-bottom: 0;
+}
+
+.pf-perf-bar-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 4px;
+}
+
+.pf-perf-bar-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.pf-perf-bar-value {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.pf-perf-bar {
+  width: 100%;
+  height: 6px;
+  background: var(--track-bg);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.pf-perf-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 300ms var(--ease-out);
+}
+
+.pf-perf-bar-used {
+  background: var(--accent);
+}
+
+.pf-perf-bar-allocated {
+  background: var(--toggle-solo);
+}
+
+/* --- 不支持提示 --- */
+.pf-perf-unsupported {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  padding: 8px 0;
+}
+
+/* --- 统计网格 --- */
+.pf-perf-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.pf-perf-stat-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 4px;
+  background: var(--track-bg);
+  border-radius: var(--radius-xs);
+}
+
+.pf-perf-stat-num {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.pf-perf-stat-label {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  letter-spacing: 0.02em;
+}
+
+/* --- 缓存命中明细 --- */
+.pf-perf-stat-mini {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 6px;
+}
+
+/* --- 状态标签 --- */
+.pf-perf-status-row {
+  display: flex;
+  align-items: center;
+}
+
+.pf-perf-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: 100px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.pf-perf-badge-ok {
+  background: var(--type-audio-bg);
+  color: var(--type-audio);
+}
+
+.pf-perf-badge-err {
+  background: rgba(255, 59, 48, 0.12);
+  color: var(--toggle-mute);
+}
+
+.pf-perf-badge-gen {
+  background: rgba(255, 149, 0, 0.14);
+  color: var(--toggle-solo);
+}
+
+.pf-perf-badge-idle {
+  background: var(--track-bg);
+  color: var(--text-tertiary);
+}
+
+/* --- 渲染概览信息行 --- */
+.pf-perf-info-row {
+  display: flex;
+  gap: 16px;
+  margin: 10px 0;
+}
+
+.pf-perf-info-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.pf-perf-info-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.pf-perf-info-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pf-perf-info-sub {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+
+/* --- 数据库路径 --- */
+.pf-perf-path {
+  font-size: 12px;
+  color: var(--text-secondary);
+  word-break: break-all;
+  line-height: 1.5;
+}
+
+.pf-perf-path-na {
+  color: var(--text-tertiary);
 }

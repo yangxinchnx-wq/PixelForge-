@@ -1,0 +1,749 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PixelForge 时间轴系统全景分析</title>
+<style>
+  :root {
+    --bg: #0d0e14;
+    --surface: #161823;
+    --surface-2: #1d2030;
+    --surface-3: #252937;
+    --border: #2e3344;
+    --border-light: #3a4055;
+    --text: #e4e6ef;
+    --text-muted: #8b90a5;
+    --text-dim: #5c6178;
+    --accent-1: #e879f9;
+    --accent-2: #38bdf8;
+    --accent-3: #4ade80;
+    --accent-4: #fbbf24;
+    --accent-5: #f87171;
+    --radius: 10px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    padding: 32px 24px 80px;
+  }
+  .container { max-width: 1280px; margin: 0 auto; }
+
+  /* ---- Header ---- */
+  .page-header { text-align: center; margin-bottom: 48px; }
+  .page-header h1 {
+    font-size: 28px; font-weight: 700;
+    background: linear-gradient(135deg, var(--accent-1), var(--accent-2));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    margin-bottom: 8px;
+  }
+  .page-header p { color: var(--text-muted); font-size: 14px; }
+
+  /* ---- Section ---- */
+  .section { margin-bottom: 56px; }
+  .section-title {
+    font-size: 20px; font-weight: 700; margin-bottom: 20px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .section-title .badge {
+    font-size: 11px; padding: 3px 10px; border-radius: 999px;
+    font-weight: 600;
+  }
+
+  /* ---- Comparison Cards ---- */
+  .compare-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 20px;
+  }
+  .sys-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); overflow: hidden;
+  }
+  .sys-card .card-header {
+    padding: 16px 20px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .sys-card .card-header h3 { font-size: 16px; font-weight: 700; }
+  .sys-card .card-header .tag {
+    font-size: 11px; padding: 3px 8px; border-radius: 6px;
+    font-weight: 600; font-family: 'JetBrains Mono', 'Consolas', monospace;
+  }
+  .sys-1 .card-header { background: linear-gradient(135deg, rgba(232,121,249,0.12), transparent); }
+  .sys-1 .card-header .tag { background: rgba(232,121,249,0.15); color: var(--accent-1); }
+  .sys-2 .card-header { background: linear-gradient(135deg, rgba(56,189,248,0.12), transparent); }
+  .sys-2 .card-header .tag { background: rgba(56,189,248,0.15); color: var(--accent-2); }
+
+  .card-body { padding: 20px; }
+  .info-row {
+    display: grid; grid-template-columns: 120px 1fr;
+    gap: 12px; padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .info-row:last-child { border-bottom: none; }
+  .info-label {
+    font-size: 12px; color: var(--text-muted); font-weight: 600;
+  }
+  .info-value { font-size: 13px; color: var(--text); }
+  .info-value code {
+    font-family: 'JetBrains Mono', 'Consolas', monospace;
+    font-size: 12px; background: var(--surface-3);
+    padding: 1px 6px; border-radius: 4px; color: var(--accent-3);
+  }
+
+  /* ---- Feature Table ---- */
+  .feature-table {
+    width: 100%; border-collapse: collapse;
+    background: var(--surface); border-radius: var(--radius);
+    overflow: hidden; border: 1px solid var(--border);
+  }
+  .feature-table th, .feature-table td {
+    padding: 10px 16px; text-align: left;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+  }
+  .feature-table th {
+    background: var(--surface-2); font-weight: 700;
+    font-size: 12px; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 0.05em;
+  }
+  .feature-table td:first-child { font-weight: 600; color: var(--text-muted); width: 180px; }
+  .feature-table .yes { color: var(--accent-3); font-weight: 600; }
+  .feature-table .no { color: var(--accent-5); }
+  .feature-table .partial { color: var(--accent-4); }
+  .feature-table tr:hover { background: var(--surface-2); }
+
+  /* ---- File Tree ---- */
+  .file-tree {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 16px 20px;
+    font-family: 'JetBrains Mono', 'Consolas', monospace;
+    font-size: 13px; line-height: 1.8;
+  }
+  .file-tree .dir { color: var(--accent-2); font-weight: 600; }
+  .file-tree .file { color: var(--text); }
+  .file-tree .desc { color: var(--text-dim); font-style: italic; }
+  .file-tree .highlight { color: var(--accent-4); font-weight: 600; }
+
+  /* ---- Verdict Box ---- */
+  .verdict {
+    background: var(--surface); border: 2px solid;
+    border-radius: var(--radius); padding: 24px 28px;
+    margin-bottom: 24px;
+  }
+  .verdict.exists { border-color: var(--accent-3); }
+  .verdict.exists .verdict-header { color: var(--accent-3); }
+  .verdict-header {
+    font-size: 18px; font-weight: 700; margin-bottom: 12px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .verdict-icon {
+    width: 32px; height: 32px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; font-weight: 700;
+  }
+  .verdict.exists .verdict-icon { background: rgba(74,222,128,0.15); color: var(--accent-3); }
+  .verdict-body { font-size: 14px; color: var(--text); }
+  .verdict-body p { margin-bottom: 8px; }
+  .verdict-body code {
+    font-family: 'JetBrains Mono', 'Consolas', monospace;
+    background: var(--surface-3); padding: 2px 6px;
+    border-radius: 4px; font-size: 12px; color: var(--accent-3);
+  }
+
+  /* ---- Evidence Grid ---- */
+  .evidence-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+    margin-top: 16px;
+  }
+  .evidence-card {
+    background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 14px 16px;
+  }
+  .evidence-card h4 {
+    font-size: 13px; font-weight: 600; margin-bottom: 8px;
+    color: var(--accent-4);
+  }
+  .evidence-card ul { list-style: none; }
+  .evidence-card li {
+    font-size: 12px; color: var(--text-muted);
+    padding: 3px 0; padding-left: 16px; position: relative;
+  }
+  .evidence-card li::before {
+    content: "▸"; position: absolute; left: 0;
+    color: var(--accent-2);
+  }
+  .evidence-card li code {
+    font-family: 'JetBrains Mono', 'Consolas', monospace;
+    font-size: 11px; color: var(--accent-3);
+  }
+
+  /* ---- Split System ---- */
+  .split-systems {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 20px;
+  }
+  .split-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); overflow: hidden;
+  }
+  .split-card .split-header {
+    padding: 14px 18px; border-bottom: 1px solid var(--border);
+  }
+  .split-card .split-header h3 { font-size: 15px; font-weight: 700; }
+  .split-card .split-header .sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+  .split-3a .split-header { background: linear-gradient(135deg, rgba(74,222,128,0.1), transparent); border-left: 3px solid var(--accent-3); }
+  .split-3b .split-header { background: linear-gradient(135deg, rgba(251,191,36,0.1), transparent); border-left: 3px solid var(--accent-4); }
+  .split-body { padding: 16px 18px; }
+
+  /* ---- Data Flow ---- */
+  .data-flow {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 20px 24px;
+    font-family: 'JetBrains Mono', 'Consolas', monospace;
+    font-size: 12px; line-height: 2; color: var(--text-muted);
+    overflow-x: auto;
+  }
+  .data-flow .arrow { color: var(--accent-2); }
+  .data-flow .node { color: var(--accent-3); font-weight: 600; }
+  .data-flow .layer { color: var(--accent-4); }
+  .data-flow .warn { color: var(--accent-5); }
+
+  /* ---- Summary ---- */
+  .summary-box {
+    background: linear-gradient(135deg, var(--surface), var(--surface-2));
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius); padding: 24px 28px;
+  }
+  .summary-box h3 { font-size: 16px; margin-bottom: 12px; }
+  .summary-box p { font-size: 13px; color: var(--text-muted); margin-bottom: 8px; }
+
+  .pill {
+    display: inline-block; padding: 2px 8px; border-radius: 4px;
+    font-size: 11px; font-weight: 600;
+  }
+  .pill-green { background: rgba(74,222,128,0.15); color: var(--accent-3); }
+  .pill-blue { background: rgba(56,189,248,0.15); color: var(--accent-2); }
+  .pill-purple { background: rgba(232,121,249,0.15); color: var(--accent-1); }
+  .pill-yellow { background: rgba(251,191,36,0.15); color: var(--accent-4); }
+  .pill-red { background: rgba(248,113,113,0.15); color: var(--accent-5); }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- ============ HEADER ============ -->
+  <div class="page-header">
+    <h1>PixelForge 时间轴系统全景分析</h1>
+    <p>项目中共发现 <strong>4 套</strong> 时间轴相关系统 · 以下逐一展示</p>
+  </div>
+
+  <!-- ============ 第一部分：两套主时间轴对比 ============ -->
+  <div class="section">
+    <div class="section-title">
+      第一部分：两套主时间轴系统对比
+      <span class="badge" style="background:rgba(232,121,249,0.15);color:var(--accent-1)">视频编辑</span>
+    </div>
+
+    <div class="compare-grid">
+      <!-- ===== System 1: Core Timeline ===== -->
+      <div class="sys-card sys-1">
+        <div class="card-header">
+          <h3>系统一：Core Timeline</h3>
+          <span class="tag">timeline-core</span>
+        </div>
+        <div class="card-body">
+          <div class="info-row">
+            <span class="info-label">目录位置</span>
+            <span class="info-value"><code>src/timeline/</code> + <code>src/components/timeline/</code></span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Store ID</span>
+            <span class="info-value"><code>useTimelineStore('timeline-core')</code></span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">时间类型</span>
+            <span class="info-value"><code>bigint</code> 微秒 · 3 个工具函数 <code>sec()</code> <code>frameToTime()</code> <code>timeToFrame()</code></span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">数据层级</span>
+            <span class="info-value">Project → Sequence → Track → Clip</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Clip 模型</span>
+            <span class="info-value"><code>sourceDuration</code> · 无速度 · 无群组 · 无嵌套</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Track 属性</span>
+            <span class="info-value"><code>enabled</code> + <code>locked</code>（2 个）</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">操作模式</span>
+            <span class="info-value">直接 mutation<span class="pill pill-red">可变</span></span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">命令系统</span>
+            <span class="info-value">5 个命令（Move / Trim / Split / Delete / BatchMove）</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">播放头</span>
+            <span class="info-value"><span class="pill pill-red">无</span></span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">嵌套序列</span>
+            <span class="info-value"><span class="pill pill-red">无</span></span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">UI 渲染</span>
+            <span class="info-value">Canvas 2D 绘制</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">开发阶段</span>
+            <span class="info-value">早期基础实现</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">文件数</span>
+            <span class="info-value">~15 个文件</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== System 2: ProTimeline ===== -->
+      <div class="sys-card sys-2">
+        <div class="card-header">
+          <h3>系统二：ProTimeline</h3>
+          <span class="tag">proTimeline</span>
+        </div>
+        <div class="card-body">
+          <div class="info-row">
+            <span class="info-label">目录位置</span>
+            <span class="info-value"><code>src/editor/timeline/</code> + <code>src/components/editor/pro-timeline/</code></span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Store ID</span>
+            <span class="info-value"><code>useProTimelineStore('proTimeline')</code></span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">时间类型</span>
+            <span class="info-value"><code>bigint</code> 微秒 · 15+ 个工具函数 + <code>formatTime()</code> <code>formatTimecode()</code></span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">数据层级</span>
+            <span class="info-value">Project (含 assets + activeSequenceId) → Sequence → Track → Clip</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Clip 模型</span>
+            <span class="info-value"><code>sourceEnd</code> · <code>speed</code> · <code>groupId</code> · <code>sequenceId</code> · <code>ClipKind</code></span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Track 属性</span>
+            <span class="info-value"><code>visible</code> + <code>locked</code> + <code>muted</code> + <code>height</code> + <code>volume</code> + <code>color</code>（6 个）</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">操作模式</span>
+            <span class="info-value">不可变 + CommandHistory<span class="pill pill-green">不可变</span></span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">命令系统</span>
+            <span class="info-value">25+ 个命令（Clip / Track / MultiClip / Sequence / CrossSequence）</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">播放头</span>
+            <span class="info-value"><span class="pill pill-green">完整</span> play / pause / seek / advanceTime / playbackRate</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">嵌套序列</span>
+            <span class="info-value"><span class="pill pill-green">有</span> 面包屑导航 + 循环检测 + 嵌套编辑</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">UI 渲染</span>
+            <span class="info-value">Vue 组件（20+ 子组件）</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">开发阶段</span>
+            <span class="info-value">Step 31.x 专业版重写</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">文件数</span>
+            <span class="info-value">~45 个文件</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Feature Comparison Table -->
+    <div style="margin-top: 24px;">
+      <h4 style="font-size:14px; margin-bottom:12px; color:var(--text-muted);">功能对比矩阵</h4>
+      <table class="feature-table">
+        <thead>
+          <tr>
+            <th>功能维度</th>
+            <th>Core Timeline</th>
+            <th>ProTimeline</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>bigint 微秒时间</td><td class="yes">✓ 基础</td><td class="yes">✓ 增强（15+ 函数）</td></tr>
+          <tr><td>TimeRange 区间运算</td><td class="no">✗</td><td class="yes">✓ 交集/并集/重叠/平移</td></tr>
+          <tr><td>Clip 速度控制</td><td class="no">✗</td><td class="yes">✓ speed 0.1~10x</td></tr>
+          <tr><td>Clip 群组</td><td class="no">✗</td><td class="yes">✓ groupId</td></tr>
+          <tr><td>嵌套序列引用</td><td class="no">✗</td><td class="yes">✓ sequenceId</td></tr>
+          <tr><td>Asset 资源管理</td><td class="no">✗</td><td class="yes">✓ Project.assets CRUD</td></tr>
+          <tr><td>播放头</td><td class="no">✗</td><td class="yes">✓ 完整</td></tr>
+          <tr><td>Undo / Redo</td><td class="partial">△ CommandStack</td><td class="yes">✓ CommandHistory + 事件</td></tr>
+          <tr><td>多 Clip 操作</td><td class="partial">△ BatchMove</td><td class="yes">✓ 多选/复制粘贴/群组</td></tr>
+          <tr><td>轨道排序</td><td class="no">✗</td><td class="yes">✓ 拖拽重排 + 类型分组</td></tr>
+          <tr><td>轨道属性</td><td class="partial">△ 2 个</td><td class="yes">✓ 6 个</td></tr>
+          <tr><td>跨序列操作</td><td class="no">✗</td><td class="yes">✓ 移动/复制 Clip</td></tr>
+          <tr><td>序列模板</td><td class="no">✗</td><td class="yes">✓ 内置+自定义+localStorage</td></tr>
+          <tr><td>面包屑导航</td><td class="no">✗</td><td class="yes">✓ 嵌套层级跳转</td></tr>
+          <tr><td>播放头对齐</td><td class="no">✗</td><td class="yes">✓ preserve/restart/snap</td></tr>
+          <tr><td>右键菜单</td><td class="no">✗</td><td class="yes">✓ ContextMenu</td></tr>
+          <tr><td>素材浏览器</td><td class="no">✗</td><td class="yes">✓ AssetBrowser</td></tr>
+          <tr><td>音频混合器</td><td class="no">✗</td><td class="yes">✓ AudioMixer</td></tr>
+          <tr><td>特效链</td><td class="no">✗</td><td class="yes">✓ EffectChain</td></tr>
+          <tr><td>WDL 编辑器</td><td class="no">✗</td><td class="yes">✓ WDLEditor</td></tr>
+          <tr><td>导演面板</td><td class="no">✗</td><td class="yes">✓ DirectorPanel</td></tr>
+          <tr><td>渲染面板</td><td class="no">✗</td><td class="yes">✓ RenderPanel</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ============ 第二部分：第三套系统是否存在 ============ -->
+  <div class="section">
+    <div class="section-title">
+      第二部分：第三套系统是否存在？
+      <span class="badge" style="background:rgba(74,222,128,0.15);color:var(--accent-3)">确认存在</span>
+    </div>
+
+    <!-- Verdict -->
+    <div class="verdict exists">
+      <div class="verdict-header">
+        <div class="verdict-icon">✓</div>
+        第三套系统确实存在，且实际上包含两个子系统
+      </div>
+      <div class="verdict-body">
+        <p>经过代码搜索验证，"第三套时间轴"不仅存在，而且实际上是 <strong>两个独立的关键帧动画系统</strong>，它们分别绑定不同的 Store、使用不同的时间单位、服务于不同的渲染管线：</p>
+        <ul style="margin: 12px 0 12px 20px; font-size: 13px;">
+          <li><strong>系统 3A</strong>：帧级参数动画 — 基于 <code>frame</code> 整数，绑定 <code>RenderIR.layers</code></li>
+          <li><strong>系统 3B</strong>：秒级动画系统 — 基于 <code>time</code> 秒（浮点），绑定 <code>GraphNode</code> + <code>MaterialNode</code></li>
+        </ul>
+        <p>两个子系统共享 <code>src/components/editor/timeline/</code> 目录下的部分 UI 组件，但数据模型、Store、求值器完全独立。</p>
+      </div>
+    </div>
+
+    <!-- Split Systems -->
+    <div class="split-systems">
+      <!-- ===== System 3A ===== -->
+      <div class="split-card split-3a">
+        <div class="split-header">
+          <h3>系统 3A：帧级参数动画</h3>
+          <div class="sub">Frame-based Parameter Animation · Step 29 早期</div>
+        </div>
+        <div class="split-body">
+          <div class="info-row">
+            <span class="info-label">Store</span>
+            <span class="info-value"><code>useTimelineStore('timeline')</code></span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Store 位置</span>
+            <span class="info-value"><code>src/stores/timeline.ts</code></span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">时间单位</span>
+            <span class="info-value"><code>frame</code> 整数（0~299）· <code>fps</code> 默认 60</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">数据模型</span>
+            <span class="info-value"><code>ParameterTrack</code> → <code>Keyframe</code>（frame + value 0~1 + easing）</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">绑定目标</span>
+            <span class="info-value"><code>RenderIR.layers[*].id</code> + <code>layer.params</code></span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">缓动类型</span>
+            <span class="info-value"><code>linear</code> · <code>ease</code>（smoothstep）· <code>hold</code></span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">求值器</span>
+            <span class="info-value"><code>src/editor/timeline/evaluator.ts</code></span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">播放器</span>
+            <span class="info-value"><code>src/editor/timeline/player.ts</code> → rAF 循环 → <code>ValuePatch</code> → runtime</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">类型定义</span>
+            <span class="info-value"><code>src/editor/timeline/types.ts</code></span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">UI 组件</span>
+            <span class="info-value"><code>components/editor/Timeline.vue</code> + <code>ParameterTrack.vue</code> + <code>CurveCanvas.vue</code></span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">被引用处</span>
+            <span class="info-value">
+              <code>runtime/engine.ts</code> ·
+              <code>runtime/engineScheduled.ts</code> ·
+              <code>project/serializer.ts</code> ·
+              <code>project/projectStore.ts</code> ·
+              <code>runtime/frameScheduler.test.ts</code>
+            </span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">默认轨道</span>
+            <span class="info-value">4 条预设轨道（红圆半径/蓝圆半径/绿圆半径/底色明度）· 300 帧 · 60fps</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== System 3B ===== -->
+      <div class="split-card split-3b">
+        <div class="split-header">
+          <h3>系统 3B：秒级动画系统</h3>
+          <div class="sub">Time-based Animation System · Step 29.2+</div>
+        </div>
+        <div class="split-body">
+          <div class="info-row">
+            <span class="info-label">Store</span>
+            <span class="info-value"><code>useAnimationStore('animation')</code></span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Store 位置</span>
+            <span class="info-value"><code>src/animation/timeline.ts</code></span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">时间单位</span>
+            <span class="info-value"><code>time</code> 秒（浮点）· <code>fps</code> 默认 60 · <code>duration</code> 默认 10s</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">数据模型</span>
+            <span class="info-value"><code>AnimationTrack</code> → <code>Keyframe</code>（time + value + interpolation + cp1/cp2）</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">绑定目标</span>
+            <span class="info-value"><code>targetKind</code>: <code>graph</code> / <code>material</code> / <code>runtime</code> → <code>nodeId</code> + <code>property</code></span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">缓动类型</span>
+            <span class="info-value"><code>linear</code> · <code>bezier</code>（三次贝塞尔 + cp1/cp2 控制点）· <code>step</code></span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">动画模式</span>
+            <span class="info-value"><code>KEYFRAME</code> · <code>EXPRESSION</code>（JS 表达式）· <code>PHYSICS</code>（预留）</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">求值器</span>
+            <span class="info-value"><code>src/animation/evaluator.ts</code>（独立于 3A）</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">播放器</span>
+            <span class="info-value"><code>src/animation/player.ts</code> + <code>scheduler.ts</code> + <code>uniformUpdater.ts</code></span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">GPU 集成</span>
+            <span class="info-value">有 · <code>UniformUpdate</code> → <code>GPUBuffer</code> 直接写入</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">UI 组件</span>
+            <span class="info-value"><code>AnimationTimeline.vue</code> + <code>AnimationRuler/Playhead/Track/Keyframe</code></span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">绑定模块</span>
+            <span class="info-value"><code>src/animation/binding.ts</code> + <code>mapper.ts</code> + <code>curve.ts</code></span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">输入驱动</span>
+            <span class="info-value"><code>src/animation/drivers/inputDriver.ts</code>（传感器/摄像头/MIDI → 动画）</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Evidence -->
+    <div style="margin-top: 24px;">
+      <h4 style="font-size:14px; margin-bottom:12px; color:var(--text-muted);">存在性证据（代码引用链）</h4>
+      <div class="evidence-grid">
+        <div class="evidence-card">
+          <h4>系统 3A 被引用位置</h4>
+          <ul>
+            <li><code>runtime/engine.ts</code> — 引入 <code>useTimelineStore</code> 作为类型</li>
+            <li><code>runtime/engineScheduled.ts</code> — 引入 <code>useTimelineStore</code></li>
+            <li><code>project/serializer.ts</code> — 序列化/反序列化时间轴状态</li>
+            <li><code>project/projectStore.ts</code> — 项目 store 持有 timeline 引用</li>
+            <li><code>components/editor/Timeline.vue</code> — 帧级时间轴 + 缩略图条</li>
+            <li><code>components/editor/timeline/ParameterTrack.vue</code> — 参数曲线编辑</li>
+            <li><code>components/editor/timeline/CurveCanvas.vue</code> — Canvas 曲线绘制</li>
+            <li><code>runtime/engine.test.ts</code> — 5 处测试引用</li>
+            <li><code>project/serializer.test.ts</code> — 7 处测试引用</li>
+          </ul>
+        </div>
+        <div class="evidence-card">
+          <h4>系统 3B 被引用位置</h4>
+          <ul>
+            <li><code>animation/timeline.ts</code> — <code>useAnimationStore('animation')</code></li>
+            <li><code>animation/evaluator.ts</code> — 独立求值器（支持 bezier）</li>
+            <li><code>animation/player.ts</code> — 独立播放器</li>
+            <li><code>animation/scheduler.ts</code> — rAF 帧调度器</li>
+            <li><code>animation/binding.ts</code> — 动画绑定到 GraphNode</li>
+            <li><code>animation/uniformUpdater.ts</code> — GPU Buffer 更新</li>
+            <li><code>animation/drivers/inputDriver.ts</code> — 输入驱动动画</li>
+            <li><code>components/editor/timeline/AnimationTimeline.vue</code> — UI 入口</li>
+            <li><code>animation/animation.test.ts</code> — 测试文件</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- Data Flow -->
+    <div style="margin-top: 24px;">
+      <h4 style="font-size:14px; margin-bottom:12px; color:var(--text-muted);">系统 3A 数据流（player.ts 注释原文）</h4>
+      <div class="data-flow">
+<span class="layer">时间轴拖动 / 播放头推进</span>
+        <span class="arrow">↓</span>
+<span class="node">timeline.currentFrame = N</span>
+        <span class="arrow">↓</span>
+<span class="node">evaluateTrack(track, N)</span>          <span class="desc">← 关键帧插值</span>
+        <span class="arrow">↓</span>
+<span class="node">player.applyFrameToRuntime()</span>
+        <span class="arrow">↓</span>
+<span class="node">runtime.applyValuePatch(layerId, paramKey, value)</span>  <span class="desc">← 生成 ValuePatch</span>
+        <span class="arrow">↓</span>
+<span class="node">patchEngine.applyPatch(currentIr, patch)</span>           <span class="desc">← IR 更新</span>
+        <span class="arrow">↓</span>
+<span class="node">renderCurrentIR()</span>                                  <span class="desc">← RegionCompiler + GPU dispatch</span>
+        <span class="arrow">↓</span>
+<span class="layer">canvas 刷新</span>
+      </div>
+    </div>
+
+    <div style="margin-top: 16px;">
+      <h4 style="font-size:14px; margin-bottom:12px; color:var(--text-muted);">系统 3B 数据流（types.ts 注释原文）</h4>
+      <div class="data-flow">
+<span class="layer">Timeline(time)</span>
+        <span class="arrow">↓</span> <span class="desc">evaluator.evaluateTrack</span>
+<span class="node">参数值(number)</span>
+        <span class="arrow">↓</span> <span class="desc">binding.applyAnimations</span>
+<span class="node">GraphNode.params / MaterialNode.params</span>
+        <span class="arrow">↓</span> <span class="desc">graphStore / materialGraphStore 更新</span>
+<span class="node">RenderGraph / MaterialGraph</span>
+        <span class="arrow">↓</span> <span class="desc">compiler</span>
+<span class="node">WGSL + Uniform Buffer</span>
+        <span class="arrow">↓</span> <span class="desc">GPU</span>
+<span class="layer">Canvas</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 第三部分：四套系统总览 ============ -->
+  <div class="section">
+    <div class="section-title">
+      第三部分：四套系统总览
+      <span class="badge" style="background:rgba(251,191,36,0.15);color:var(--accent-4)">全景</span>
+    </div>
+
+    <table class="feature-table">
+      <thead>
+        <tr>
+          <th>维度</th>
+          <th>系统1 Core Timeline</th>
+          <th>系统2 ProTimeline</th>
+          <th>系统3A 帧级参数动画</th>
+          <th>系统3B 秒级动画</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>定位</td>
+          <td>早期基础时间轴</td>
+          <td>专业视频编辑时间轴</td>
+          <td>AI 预览参数动画</td>
+          <td>程序化动画系统</td>
+        </tr>
+        <tr>
+          <td>Store ID</td>
+          <td><code>timeline-core</code></td>
+          <td><code>proTimeline</code></td>
+          <td><code>timeline</code></td>
+          <td><code>animation</code></td>
+        </tr>
+        <tr>
+          <td>时间类型</td>
+          <td>bigint 微秒</td>
+          <td>bigint 微秒</td>
+          <td>frame 整数</td>
+          <td>time 秒（浮点）</td>
+        </tr>
+        <tr>
+          <td>核心数据</td>
+          <td>Project→Seq→Track→Clip</td>
+          <td>Project→Seq→Track→Clip</td>
+          <td>ParameterTrack→Keyframe</td>
+          <td>AnimationTrack→Keyframe</td>
+        </tr>
+        <tr>
+          <td>绑定目标</td>
+          <td>无（独立数据）</td>
+          <td>Asset 资源引用</td>
+          <td>RenderIR.layers</td>
+          <td>GraphNode / MaterialNode</td>
+        </tr>
+        <tr>
+          <td>缓动</td>
+          <td>—</td>
+          <td>—</td>
+          <td>linear / ease / hold</td>
+          <td>linear / bezier / step</td>
+        </tr>
+        <tr>
+          <td>动画模式</td>
+          <td>—</td>
+          <td>—</td>
+          <td>仅关键帧</td>
+          <td>KEYFRAME / EXPRESSION / PHYSICS</td>
+        </tr>
+        <tr>
+          <td>GPU 集成</td>
+          <td class="no">✗</td>
+          <td class="no">✗</td>
+          <td class="partial">△ 间接（通过 runtime）</td>
+          <td class="yes">✓ 直接 UniformUpdate</td>
+        </tr>
+        <tr>
+          <td>UI 组件目录</td>
+          <td><code>components/timeline/</code></td>
+          <td><code>components/editor/pro-timeline/</code></td>
+          <td colspan="2"><code>components/editor/timeline/</code>（共享）</td>
+        </tr>
+        <tr>
+          <td>开发阶段</td>
+          <td>早期</td>
+          <td>Step 31.x</td>
+          <td>Step 29 早期</td>
+          <td>Step 29.2+</td>
+        </tr>
+        <tr>
+          <td>注释原文关系</td>
+          <td colspan="2">"与现有 Timeline.vue 并存,不替换"</td>
+          <td colspan="2">"stores/timeline: frame-based; animation: time-based"</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ============ Summary ============ -->
+  <div class="section">
+    <div class="summary-box">
+      <h3>结论</h3>
+      <p>1. <strong>系统1（Core Timeline）</strong>和<strong>系统2（ProTimeline）</strong>是两套并行的视频编辑时间轴，Core 是早期基础版，Pro 是 Step 31.x 的专业增强版。</p>
+      <p>2. <strong>第三套系统确实存在</strong>，且本身分为 3A（帧级参数动画）和 3B（秒级动画系统）两个子系统。</p>
+      <p>3. 3A 和 3B 共享 <code>components/editor/timeline/</code> 下的 UI 组件目录，但 Store、数据模型、求值器、播放器完全独立。</p>
+      <p>4. 四套系统共涉及 <strong>~100+ 个文件</strong>，其中存在大量功能重叠和数据模型不一致，有统一整合的空间。</p>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

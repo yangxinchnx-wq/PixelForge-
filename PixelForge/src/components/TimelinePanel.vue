@@ -4,7 +4,8 @@ import { useAppStore } from '../stores/app';
 import type { Clip, Track } from '../types';
 import { TOTAL_DURATION, FPS, formatTimecode } from '../data';
 import { collectSnapTargets, snapOrDefault, DEFAULT_SNAP_THRESHOLD } from '../utils/snapEngine';
-import { resolveCollision } from '../utils/collision';
+import { resolveCollision, clampResizeLeft, clampResizeRight } from '../utils/collision';
+import { getSplicedGroup } from '../utils/clipUtils';
 import type { Command } from '../utils/commandHistory';
 
 const props = defineProps<{
@@ -37,7 +38,7 @@ let dragBeforeClips: Clip[] | null = null;
 
 type DragState =
   | { type: 'playhead' }
-  | { type: 'clip-move'; clipId: string; grabOffsetX: number }
+  | { type: 'clip-move'; clipId: string; grabOffsetX: number; groupIds: Set<string> }
   | { type: 'clip-resize-left'; clipId: string; originalStart: number; originalDuration: number }
   | { type: 'clip-resize-right'; clipId: string }
   | { type: 'ruler-seek' }
@@ -121,40 +122,83 @@ function handlePointerMove(e: PointerEvent) {
   }
 
   if (ds.type === 'clip-move') {
-    let newStart = Math.max(0, timeFromX(x - ds.grabOffsetX));
-    newStart = Math.min(newStart, TOTAL_DURATION - (clips.value.find(c => c.id === ds.clipId)?.duration ?? 0));
+    const clip = clips.value.find(c => c.id === ds.clipId);
+    if (!clip) return;
 
-    // ── 吸附引擎 ──
+    let newStart = Math.max(0, timeFromX(x - ds.grabOffsetX));
+    newStart = Math.min(newStart, TOTAL_DURATION - clip.duration);
+
+    // ── 吸附引擎（对组的左边缘和右边缘进行吸附） ──
+    const groupClips = clips.value.filter(c => ds.groupIds.has(c.id));
+    const groupMinStart = Math.min(...groupClips.map(c => c.start));
+    const groupMaxEnd = Math.max(...groupClips.map(c => c.start + c.duration));
+    const groupDuration = groupMaxEnd - groupMinStart;
+    const deltaFromOriginal = newStart - clip.start;
+
+    // 计算组的期望新位置
+    let groupNewStart = groupMinStart + deltaFromOriginal;
+    groupNewStart = Math.max(0, Math.min(groupNewStart, TOTAL_DURATION - groupDuration));
+
     const snapTargets = collectSnapTargets(
       clips.value,
       ds.clipId,
       props.currentTime,
     );
-    const clip = clips.value.find(c => c.id === ds.clipId);
-    if (clip) {
-      const snappedStart = snapOrDefault(newStart, snapTargets, SNAP_THRESHOLD);
-      const snappedEnd = snapOrDefault(newStart + clip.duration, snapTargets, SNAP_THRESHOLD);
 
-      // 优先吸附起点，其次吸附终点
-      if (snappedStart !== newStart) {
-        newStart = snappedStart;
-        snapIndicatorTime.value = snappedStart;
-      } else if (snappedEnd !== newStart + clip.duration) {
-        newStart = snappedEnd - clip.duration;
-        snapIndicatorTime.value = snappedEnd;
-      } else {
-        snapIndicatorTime.value = null;
-      }
+    // 吸附组的左边缘和右边缘
+    const snappedStart = snapOrDefault(groupNewStart, snapTargets, SNAP_THRESHOLD);
+    const snappedEnd = snapOrDefault(groupNewStart + groupDuration, snapTargets, SNAP_THRESHOLD);
+
+    if (snappedStart !== groupNewStart) {
+      groupNewStart = snappedStart;
+      snapIndicatorTime.value = snappedStart;
+    } else if (snappedEnd !== groupNewStart + groupDuration) {
+      groupNewStart = snappedEnd - groupDuration;
+      snapIndicatorTime.value = snappedEnd;
+    } else {
+      snapIndicatorTime.value = null;
     }
 
-    // ── 碰撞检测 ──
-    newStart = resolveCollision(clips.value, ds.clipId, newStart, TOTAL_DURATION);
+    // ── 碰撞检测：整组作为一体进行避让 ──
+    // 排除组内所有 clip，检查组的新范围是否与其他 clip 重叠
+    const actualDelta = groupNewStart - groupMinStart;
+    const otherClips = clips.value.filter(c => !ds.groupIds.has(c.id));
+    const newGroupClips = groupClips.map(c => ({ ...c, start: c.start + actualDelta }));
 
-    updateClips(
-      clips.value.map((c) =>
-        c.id === ds.clipId ? { ...c, start: newStart } : c,
-      ),
-    );
+    // 检查新位置是否与其他 clip 碰撞
+    let hasOverlap = false;
+    for (const gc of newGroupClips) {
+      for (const oc of otherClips) {
+        if (oc.trackId !== gc.trackId) continue;
+        if (gc.start < oc.start + oc.duration && oc.start < gc.start + gc.duration) {
+          hasOverlap = true;
+          break;
+        }
+      }
+      if (hasOverlap) break;
+    }
+
+    if (!hasOverlap) {
+      updateClips(
+        clips.value.map(c =>
+          ds.groupIds.has(c.id)
+            ? { ...c, start: c.start + actualDelta }
+            : c
+        ),
+      );
+    } else {
+      // 碰撞时只移动单个 clip（用 resolveCollision）
+      const beforeCollision = newStart;
+      newStart = resolveCollision(clips.value, ds.clipId, newStart, TOTAL_DURATION);
+      if (newStart !== beforeCollision) {
+        snapIndicatorTime.value = null;
+      }
+      updateClips(
+        clips.value.map((c) =>
+          c.id === ds.clipId ? { ...c, start: newStart } : c,
+        ),
+      );
+    }
     return;
   }
 
@@ -172,7 +216,14 @@ function handlePointerMove(e: PointerEvent) {
     newStart = snapOrDefault(newStart, snapTargets, SNAP_THRESHOLD);
     snapIndicatorTime.value = newStart !== timeFromX(x) ? newStart : null;
 
-    const newDuration = ds.originalStart + ds.originalDuration - newStart;
+    // ── 碰撞检测：不允许左边缘越过同轨道其他 Clip 的右边缘 ──
+    const fixedEnd = ds.originalStart + ds.originalDuration;
+    newStart = clampResizeLeft(clips.value, ds.clipId, newStart, fixedEnd);
+    // 钳制后重新检查吸附指示
+    snapIndicatorTime.value = newStart !== timeFromX(x) ? newStart : null;
+
+    const newDuration = fixedEnd - newStart;
+    if (newDuration < MIN_CLIP_DURATION) return;
     updateClips(
       clips.value.map((c) =>
         c.id === ds.clipId ? { ...c, start: newStart, duration: newDuration } : c,
@@ -201,6 +252,10 @@ function handlePointerMove(e: PointerEvent) {
     } else {
       snapIndicatorTime.value = null;
     }
+
+    // ── 碰撞检测：不允许右边缘侵入同轨道其他 Clip ──
+    newDuration = clampResizeRight(clips.value, ds.clipId, clip.start, newDuration);
+    if (newDuration < MIN_CLIP_DURATION) return;
 
     updateClips(
       clips.value.map((c) =>
@@ -314,8 +369,11 @@ function handleClipPointerDown(e: PointerEvent, clip: Clip) {
     dragState.value = { type: 'clip-resize-right', clipId: clip.id };
     return;
   }
+  // ── 计算拼接组（相邻 Clip 自动成组） ──
+  const groupIds = getSplicedGroup(clips.value, clip.id);
+
   dragBeforeClips = [...clips.value];
-  dragState.value = { type: 'clip-move', clipId: clip.id, grabOffsetX };
+  dragState.value = { type: 'clip-move', clipId: clip.id, grabOffsetX, groupIds };
 }
 
 // ─── Track toggle ─────────────────────────────────────
@@ -359,6 +417,22 @@ function handleTracksScroll() {
   const headersEl = trackHeadersListRef.value;
   if (!scrollEl || !headersEl) return;
   headersEl.scrollTop = scrollEl.scrollTop;
+}
+
+// ─── Wheel: left=vertical, right=horizontal ───────────
+function handleHeadersWheel(e: WheelEvent) {
+  e.preventDefault();
+  const scrollEl = tracksScrollRef.value;
+  if (!scrollEl) return;
+  scrollEl.scrollTop += e.deltaY;
+}
+
+function handleTracksWheel(e: WheelEvent) {
+  e.preventDefault();
+  const scrollEl = tracksScrollRef.value;
+  if (!scrollEl) return;
+  // 垂直滚轮 → 水平滚动；触控板水平滚动(deltaX)也直接使用
+  scrollEl.scrollLeft += e.deltaY || e.deltaX;
 }
 
 // ─── Cut (with undo/redo) ─────────────────────────────
@@ -414,6 +488,11 @@ function isTrackActive(track: Track): boolean {
 }
 
 const tc = computed(() => formatTimecode(props.currentTime, FPS));
+const projectDuration = computed(() => {
+  if (clips.value.length === 0) return 0;
+  return Math.max(...clips.value.map(c => c.start + c.duration));
+});
+const totalTc = computed(() => formatTimecode(projectDuration.value, FPS));
 
 // ─── Ruler ticks ──────────────────────────────────────
 const tickInterval = computed(() => {
@@ -478,8 +557,11 @@ function isDragging(clipId: string): boolean {
   );
 }
 
-function isClipSelected(clipId: string): boolean {
-  return selectedClipIds.value.has(clipId);
+/** 拖动时，该 clip 是否属于拖动组（用于显示整组轮廓） */
+function isInDragGroup(clipId: string): boolean {
+  const ds = dragState.value;
+  if (!ds || ds.type !== 'clip-move') return false;
+  return ds.groupIds.has(clipId);
 }
 
 const zoomPercent = computed(() => ((pps.value - MIN_PPS) / (MAX_PPS - MIN_PPS)) * 100);
@@ -525,6 +607,12 @@ const zoomPercent = computed(() => ((pps.value - MIN_PPS) / (MAX_PPS - MIN_PPS))
           <span>{{ tc.ss }}</span>
           <span class="time-separator">:</span>
           <span class="time-frame">{{ tc.ff }}</span>
+          <span class="time-separator time-slash">/</span>
+          <span>{{ totalTc.mm }}</span>
+          <span class="time-separator">:</span>
+          <span>{{ totalTc.ss }}</span>
+          <span class="time-separator">:</span>
+          <span class="time-frame">{{ totalTc.ff }}</span>
         </div>
       </div>
 
@@ -620,7 +708,7 @@ const zoomPercent = computed(() => ((pps.value - MIN_PPS) / (MAX_PPS - MIN_PPS))
           <div class="track-headers-ruler-spacer">
             <span>轨道</span>
           </div>
-          <div class="track-headers-list" ref="trackHeadersListRef">
+          <div class="track-headers-list" ref="trackHeadersListRef" @wheel.prevent="handleHeadersWheel">
             <div v-for="track in tracks" :key="track.id" class="track-header">
               <div class="track-header-top">
                 <span class="track-header-name">{{ track.name }}</span>
@@ -632,14 +720,8 @@ const zoomPercent = computed(() => ((pps.value - MIN_PPS) / (MAX_PPS - MIN_PPS))
                     :title="track.visible ? '隐藏' : '显示'"
                     @click="toggleTrack(track.id, 'visible')"
                   >
-                    <svg v-if="track.visible" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12">
-                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                      <circle cx="12" cy="12" r="3" />
-                    </svg>
-                    <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12">
-                      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
-                      <line x1="1" y1="1" x2="23" y2="23" />
-                    </svg>
+                    <PhEye v-if="track.visible" :size="14" weight="regular" />
+                    <PhEyeSlash v-else :size="14" weight="regular" />
                   </button>
                   <button
                     v-if="track.type === 'audio'"
@@ -680,7 +762,7 @@ const zoomPercent = computed(() => ((pps.value - MIN_PPS) / (MAX_PPS - MIN_PPS))
 
         <!-- Timeline Tracks -->
         <div class="timeline-tracks">
-          <div class="tracks-scroll" ref="tracksScrollRef" @scroll="handleTracksScroll">
+          <div class="tracks-scroll" ref="tracksScrollRef" @scroll="handleTracksScroll" @wheel.prevent="handleTracksWheel">
             <div
               class="tracks-inner"
               :style="{ width: TOTAL_DURATION * pps + 'px' }"
@@ -718,7 +800,7 @@ const zoomPercent = computed(() => ((pps.value - MIN_PPS) / (MAX_PPS - MIN_PPS))
                     :key="clip.id"
                     class="clip"
                     :class="{
-                      'clip-selected': isClipSelected(clip.id),
+                      'clip-selected': isInDragGroup(clip.id),
                       'dragging': isDragging(clip.id)
                     }"
                     :style="{ left: clip.start * pps + 'px', width: clip.duration * pps + 'px' }"

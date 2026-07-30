@@ -80,7 +80,7 @@ export interface ParameterTrack {
 // --- App types ---
 export type TopTab = 'creation' | 'timeline' | 'preview';
 
-export type LeftNavTab = 'input' | 'scene' | 'elements' | 'effects' | 'history' | 'render' | 'performance' | 'settings';
+export type LeftNavTab = 'input' | 'image' | 'elements' | 'effects' | 'history' | 'render' | 'performance' | 'settings';
 
 export interface AssetItem {
   id: string;

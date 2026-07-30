@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>时间轴系统 — 优点提取与合并分析</title>
+<style>
+  :root {
+    --bg: #0d0e14; --surface: #161823; --surface-2: #1d2030; --surface-3: #252937;
+    --border: #2e3344; --border-light: #3a4055;
+    --text: #e4e6ef; --text-muted: #8b90a5; --text-dim: #5c6178;
+    --accent-1: #e879f9; --accent-2: #38bdf8; --accent-3: #4ade80;
+    --accent-4: #fbbf24; --accent-5: #f87171;
+    --radius: 10px;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family: 'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;
+    background: var(--bg); color: var(--text); line-height: 1.6;
+    padding: 32px 24px 80px;
+  }
+  .container { max-width: 1300px; margin: 0 auto; }
+  .page-header { text-align:center; margin-bottom:40px; }
+  .page-header h1 {
+    font-size:28px; font-weight:700;
+    background: linear-gradient(135deg, var(--accent-3), var(--accent-2));
+    -webkit-background-clip:text; -webkit-text-fill-color:transparent;
+    margin-bottom:8px;
+  }
+  .page-header p { color: var(--text-muted); font-size:14px; }
+
+  .section { margin-bottom: 48px; }
+  .section-title {
+    font-size:20px; font-weight:700; margin-bottom:20px;
+    display:flex; align-items:center; gap:10px;
+    padding-bottom:10px; border-bottom:1px solid var(--border);
+  }
+  .badge {
+    font-size:11px; padding:3px 10px; border-radius:999px; font-weight:600;
+  }
+
+  /* ---- Current System Card ---- */
+  .current-card {
+    background: linear-gradient(135deg, var(--surface), var(--surface-2));
+    border: 2px solid var(--accent-3);
+    border-radius: var(--radius); padding: 24px 28px; margin-bottom: 32px;
+  }
+  .current-card h3 { font-size:16px; margin-bottom:12px; color: var(--accent-3); }
+  .current-card .file { font-family:'JetBrains Mono','Consolas',monospace; font-size:13px; color:var(--accent-2); }
+  .current-card p { font-size:13px; color:var(--text-muted); margin-bottom:6px; }
+  .current-card code {
+    font-family:'JetBrains Mono','Consolas',monospace;
+    background:var(--surface-3); padding:1px 6px; border-radius:4px;
+    font-size:12px; color:var(--accent-3);
+  }
+
+  /* ---- Advantages Grid ---- */
+  .adv-grid {
+    display:grid; grid-template-columns: 1fr 1fr; gap:20px;
+  }
+  .adv-card {
+    background: var(--surface); border:1px solid var(--border);
+    border-radius: var(--radius); overflow:hidden;
+  }
+  .adv-header {
+    padding:14px 18px; border-bottom:1px solid var(--border);
+    display:flex; align-items:center; justify-content:space-between;
+  }
+  .adv-header h4 { font-size:14px; font-weight:700; }
+  .adv-header .src {
+    font-size:11px; padding:3px 8px; border-radius:6px; font-weight:600;
+    font-family:'JetBrains Mono','Consolas',monospace;
+  }
+  .adv-body { padding:16px 18px; }
+
+  .adv-1 .adv-header { background: linear-gradient(135deg, rgba(232,121,249,0.1), transparent); }
+  .adv-1 .adv-header .src { background:rgba(232,121,249,0.15); color:var(--accent-1); }
+  .adv-2 .adv-header { background: linear-gradient(135deg, rgba(56,189,248,0.1), transparent); }
+  .adv-2 .adv-header .src { background:rgba(56,189,248,0.15); color:var(--accent-2); }
+  .adv-3 .adv-header { background: linear-gradient(135deg, rgba(74,222,128,0.1), transparent); }
+  .adv-3 .adv-header .src { background:rgba(74,222,128,0.15); color:var(--accent-3); }
+  .adv-4 .adv-header { background: linear-gradient(135deg, rgba(251,191,36,0.1), transparent); }
+  .adv-4 .adv-header .src { background:rgba(251,191,36,0.15); color:var(--accent-4); }
+
+  /* ---- Feature List ---- */
+  .feat-list { list-style:none; }
+  .feat-item {
+    padding:10px 0; border-bottom:1px solid var(--border);
+    display:flex; gap:12px; align-items:flex-start;
+  }
+  .feat-item:last-child { border-bottom:none; }
+  .feat-priority {
+    flex-shrink:0; width:28px; height:28px; border-radius:6px;
+    display:flex; align-items:center; justify-content:center;
+    font-size:12px; font-weight:700;
+  }
+  .priority-high { background:rgba(248,113,113,0.15); color:var(--accent-5); }
+  .priority-medium { background:rgba(251,191,36,0.15); color:var(--accent-4); }
+  .priority-low { background:rgba(92,97,120,0.2); color:var(--text-dim); }
+  .feat-content { flex:1; min-width:0; }
+  .feat-name { font-size:13px; font-weight:600; color:var(--text); margin-bottom:2px; }
+  .feat-desc { font-size:12px; color:var(--text-muted); }
+  .feat-desc code {
+    font-family:'JetBrains Mono','Consolas',monospace;
+    background:var(--surface-3); padding:1px 5px; border-radius:3px;
+    font-size:11px; color:var(--accent-2);
+  }
+
+  /* ---- Summary ---- */
+  .summary-box {
+    background: linear-gradient(135deg, var(--surface), var(--surface-2));
+    border:1px solid var(--border-light);
+    border-radius:var(--radius); padding:24px 28px;
+  }
+  .summary-box h3 { font-size:16px; margin-bottom:12px; }
+  .summary-box p { font-size:13px; color:var(--text-muted); margin-bottom:8px; }
+
+  /* ---- Merge Plan Table ---- */
+  .merge-table {
+    width:100%; border-collapse:collapse;
+    background:var(--surface); border-radius:var(--radius);
+    overflow:hidden; border:1px solid var(--border);
+  }
+  .merge-table th, .merge-table td {
+    padding:10px 14px; text-align:left;
+    border-bottom:1px solid var(--border); font-size:13px;
+  }
+  .merge-table th {
+    background:var(--surface-2); font-weight:700;
+    font-size:12px; color:var(--text-muted);
+    text-transform:uppercase; letter-spacing:0.05em;
+  }
+  .merge-table td:first-child { font-weight:600; }
+  .merge-table .yes { color:var(--accent-3); font-weight:600; }
+  .merge-table .no { color:var(--accent-5); }
+  .merge-table tr:hover { background:var(--surface-2); }
+  .pill {
+    display:inline-block; padding:2px 8px; border-radius:4px;
+    font-size:11px; font-weight:600;
+  }
+  .pill-high { background:rgba(248,113,113,0.15); color:var(--accent-5); }
+  .pill-medium { background:rgba(251,191,36,0.15); color:var(--accent-4); }
+  .pill-low { background:rgba(92,97,120,0.2); color:var(--text-dim); }
+  .pill-merge { background:rgba(74,222,128,0.15); color:var(--accent-3); }
+  .pill-skip { background:rgba(92,97,120,0.2); color:var(--text-dim); }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <div class="page-header">
+    <h1>时间轴系统 — 优点提取与合并分析</h1>
+    <p>保留当前系统 · 提取其余4套系统的优点 · 删除冗余代码</p>
+  </div>
+
+  <!-- ============ Current System ============ -->
+  <div class="section">
+    <div class="section-title">
+      当前保留的系统
+      <span class="badge" style="background:rgba(74,222,128,0.15);color:var(--accent-3)">保留</span>
+    </div>
+    <div class="current-card">
+      <h3>TimelinePanel.vue + useAppStore</h3>
+      <p><strong>核心文件</strong>：</p>
+      <p><span class="file">src/components/TimelinePanel.vue</span> — 自包含时间轴组件（~548 行）</p>
+      <p><span class="file">src/stores/app.ts</span> — 播放状态管理（currentTime / isPlaying / seek / stepForward）</p>
+      <p><span class="file">src/types.ts</span> — 数据类型（Clip: id/trackId/name/start/duration/type · Track: id/name/type/muted/soloed/locked/visible）</p>
+      <p><span class="file">src/data.ts</span> — 预设数据（6 轨道 23 片段 · 120 秒 · 30fps）</p>
+      <p style="margin-top:12px;"><strong>当前能力</strong>：</p>
+      <p>✓ Clip 拖拽移动 + 左右边缘修剪 &nbsp; ✓ 播放头拖拽 &nbsp; ✓ 标尺点击 seek</p>
+      <p>✓ 缩放滑块（pps 8~120）&nbsp; ✓ 剪切工具（split）&nbsp; ✓ 键盘快捷键（Space/←→/Home/End/Delete）</p>
+      <p>✓ 轨道控制（静音/独奏/锁定/可见）&nbsp; ✓ 音频波形 + 视频缩略图 &nbsp; ✓ 时间码显示（MM:SS:FF）</p>
+      <p style="margin-top:12px;"><strong>当前不足</strong>：</p>
+      <p>✗ 无 undo/redo &nbsp; ✗ 无吸附 &nbsp; ✗ 无关键帧动画 &nbsp; ✗ 无碰撞检测 &nbsp; ✗ 时间用 number 秒（浮点精度风险）</p>
+      <p>✗ 无 Clip 速度控制 &nbsp; ✗ 无轨道排序 &nbsp; ✗ 无多 Clip 操作 &nbsp; ✗ 无序列模板</p>
+    </div>
+  </div>
+
+  <!-- ============ Advantages from Other Systems ============ -->
+  <div class="section">
+    <div class="section-title">
+      其他4套系统的优点分析
+      <span class="badge" style="background:rgba(251,191,36,0.15);color:var(--accent-4)">待提取</span>
+    </div>
+
+    <div class="adv-grid">
+      <!-- ===== From Core Timeline ===== -->
+      <div class="adv-card adv-1">
+        <div class="adv-header">
+          <h4>来自 Core Timeline</h4>
+          <span class="src">src/timeline/</span>
+        </div>
+        <div class="adv-body">
+          <ul class="feat-list">
+            <li class="feat-item">
+              <div class="feat-priority priority-high">高</div>
+              <div class="feat-content">
+                <div class="feat-name">SnapEngine 吸附引擎</div>
+                <div class="feat-desc">Clip 边缘、播放头、标记点自动吸附对齐，编辑体验质的飞跃。当前系统拖拽无吸附，精确对齐困难。<code>src/timeline/interaction/snapEngine.ts</code></div>
+              </div>
+            </li>
+            <li class="feat-item">
+              <div class="feat-priority priority-high">高</div>
+              <div class="feat-content">
+                <div class="feat-name">碰撞检测</div>
+                <div class="feat-desc">同轨道 Clip 重叠检测 + 自动避让。当前系统允许 Clip 重叠且无任何检测。<code>src/timeline/utils/collision.ts</code></div>
+              </div>
+            </li>
+            <li class="feat-item">
+              <div class="feat-priority priority-medium">中</div>
+              <div class="feat-content">
+                <div class="feat-name">Selection 多选状态管理</div>
+                <div class="feat-desc">支持框选、Ctrl+点击多选、Shift 范围选。当前系统只能单选。<code>src/timeline/interaction/selection.ts</code></div>
+              </div>
+            </li>
+            <li class="feat-item">
+              <div class="feat-priority priority-medium">中</div>
+              <div class="feat-content">
+                <div class="feat-name">BladeTool 刀片工具</div>
+                <div class="feat-desc">专业切割工具，在任意时间点精确切割 Clip。当前系统有剪切功能但无独立刀片工具。<code>src/timeline/interaction/bladeTool.ts</code></div>
+              </div>
+            </li>
+            <li class="feat-item">
+              <div class="feat-priority priority-low">低</div>
+              <div class="feat-content">
+                <div class="feat-name">TimelineVirtualizer 虚拟滚动</div>
+                <div class="feat-desc">大量 Clip 时只渲染可见区域。当前 Clip 量小，暂不需要。<code>src/timeline/interaction/..</code></div>
+              </div>
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- ===== From ProTimeline ===== -->
+      <div class="adv-card adv-2">
+        <div class="adv-header">
+          <h4>来自 ProTimeline</h4>
+          <span class="src">src/editor/timeline/</span>
+        </div>
+        <div class="adv-body">
+          <ul class="feat-list">
+            <li class="feat-item">
+              <div class="feat-priority priority-high">高</div>
+              <div class="feat-content">
+                <div class="feat-name">CommandHistory 撤销重做</div>
+                <div class="feat-desc">带事件监听的完整 undo/redo 栈（容量 100），25+ 命令类。当前系统完全无撤销重做，编辑后无法回退。<code>src/editor/timeline/operation/history.ts</code></div>
+              </div>
+            </li>
+            <li class="feat-item">
+              <div class="feat-priority priority-high">高</div>
+              <div class="feat-content">
+                <div class="feat-name">完整时间工具函数</div>
+                <div class="feat-desc"><code>formatTime()</code> HH:MM:SS.mmm + <code>formatTimecode()</code> HH:MM:SS:FF + add/sub/mul/div/clamp。当前 <code>data.ts</code> 只有简单的 MM:SS:FF 格式化。</div>
+              </div>
+            </li>
+            <li class="feat-item">
+              <div class="feat-priority priority-high">高</div>
+              <div class="feat-content">
+                <div class="feat-name">Clip speed 播放速度</div>
+                <div class="feat-desc">支持 0.1x~10x 播放速度 + mapToSource 时间映射。当前 Clip 无速度属性。<code>src/editor/timeline/core/clip.ts</code></div>
+              </div>
+            </li>
+            <li class="feat-item">
+              <div class="feat-priority priority-medium">中</div>
+              <div class="feat-content">
+                <div class="feat-name">TimeRange 区间运算</div>
+                <div class="feat-desc">交集/并集/重叠检测/平移/裁剪。可用于碰撞检测和渲染优化。<code>src/editor/timeline/core/range.ts</code></div>
+              </div>
+            </li>
+            <li class="feat-item">
+              <div class="feat-priority priority-medium">中</div>
+              <div class="feat-content">
+                <div class="feat-name">轨道属性增强</div>
+                <div class="feat-desc">height（可调高度）+ volume（音量）+ color（颜色区分）。当前 Track 无这些属性。<code>src/editor/timeline/core/track.ts</code></div>
+              </div>
+            </li>
+            <li class="feat-item">
+              <div class="feat-priority priority-medium">中</div>
+              <div class="feat-content">
+                <div class="feat-name">轨道拖拽排序</div>
+                <div class="feat-desc">拖拽重排轨道顺序 + 同类型轨道重新编号。当前系统无法调整轨道顺序。</div>
+              </div>
+            </li>
+            <li class="feat-item">
+              <div class="feat-priority priority-medium">中</div>
+              <div class="feat-content">
+                <div class="feat-name">多 Clip 操作</div>
+                <div class="feat-desc">批量删除/移动/复制粘贴/群组/解组。当前系统只能逐个操作。</div>
+              </div>
+            </li>
+            <li class="feat-item">
+              <div class="feat-priority priority-low">低</div>
+              <div class="feat-content">
+                <div class="feat-name">序列模板库</div>
+                <div class="feat-desc">内置 + 自定义模板 + localStorage 持久化。对快速创建项目有用但非核心。</div>
+              </div>
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- ===== From Frame-based Animation ===== -->
+      <div class="adv-card adv-3">
+        <div class="adv-header">
+          <h4>来自帧级参数动画</h4>
+          <span class="src">src/stores/timeline.ts</span>
+        </div>
+        <div class="adv-body">
+          <ul class="feat-list">
+            <li class="feat-item">
+              <div class="feat-priority priority-high">高</div>
+              <div class="feat-content">
+                <div class="feat-name">关键帧动画系统</div>
+                <div class="feat-desc">Keyframe（frame + value + easing）+ ParameterTrack 绑定渲染层参数。当前时间轴无任何动画曲线能力，这是视频编辑器的核心功能。<code>src/editor/timeline/types.ts</code> <code>src/editor/timeline/evaluator.ts</code></div>
+              </div>
+            </li>
+            <li class="feat-item">
+              <div class="feat-priority priority-high">高</div>
+              <div class="feat-content">
+                <div class="feat-name">关键帧插值求值器</div>
+                <div class="feat-desc">linear 线性 + ease smoothstep + hold 保持。给定帧号计算插值后的参数值。可直接集成到当前系统。<code>src/editor/timeline/evaluator.ts</code></div>
+              </div>
+            </li>
+            <li class="feat-item">
+              <div class="feat-priority priority-medium">中</div>
+              <div class="feat-content">
+                <div class="feat-name">rAF 播放循环</div>
+                <div class="feat-desc">requestAnimationFrame 驱动的播放循环，按 fps 累积帧步进。当前系统用 setInterval 播放，精度较低。<code>src/editor/timeline/player.ts</code></div>
+              </div>
+            </li>
+            <li class="feat-item">
+              <div class="feat-priority priority-medium">中</div>
+              <div class="feat-content">
+                <div class="feat-name">CurveCanvas 曲线编辑器</div>
+                <div class="feat-desc">Canvas 绘制关键帧插值曲线，可视化编辑动画。可集成到 Clip inspector 中。<code>src/components/editor/timeline/CurveCanvas.vue</code></div>
+              </div>
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- ===== From Time-based Animation ===== -->
+      <div class="adv-card adv-4">
+        <div class="adv-header">
+          <h4>来自秒级动画系统</h4>
+          <span class="src">src/animation/</span>
+        </div>
+        <div class="adv-body">
+          <ul class="feat-list">
+            <li class="feat-item">
+              <div class="feat-priority priority-high">高</div>
+              <div class="feat-content">
+                <div class="feat-name">bezier 贝塞尔插值</div>
+                <div class="feat-desc">三次贝塞尔曲线 + cp1/cp2 控制点，电影级动画曲线。比 linear/ease/hold 专业得多。可替换帧级系统的简单缓动。<code>src/animation/types.ts</code> <code>src/animation/curve.ts</code></div>
+              </div>
+            </li>
+            <li class="feat-item">
+              <div class="feat-priority priority-medium">中</div>
+              <div class="feat-content">
+                <div class="feat-name">EXPRESSION 表达式动画</div>
+                <div class="feat-desc">用户输入 JS 表达式（如 <code>sin(time) * 0.5</code>）生成程序化动画。高级用户可编程控制参数。</div>
+              </div>
+            </li>
+            <li class="feat-item">
+              <div class="feat-priority priority-medium">中</div>
+              <div class="feat-content">
+                <div class="feat-name">animation/scheduler.ts 帧调度器</div>
+                <div class="feat-desc">独立的 rAF 帧调度器，支持 startFrameLoop / stop，比直接在组件中管理 rAF 更干净。</div>
+              </div>
+            </li>
+            <li class="feat-item">
+              <div class="feat-priority priority-low">低</div>
+              <div class="feat-content">
+                <div class="feat-name">GPU Uniform 直接写入</div>
+                <div class="feat-desc">UniformUpdate → GPUBuffer 直接更新。当前渲染管线不使用这种模式。</div>
+              </div>
+            </li>
+            <li class="feat-item">
+              <div class="feat-priority priority-low">低</div>
+              <div class="feat-content">
+                <div class="feat-name">inputDriver 输入驱动</div>
+                <div class="feat-desc">传感器/摄像头/MIDI → 动画。当前项目不需要外部输入驱动。</div>
+              </div>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ Merge Plan ============ -->
+  <div class="section">
+    <div class="section-title">
+      合并决策矩阵
+      <span class="badge" style="background:rgba(56,189,248,0.15);color:var(--accent-2)">执行计划</span>
+    </div>
+    <table class="merge-table">
+      <thead>
+        <tr>
+          <th>功能</th>
+          <th>来源</th>
+          <th>优先级</th>
+          <th>决策</th>
+          <th>理由</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>CommandHistory undo/redo</td>
+          <td>ProTimeline</td>
+          <td><span class="pill pill-high">高</span></td>
+          <td><span class="pill pill-merge">合并</span></td>
+          <td>无撤销重做的编辑器不可用</td>
+        </tr>
+        <tr>
+          <td>SnapEngine 吸附引擎</td>
+          <td>Core Timeline</td>
+          <td><span class="pill pill-high">高</span></td>
+          <td><span class="pill pill-merge">合并</span></td>
+          <td>精确对齐是基本编辑需求</td>
+        </tr>
+        <tr>
+          <td>碰撞检测</td>
+          <td>Core Timeline</td>
+          <td><span class="pill pill-high">高</span></td>
+          <td><span class="pill pill-merge">合并</span></td>
+          <td>防止 Clip 重叠</td>
+        </tr>
+        <tr>
+          <td>关键帧动画 + 求值器</td>
+          <td>帧级参数动画</td>
+          <td><span class="pill pill-high">高</span></td>
+          <td><span class="pill pill-merge">合并</span></td>
+          <td>视频编辑核心功能</td>
+        </tr>
+        <tr>
+          <td>bezier 贝塞尔插值</td>
+          <td>秒级动画</td>
+          <td><span class="pill pill-high">高</span></td>
+          <td><span class="pill pill-merge">合并</span></td>
+          <td>替代简单缓动，专业级曲线</td>
+        </tr>
+        <tr>
+          <td>Clip speed 速度控制</td>
+          <td>ProTimeline</td>
+          <td><span class="pill pill-high">高</span></td>
+          <td><span class="pill pill-merge">合并</span></td>
+          <td>变速播放是常用功能</td>
+        </tr>
+        <tr>
+          <td>完整时间工具函数</td>
+          <td>ProTimeline</td>
+          <td><span class="pill pill-high">高</span></td>
+          <td><span class="pill pill-merge">合并</span></td>
+          <td>formatTime / formatTimecode 等</td>
+        </tr>
+        <tr>
+          <td>Selection 多选</td>
+          <td>Core Timeline</td>
+          <td><span class="pill pill-medium">中</span></td>
+          <td><span class="pill pill-merge">合并</span></td>
+          <td>批量操作基础</td>
+        </tr>
+        <tr>
+          <td>多 Clip 操作（批量/复制粘贴/群组）</td>
+          <td>ProTimeline</td>
+          <td><span class="pill pill-medium">中</span></td>
+          <td><span class="pill pill-merge">合并</span></td>
+          <td>编辑效率提升</td>
+        </tr>
+        <tr>
+          <td>轨道拖拽排序</td>
+          <td>ProTimeline</td>
+          <td><span class="pill pill-medium">中</span></td>
+          <td><span class="pill pill-merge">合并</span></td>
+          <td>轨道管理基本功能</td>
+        </tr>
+        <tr>
+          <td>CurveCanvas 曲线编辑器</td>
+          <td>帧级参数动画</td>
+          <td><span class="pill pill-medium">中</span></td>
+          <td><span class="pill pill-merge">合并</span></td>
+          <td>关键帧可视化编辑</td>
+        </tr>
+        <tr>
+          <td>rAF 播放循环</td>
+          <td>帧级参数动画</td>
+          <td><span class="pill pill-medium">中</span></td>
+          <td><span class="pill pill-merge">合并</span></td>
+          <td>替代 setInterval，更精确</td>
+        </tr>
+        <tr>
+          <td>轨道属性增强 (height/volume/color)</td>
+          <td>ProTimeline</td>
+          <td><span class="pill pill-medium">中</span></td>
+          <td><span class="pill pill-merge">合并</span></td>
+          <td>UI 体验提升</td>
+        </tr>
+        <tr>
+          <td>TimeRange 区间运算</td>
+          <td>ProTimeline</td>
+          <td><span class="pill pill-medium">中</span></td>
+          <td><span class="pill pill-merge">合并</span></td>
+          <td>碰撞检测和渲染优化基础</td>
+        </tr>
+        <tr>
+          <td>EXPRESSION 表达式动画</td>
+          <td>秒级动画</td>
+          <td><span class="pill pill-medium">中</span></td>
+          <td><span class="pill pill-merge">合并</span></td>
+          <td>程序化动画，高级用户</td>
+        </tr>
+        <tr>
+          <td>BladeTool 刀片工具</td>
+          <td>Core Timeline</td>
+          <td><span class="pill pill-medium">中</span></td>
+          <td><span class="pill pill-merge">合并</span></td>
+          <td>专业切割工具</td>
+        </tr>
+        <tr>
+          <td>bigint 微秒时间</td>
+          <td>ProTimeline</td>
+          <td><span class="pill pill-medium">中</span></td>
+          <td><span class="pill pill-skip">暂不</span></td>
+          <td>改动太大，当前 number 秒够用</td>
+        </tr>
+        <tr>
+          <td>序列模板</td>
+          <td>ProTimeline</td>
+          <td><span class="pill pill-low">低</span></td>
+          <td><span class="pill pill-skip">暂不</span></td>
+          <td>当前只有一个序列</td>
+        </tr>
+        <tr>
+          <td>嵌套序列 + 面包屑</td>
+          <td>ProTimeline</td>
+          <td><span class="pill pill-low">低</span></td>
+          <td><span class="pill pill-skip">暂不</span></td>
+          <td>过于复杂，当前不需要</td>
+        </tr>
+        <tr>
+          <td>跨序列操作</td>
+          <td>ProTimeline</td>
+          <td><span class="pill pill-low">低</span></td>
+          <td><span class="pill pill-skip">暂不</span></td>
+          <td>当前只有一个序列</td>
+        </tr>
+        <tr>
+          <td>虚拟滚动</td>
+          <td>Core Timeline</td>
+          <td><span class="pill pill-low">低</span></td>
+          <td><span class="pill pill-skip">暂不</span></td>
+          <td>Clip 量小，暂不需要</td>
+        </tr>
+        <tr>
+          <td>GPU Uniform 直接写入</td>
+          <td>秒级动画</td>
+          <td><span class="pill pill-low">低</span></td>
+          <td><span class="pill pill-skip">暂不</span></td>
+          <td>渲染管线不匹配</td>
+        </tr>
+        <tr>
+          <td>inputDriver 输入驱动</td>
+          <td>秒级动画</td>
+          <td><span class="pill pill-low">低</span></td>
+          <td><span class="pill pill-skip">暂不</span></td>
+          <td>不需要外部输入</td>
+        </tr>
+        <tr>
+          <td>WDL / AudioMixer / EffectChain / DirectorPanel</td>
+          <td>ProTimeline</td>
+          <td><span class="pill pill-low">低</span></td>
+          <td><span class="pill pill-skip">暂不</span></td>
+          <td>过于复杂，后续按需添加</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ============ Summary ============ -->
+  <div class="section">
+    <div class="summary-box">
+      <h3>总结</h3>
+      <p><strong>保留</strong>：TimelinePanel.vue + useAppStore（当前系统）</p>
+      <p><strong>提取合并</strong>（16 项）：</p>
+      <p style="margin-left:20px;">
+        <strong>高优先级 6 项</strong>：CommandHistory · SnapEngine · 碰撞检测 · 关键帧动画+求值器 · bezier 插值 · Clip speed + 时间工具函数<br>
+        <strong>中优先级 10 项</strong>：Selection 多选 · 多 Clip 操作 · 轨道排序 · CurveCanvas · rAF 播放 · 轨道属性增强 · TimeRange · EXPRESSION · BladeTool
+      </p>
+      <p><strong>删除</strong>（4 套系统，~100+ 文件）：</p>
+      <p style="margin-left:20px;">
+        1. <code>src/timeline/</code> — Core Timeline 全部<br>
+        2. <code>src/editor/timeline/</code> — ProTimeline 全部<br>
+        3. <code>src/stores/timeline.ts</code> + <code>src/editor/timeline/types.ts</code> + <code>evaluator.ts</code> + <code>player.ts</code> — 帧级参数动画<br>
+        4. <code>src/animation/</code> — 秒级动画全部<br>
+        + <code>src/components/timeline/</code> — Core Timeline UI<br>
+        + <code>src/components/editor/timeline/</code> — 动画时间轴 UI<br>
+        + <code>src/components/editor/pro-timeline/</code> — ProTimeline UI<br>
+        + <code>src/components/editor/Timeline.vue</code> — 帧级时间轴 UI
+      </p>
+      <p style="margin-top:12px;"><strong>注意</strong>：合并的代码将提取到独立文件中（如 <code>src/utils/snapEngine.ts</code>、<code>src/utils/commandHistory.ts</code> 等），不保留原系统结构。</p>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

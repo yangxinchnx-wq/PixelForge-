@@ -72,12 +72,15 @@ interface InputDriver {
   ) => number
 }
 
-/** applyFrameToRuntime 存根（替代已删除的 @/editor/timeline/player） */
-function applyFrameToRuntime(
+/** applyFrameToRuntime 函数签名（替代已删除的 @/editor/timeline/player） */
+type ApplyFrameToRuntime = (
   tracks: import('@/types').ParameterTrack[],
   currentFrame: number,
   runtimeStore: RuntimeStore,
-): void {
+) => void
+
+/** applyFrameToRuntime 存根 */
+const stubApplyFrameToRuntime: ApplyFrameToRuntime = (tracks, currentFrame, runtimeStore) => {
   void tracks
   void currentFrame
   void runtimeStore
@@ -104,6 +107,12 @@ export interface ScheduledEngineDeps {
   budget?: PhaseBudget
   /** 任务超时时间(默认 30s) */
   taskTimeoutMs?: number
+  /**
+   * 可选:自定义 applyFrameToRuntime 实现。
+   * 缺省使用内部存根(原 @/editor/timeline/player 已删除)。
+   * 测试可注入 spy 以验证 timeline 步进后的帧应用调用。
+   */
+  applyFrameToRuntime?: ApplyFrameToRuntime
 }
 
 /**
@@ -201,6 +210,7 @@ const PRUNE_INTERVAL_FRAMES = 60
 export function createScheduledEngine(deps: ScheduledEngineDeps): ScheduledEngine {
   const { timelineStore, runtimeStore, graphStore, materialStore } = deps
   const loop = deps.loop ?? false
+  const applyFrameToRuntime = deps.applyFrameToRuntime ?? stubApplyFrameToRuntime
 
   const featureExtractors: FeatureExtractor[] = []
   const inputDrivers: InputDriver[] = []

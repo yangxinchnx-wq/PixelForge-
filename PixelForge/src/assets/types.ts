@@ -1,15 +1,15 @@
 /**
  * Asset 资源类型定义。
  *
- * Asset 是用户拖入 PixelForge 的外部资源(图片 / 纹理),作为 Layer 的输入源。
+ * Asset 是用户拖入 PixelForge 的外部资源(图片 / 纹理 / 视频),作为 Layer 的输入源。
  *
  * 数据流:
- *   用户拖入图片
- *     → assetLoader.loadImage(file) → Asset
+ *   用户拖入图片/视频
+ *     → assetLoader.loadImage(file) / loadVideo(file) → Asset
  *     → assetStore.add(asset)
- *     → assetToLayer(asset) → RenderIR Layer
+ *     → assetToLayer(asset) → RenderIR Layer (图片)
  *     → runtime.applyPatch / push layer
- *     → GPU Texture (textureCache 上传)
+ *     → GPU Texture (textureCache 上传,仅图片)
  *     → Canvas 渲染
  *
  * 设计原则:
@@ -19,7 +19,7 @@
  */
 
 /** 资源类型 */
-export type AssetType = 'image' | 'texture'
+export type AssetType = 'image' | 'texture' | 'video'
 
 /** 单个资源项 */
 export interface Asset {
@@ -41,8 +41,17 @@ export interface Asset {
   createdAt: number
   /** 缩略图 dataURL(用于持久化展示,可选) */
   thumbnail?: string
-  /** MIME 类型(如 'image/png') */
+  /** MIME 类型(如 'image/png' / 'video/mp4') */
   mimeType: string
+  // ── 视频特有字段(仅 type === 'video' 时有效) ──
+  /** 视频时长(秒),仅视频类型 */
+  duration?: number
+  /** 帧率,仅视频类型 */
+  fps?: number
+  /** 编码格式,仅视频类型 */
+  codec?: string
+  /** 总帧数,仅视频类型 */
+  frameCount?: number
 }
 
 /** 资源导入选项 */

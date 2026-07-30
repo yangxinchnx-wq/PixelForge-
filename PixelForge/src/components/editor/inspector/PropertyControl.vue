@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 
 import type { PropertySchema } from '@/editor/inspector/inspectorTypes'
+import PfSelect from '@/components/ui/PfSelect.vue'
 
 interface Props {
   property: PropertySchema
@@ -49,11 +50,9 @@ function onNumber(event: Event) {
   emit('change', Number((event.target as HTMLInputElement).value))
 }
 
-function onSelect(event: Event) {
-  const target = event.target as HTMLSelectElement
-  const raw = target.value
+function onSelect(value: string) {
   // 数字字符串自动转 number
-  const parsed = /^\d+$/.test(raw) ? Number(raw) : raw
+  const parsed = /^\d+$/.test(value) ? Number(value) : value
   emit('change', parsed)
 }
 
@@ -129,17 +128,13 @@ const scalarDisplay = computed(() => {
     </div>
 
     <!-- select -->
-    <select
+    <PfSelect
       v-else-if="property.type === 'select'"
-      class="ctrl-select"
-      :value="String(value ?? '')"
+      :model-value="String(value ?? '')"
+      :options="(property.options ?? []).map((o) => ({ value: String(o.value), label: o.label }))"
       :disabled="property.readonly"
-      @change="onSelect"
-    >
-      <option v-for="opt in property.options" :key="String(opt.value)" :value="String(opt.value)">
-        {{ opt.label }}
-      </option>
-    </select>
+      @update:model-value="onSelect"
+    />
 
     <!-- toggle -->
     <label v-else-if="property.type === 'toggle'" class="ctrl-toggle">
@@ -267,23 +262,10 @@ const scalarDisplay = computed(() => {
   text-transform: uppercase;
 }
 
-/* select */
+/* select — 使用全局 .pf-select, 补充 width:100% */
 .ctrl-select {
   width: 100%;
-  height: 28px;
-  padding: 0 8px;
-  border: 1px solid var(--pf-line);
-  border-radius: var(--pf-r-xs);
-  background: var(--pf-surface);
-  font: inherit;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 11.5px;
-  color: var(--pf-ink);
-  cursor: pointer;
-  outline: none;
-  transition: border-color 160ms ease;
 }
-.ctrl-select:focus { border-color: var(--pf-accent); }
 .ctrl-select:disabled { cursor: not-allowed; opacity: 0.7; }
 
 /* toggle (iOS 风格) */

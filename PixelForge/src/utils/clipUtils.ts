@@ -93,3 +93,78 @@ export function clipsForTrack(clips: Clip[], trackId: string): Clip[] {
     .filter((c) => c.trackId === trackId)
     .sort(compareClipByStart);
 }
+
+/** 拼接间隙容差（秒），低于此值视为已拼接 */
+export const SPLICE_TOLERANCE = 0.01;
+
+/**
+ * 判断两个 Clip 是否拼接（end ≈ start，在容差范围内）。
+ * a 在前，b 在后。
+ */
+export function isSpliced(a: Clip, b: Clip): boolean {
+  const gap = b.start - (a.start + a.duration);
+  return Math.abs(gap) <= SPLICE_TOLERANCE;
+}
+
+/**
+ * 获取与指定 Clip 拼接的所有 Clip ID（含自身），形成连续链。
+ * 向左和向右递归查找同轨道上相邻拼接的 Clip。
+ *
+ * @param clips 所有 Clip
+ * @param clipId 起始 Clip ID
+ * @returns 拼接组中所有 Clip 的 ID 集合
+ */
+export function getSplicedGroup(clips: Clip[], clipId: string): Set<string> {
+  const clip = clips.find((c) => c.id === clipId);
+  if (!clip) return new Set([clipId]);
+
+  const group = new Set<string>([clipId]);
+  const trackClips = clips
+    .filter((c) => c.trackId === clip.trackId)
+    .sort(compareClipByStart);
+
+  // 向左查找
+  let current = clip;
+  for (let i = trackClips.length - 1; i >= 0; i--) {
+    const candidate = trackClips[i];
+    if (candidate.id === current.id) continue;
+    if (candidate.start + candidate.duration <= current.start + SPLICE_TOLERANCE &&
+        candidate.start + candidate.duration >= current.start - SPLICE_TOLERANCE) {
+      // candidate 的右边缘 == current 的左边缘
+      if (!group.has(candidate.id)) {
+        group.add(candidate.id);
+        current = candidate;
+        i = trackClips.length; // 重新从头扫描
+      }
+    }
+  }
+
+  // 向右查找
+  current = clip;
+  for (let i = 0; i < trackClips.length; i++) {
+    const candidate = trackClips[i];
+    if (candidate.id === current.id) continue;
+    if (current.start + current.duration <= candidate.start + SPLICE_TOLERANCE &&
+        current.start + current.duration >= candidate.start - SPLICE_TOLERANCE) {
+      // current 的右边缘 == candidate 的左边缘
+      if (!group.has(candidate.id)) {
+        group.add(candidate.id);
+        current = candidate;
+        i = -1; // 重新从头扫描
+      }
+    }
+  }
+
+  return group;
+}
+
+/**
+ * 获取拼接组的整体时间范围 [minStart, maxEnd]。
+ */
+export function getGroupRange(clips: Clip[], groupIds: Set<string>): { start: number; end: number } {
+  const groupClips = clips.filter((c) => groupIds.has(c.id));
+  if (groupClips.length === 0) return { start: 0, end: 0 };
+  const start = Math.min(...groupClips.map((c) => c.start));
+  const end = Math.max(...groupClips.map((c) => c.start + c.duration));
+  return { start, end };
+}

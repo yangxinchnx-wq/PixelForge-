@@ -76,18 +76,50 @@ class InputDriver {
   constructor(_router?: unknown) {}
 }
 
-// —— 本地 stub（替代已删除的 @/stores/timeline）——
-function useTimelineStore() {
+// —— 本地 fake(替代已删除的 @/stores/timeline 单例 Pinia store)——
+// 关键语义对齐原 store:
+// - 单例:makeScheduledEngine() 与测试体拿到同一实例(原 Pinia store 为全局单例)
+// - 有状态:setPlaying/seek 真实修改 isPlaying/currentFrame
+// - fps=60:对齐原 store 默认值(ref(60))
+interface FakeTimelineStore {
+  fps: number
+  currentFrame: number
+  totalFrames: number
+  isPlaying: boolean
+  tracks: import('@/types').ParameterTrack[]
+  seek: (frame: number) => void
+  setPlaying: (playing: boolean) => void
+}
+
+function createFakeTimelineStore(): FakeTimelineStore {
   return {
-    fps: 30,
+    fps: 60,
     currentFrame: 0,
     totalFrames: 300,
     isPlaying: false,
-    tracks: [] as import('@/types').ParameterTrack[],
-    seek: vi.fn(),
-    setPlaying: vi.fn(),
+    tracks: [],
+    seek(frame: number) {
+      this.currentFrame = frame
+    },
+    setPlaying(playing: boolean) {
+      this.isPlaying = playing
+    },
   }
 }
+
+let fakeTimelineStore: FakeTimelineStore = createFakeTimelineStore()
+
+function useTimelineStore(): FakeTimelineStore {
+  return fakeTimelineStore
+}
+
+// —— 本地 spy（替代已删除的 @/editor/timeline/player,经 ScheduledEngineDeps 注入）——
+const applyFrameToRuntime = vi.fn(() => 0)
+
+// 每个测试前重建 timeline 单例(对齐原 Pinia store 的 setActivePinia(createPinia()) 重置语义)
+beforeEach(() => {
+  fakeTimelineStore = createFakeTimelineStore()
+})
 
 // ============================================================================
 // 辅助:Mock GPU device

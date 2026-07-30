@@ -68,14 +68,19 @@ interface InputDriver {
 }
 
 /**
- * applyFrameToRuntime 存根（替代已删除的 @/editor/timeline/player）。
+ * applyFrameToRuntime 函数签名。
  * 将 timeline tracks 在当前帧的插值结果应用到 runtime store。
  */
-function applyFrameToRuntime(
+type ApplyFrameToRuntime = (
   tracks: import('@/types').ParameterTrack[],
   currentFrame: number,
   runtimeStore: RuntimeStore,
-): void {
+) => void
+
+/**
+ * applyFrameToRuntime 存根（替代已删除的 @/editor/timeline/player）。
+ */
+const stubApplyFrameToRuntime: ApplyFrameToRuntime = (tracks, currentFrame, runtimeStore) => {
   // 存根实现：原实现在 @/editor/timeline/player.ts 中已删除
   // 如需恢复，可使用 @/utils/keyframe 中的 evaluateTrack 重新实现
   void tracks
@@ -98,6 +103,12 @@ export interface EngineDeps {
   materialStore: MaterialStore
   /** Timeline 播放是否循环(默认 false) */
   loop?: boolean
+  /**
+   * 可选:自定义 applyFrameToRuntime 实现。
+   * 缺省使用内部存根(原 @/editor/timeline/player 已删除)。
+   * 测试可注入 spy 以验证 timeline 步进后的帧应用调用。
+   */
+  applyFrameToRuntime?: ApplyFrameToRuntime
 }
 
 /**
@@ -177,6 +188,7 @@ const PRUNE_INTERVAL_FRAMES = 60
 export function createEngine(deps: EngineDeps): PixelForgeEngine {
   const { timelineStore, runtimeStore, graphStore, materialStore } = deps
   const loop = deps.loop ?? false
+  const applyFrameToRuntime = deps.applyFrameToRuntime ?? stubApplyFrameToRuntime
 
   const featureExtractors: FeatureExtractor[] = []
   const inputDrivers: InputDriver[] = []

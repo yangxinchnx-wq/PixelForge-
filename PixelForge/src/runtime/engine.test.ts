@@ -60,33 +60,121 @@ import { useGraphStore } from '@/graph/graphStore'
 import { useMaterialGraphStore } from '@/material/materialGraph'
 
 // —— 本地 stub（替代已删除的 @/animation/drivers/inputDriver）——
+// 忠实还原原实现的最小行为集:
+// - addBinding 存绑定(mapping 默认值合并,对齐原实现)
+// - update 读取 router 信号 → 线性映射 → 应用到目标 store → 返回应用数
+// - 信号不活跃时跳过(对齐原 evaluate 语义,避免覆盖其他动画源)
+interface FakeBinding {
+  signalId: string
+  targetKind: 'graph' | 'material' | 'runtime'
+  nodeId: string
+  property: string
+  mapping: { inMin: number; inMax: number; outMin: number; outMax: number }
+  enabled: boolean
+}
+
 class InputDriver {
-  update = vi.fn(() => 0)
+  private bindings: FakeBinding[] = []
   size = 0
-  getBindings = vi.fn((): any[] => [])
-  addBinding = vi.fn()
+  getBindings = vi.fn((): unknown[] => [])
   removeBinding = vi.fn()
   setBindingEnabled = vi.fn()
   setBindingMapping = vi.fn()
-  evaluate = vi.fn((): any[] => [])
-  constructor(_router?: unknown) {}
-}
+  evaluate = vi.fn((): unknown[] => [])
 
-// —— 本地 stub（替代已删除的 @/stores/timeline）——
-function useTimelineStore() {
-  return {
-    fps: 30,
-    currentFrame: 0,
-    totalFrames: 300,
-    isPlaying: false,
-    tracks: [] as import('@/types').ParameterTrack[],
-    seek: vi.fn(),
-    setPlaying: vi.fn(),
+  constructor(private router?: { hasActiveSignal: (id: string) => boolean; getSignalValue: (id: string, fallback?: number) => number }) {}
+
+  addBinding(options: {
+    signalId: string
+    targetKind: FakeBinding['targetKind']
+    nodeId: string
+    property: string
+    mapping?: Partial<FakeBinding['mapping']>
+    enabled?: boolean
+  }): string {
+    const id = `binding-${this.bindings.length + 1}`
+    this.bindings.push({
+      signalId: options.signalId,
+      targetKind: options.targetKind,
+      nodeId: options.nodeId,
+      property: options.property,
+      mapping: { inMin: 0, inMax: 1, outMin: 0, outMax: 1, ...options.mapping },
+      enabled: options.enabled ?? true,
+    })
+    this.size = this.bindings.length
+    return id
+  }
+
+  update(graphStore: unknown, materialStore: unknown, runtimeStore: unknown): number {
+    let applied = 0
+    for (const b of this.bindings) {
+      if (!b.enabled) continue
+      if (!this.router?.hasActiveSignal(b.signalId)) continue
+      const sig = this.router.getSignalValue(b.signalId, 0)
+      const t = (sig - b.mapping.inMin) / (b.mapping.inMax - b.mapping.inMin)
+      const value = b.mapping.outMin + t * (b.mapping.outMax - b.mapping.outMin)
+      if (b.targetKind === 'runtime' && runtimeStore) {
+        ;(runtimeStore as { applyValuePatch: (id: string, key: string, v: number, opts: { skipHistory: boolean }) => boolean })
+          .applyValuePatch(b.nodeId, b.property, value, { skipHistory: true })
+        applied++
+      } else if (b.targetKind === 'graph' && graphStore) {
+        ;(graphStore as { updateNodeParams: (id: string, params: Record<string, number>) => void })
+          .updateNodeParams(b.nodeId, { [b.property]: value })
+        applied++
+      } else if (b.targetKind === 'material' && materialStore) {
+        ;(materialStore as { updateNodeParams: (id: string, params: Record<string, number>) => void })
+          .updateNodeParams(b.nodeId, { [b.property]: value })
+        applied++
+      }
+    }
+    return applied
   }
 }
 
-// —— 本地 stub（替代已删除的 @/editor/timeline/player）——
+// —— 本地 fake(替代已删除的 @/stores/timeline 单例 Pinia store)——
+// 关键语义对齐原 store:
+// - 单例:makeEngine() 与测试体拿到同一实例(原 Pinia store 为全局单例)
+// - 有状态:setPlaying/seek 真实修改 isPlaying/currentFrame
+// - fps=60:对齐原 store 默认值(ref(60))
+interface FakeTimelineStore {
+  fps: number
+  currentFrame: number
+  totalFrames: number
+  isPlaying: boolean
+  tracks: import('@/types').ParameterTrack[]
+  seek: (frame: number) => void
+  setPlaying: (playing: boolean) => void
+}
+
+function createFakeTimelineStore(): FakeTimelineStore {
+  return {
+    fps: 60,
+    currentFrame: 0,
+    totalFrames: 300,
+    isPlaying: false,
+    tracks: [],
+    seek(frame: number) {
+      this.currentFrame = frame
+    },
+    setPlaying(playing: boolean) {
+      this.isPlaying = playing
+    },
+  }
+}
+
+let fakeTimelineStore: FakeTimelineStore = createFakeTimelineStore()
+
+function useTimelineStore(): FakeTimelineStore {
+  return fakeTimelineStore
+}
+
+// —— 本地 spy（替代已删除的 @/editor/timeline/player,经 EngineDeps 注入）——
 const applyFrameToRuntime = vi.fn(() => 0)
+
+// 每个测试前重建 timeline 单例(对齐原 Pinia store 的 setActivePinia(createPinia()) 重置语义)
+beforeEach(() => {
+  fakeTimelineStore = createFakeTimelineStore()
+})
 
 // ============================================================================
 // 辅助:Mock FeatureExtractor(避免依赖 AudioAnalyzer / 浏览器 API)
@@ -136,7 +224,7 @@ function makeEngine() {
   const runtimeStore = useRuntimeStore()
   const graphStore = useGraphStore()
   const materialStore = useMaterialGraphStore()
-  return createEngine({ timelineStore, runtimeStore, graphStore, materialStore })
+  return createEngine({ timelineStore, runtimeStore, graphStore, materialStore, applyFrameToRuntime })
 }
 
 // ============================================================================

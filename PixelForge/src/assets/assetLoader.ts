@@ -1,26 +1,16 @@
 import type { Asset, LoadImageOptions } from './types'
 
 /**
- * 图片资源加载器。
+ * 资源加载器。
  *
  * 职责:
- * - 把 File 转成 Asset(blob URL + 尺寸 + 缩略图)
- * - 处理图片解码失败 / 格式不支持等错误
- *
- * 数据流:
- *   <input type=file> change 事件
- *     → loadImage(file)
- *     → URL.createObjectURL(file)  → blob URL
- *     → new Image() + img.decode() → 等待解码
- *     → 生成缩略图(可选)
- *     → 返回 Asset
- *
- * 错误处理:
- * - 文件类型不是图片 → throw
- * - 解码失败 → throw
+ * - 图片:把 File 转成 Asset(blob URL + 尺寸 + 缩略图)
+ * - 视频:把 File 转成 Asset(blob URL + 尺寸 + 时长 + 帧率)
+ * - 处理解码失败 / 格式不支持等错误
  */
 
 const SUPPORTED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'image/bmp']
+const SUPPORTED_VIDEO_TYPES = ['video/mp4', 'video/webm', 'video/ogg', 'video/quicktime']
 
 /**
  * 加载单个图片文件为 Asset。
@@ -127,4 +117,117 @@ function genId(): string {
     return crypto.randomUUID()
   }
   return `asset-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+}
+
+// ============================================================================
+// 视频加载
+// ============================================================================
+
+/**
+ * 加载单个视频文件为 Asset。
+ *
+ * 数据流:
+ *   URL.createObjectURL(file) → blob URL
+ *   <video>.onloadedmetadata → 获取尺寸 / 时长
+ *   生成缩略图(截取第一帧)
+ *   返回 Asset(type='video')
+ *
+ * @param file 用户选择的视频文件
+ * @throws 文件类型不支持 / 元数据读取失败
+ */
+export async function loadVideo(file: File): Promise<Asset> {
+  if (!SUPPORTED_VIDEO_TYPES.includes(file.type)) {
+    throw new Error(`不支持的视频类型: ${file.type}(支持 MP4/WebM/OGG/QuickTime)`)
+  }
+
+  const url = URL.createObjectURL(file)
+
+  const meta = await new Promise<{ width: number; height: number; duration: number }>((resolve, reject) => {
+    const video = document.createElement('video')
+    video.preload = 'metadata'
+    video.muted = true
+
+    video.onloadedmetadata = () => {
+      resolve({
+        width: video.videoWidth,
+        height: video.videoHeight,
+        duration: video.duration,
+      })
+    }
+
+    video.onerror = () => {
+      URL.revokeObjectURL(url)
+      reject(new Error(`视频元数据读取失败: ${file.name}`))
+    }
+
+    // 超时保护(10秒)
+    setTimeout(() => {
+      reject(new Error(`视频加载超时: ${file.name}`))
+    }, 10000)
+
+    video.src = url
+  })
+
+  // 生成视频缩略图(截取第一帧)
+  const thumbnail = await generateVideoThumbnail(url).catch(() => undefined)
+
+  return {
+    id: genId(),
+    name: file.name,
+    type: 'video',
+    url,
+    width: meta.width,
+    height: meta.height,
+    size: file.size,
+    createdAt: Date.now(),
+    thumbnail,
+    mimeType: file.type,
+    duration: meta.duration,
+    fps: 30, // 默认 30fps,精确值需 Demuxer
+    codec: 'avc1',
+    frameCount: Math.round(meta.duration * 30),
+  }
+}
+
+/**
+ * 生成视频缩略图(截取第一帧)。
+ *
+ * @param videoUrl 视频 blob URL
+ * @returns 缩略图 dataURL
+ */
+async function generateVideoThumbnail(videoUrl: string): Promise<string | undefined> {
+  try {
+    const video = document.createElement('video')
+    video.preload = 'metadata'
+    video.muted = true
+    video.crossOrigin = 'anonymous'
+
+    await new Promise<void>((resolve, reject) => {
+      video.onloadedmetadata = () => resolve()
+      video.onerror = () => reject(new Error('缩略图元数据加载失败'))
+      video.src = videoUrl
+    })
+
+    // seek 到 0.1 秒(避免黑屏)
+    await new Promise<void>((resolve) => {
+      video.onseeked = () => resolve()
+      video.currentTime = Math.min(0.1, (video.duration || 1) / 2)
+    })
+
+    const maxWidth = 160
+    const scale = Math.min(1, maxWidth / video.videoWidth)
+    const thumbWidth = Math.max(1, Math.round(video.videoWidth * scale))
+    const thumbHeight = Math.max(1, Math.round(video.videoHeight * scale))
+
+    const canvas = document.createElement('canvas')
+    canvas.width = thumbWidth
+    canvas.height = thumbHeight
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return undefined
+
+    ctx.drawImage(video, 0, 0, thumbWidth, thumbHeight)
+    return canvas.toDataURL('image/jpeg', 0.7)
+  } catch {
+    return undefined
+  }
 }

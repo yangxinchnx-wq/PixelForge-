@@ -5,6 +5,7 @@ import App from './App.vue';
 import PhosphorIcons from '@phosphor-icons/vue';
 import './styles/index.css';
 import { initStorage } from './storage';
+import tooltipDirective from './directives/tooltip';
 
 async function bootstrap() {
   // 初始化三层存储系统（L1 内存 LRU + L2 OPFS + L3 Redb）
@@ -19,6 +20,7 @@ async function bootstrap() {
   app.use(createPinia());
   app.use(router);
   app.use(PhosphorIcons);
+  app.directive('tooltip', tooltipDirective);
   app.mount('#app');
 }
 
