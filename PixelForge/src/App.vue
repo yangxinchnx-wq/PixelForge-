@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { watch, onMounted, onUnmounted, ref, nextTick, computed } from 'vue';
+import { watch, onMounted, onUnmounted, ref, nextTick, computed, reactive } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useAppStore } from './stores/app';
 import TopHeader from './components/TopHeader.vue';
@@ -13,12 +13,25 @@ import StatusBar from './components/StatusBar.vue';
 import AIChatPanel from './components/AIChatPanel.vue';
 import ResourceManagerPanel from './components/ResourceManagerPanel.vue';
 import WorkflowPanel from './components/WorkflowPanel.vue';
+import GraphEditor from './components/editor/graph/GraphEditor.vue';
+import AssetGenomePanel from './components/AssetGenomePanel.vue';
 import AmbientFluidCanvas from './components/AmbientFluidCanvas.vue';
 import ExportModal from './components/ExportModal.vue';
 import SettingsModal from './components/SettingsModal.vue';
 import PfSelect from './components/ui/PfSelect.vue';
 import { pageEnter } from './composables/useAnime';
 import { TOTAL_DURATION } from './data';
+import { useAssetStore } from './assets/assetStore';
+import {
+  EXPORT_FORMATS,
+  QUALITY_PRESETS,
+  getQualityPreset,
+  detectCodecSupport,
+  encodeImagesToVideo,
+  downloadBlob,
+  type ExportFormatId,
+  type QualityLevel,
+} from './media/video/encoder/videoEncoder';
 
 const store = useAppStore();
 const {
@@ -34,11 +47,13 @@ const {
   isSettingsOpen,
   theme,
   isGenerating,
+  showTimeline,
   autoSaveEnabled,
   autoSaveInterval,
   saveStatus,
   lastSavedTime,
   modelConfigs,
+  accentColors,
   history,
   currentIndex,
   canUndo,
@@ -95,6 +110,8 @@ onMounted(() => {
   document.addEventListener('click', onTuningDocClick);
   // 初始化完成后从三层统一存储异步加载项目快照（覆盖 localStorage 同步加载结果）
   void store.loadFromUnifiedStore();
+  // 检测当前设备的硬件编码能力
+  void detectHardwareSupport();
 });
 
 onUnmounted(() => {
@@ -197,6 +214,35 @@ watch(activeLeftTab, async () => {
   }
 });
 
+// ─── 可视化编程引擎（Graph Editor 浮层）──────────────────
+const showGraphEditor = ref(false);
+
+/** WorkflowPanel 步骤点击 → 打开对应功能 */
+function handleWorkflowStepClick(stepId: string) {
+  switch (stepId) {
+    case 'input':
+      // 跳转到 AI 对话面板
+      activeLeftTab.value = 'image';
+      break;
+    case 'parse':
+      // 打开可视化编程引擎
+      showGraphEditor.value = true;
+      break;
+    case 'generate':
+      // 触发生成
+      void store.handleGenerate();
+      break;
+    case 'postprocess':
+      // 切换到效果页面（如果有效果 tab）或跳转到 input tab 的调参面板
+      activeLeftTab.value = 'input';
+      break;
+    case 'export':
+      // 打开导出面板
+      activeLeftTab.value = 'render';
+      break;
+  }
+}
+
 // ─── Prompt 历史（从数据库加载）────────────────────────
 const promptHistory = ref<Array<{ timestampMs: number; text: string }>>([]);
 
@@ -222,63 +268,178 @@ watch(activeLeftTab, (tab) => {
   if (tab === 'history') void refreshPromptHistory();
 });
 
-// ─── 渲染/导出设置 (Adobe Media Encoder 风格) ─────────
-const renderFormat = ref('H.264');
-const renderPreset = ref('Match Source - High');
-const renderProfile = ref('High');
-const renderLevel = ref('4.1');
-const renderBitrateMode = ref<'CBR' | 'VBR 1-pass' | 'VBR 2-pass'>('VBR 1-pass');
-const renderTargetBitrate = ref(10);
-const renderMaxBitrate = ref(14);
-const renderAudioCodec = ref('AAC');
-const renderSampleRate = ref('48 kHz');
-const renderAudioChannels = ref('Stereo');
-const renderAudioBitrate = ref(320);
+// ─── 渲染/导出设置 (WebCodecs 硬件加速) ────────────────
+const assetStore = useAssetStore();
+
+const renderFormat = ref<ExportFormatId>('h264');
+const renderQuality = ref<QualityLevel>('high');
+const renderTargetBitrate = ref(10); // Mbps
+const renderPerImageDuration = ref(3); // 每张图片展示秒数
 const renderOutputName = ref('PixelForge_Export');
 const isExporting = ref(false);
 const exportProgress = ref(0);
+const exportError = ref<string | null>(null);
+const exportDone = ref(false);
 
-const formatOptions = ['H.264', 'HEVC (H.265)', 'ProRes 422 HQ', 'AV1', 'WebM VP9'];
-const presetOptions = ['Match Source - High', 'Match Source - Medium', 'Match Source - Low', 'Custom'];
-const profileOptions = ['High', 'Main', 'Baseline'];
-const levelOptions = ['4.0', '4.1', '4.2', '5.0', '5.1', '5.2'];
-const audioCodecOptions = ['AAC', 'MP3', 'PCM 24-bit'];
-const sampleRateOptions = ['48 kHz', '44.1 kHz', '96 kHz'];
-const channelOptions = ['Stereo', 'Mono', '5.1 Surround'];
-const audioBitrateOptions = [320, 256, 192, 128, 96];
+/** 编解码器硬件支持状态 */
+const codecSupport = reactive<Record<ExportFormatId, boolean>>({
+  h264: true,
+  hevc: true,
+  av1: true,
+  vp9: true,
+});
+const isCodecDetecting = ref(true);
 
-// PfSelect options (string value/label pairs)
-const formatOpts = formatOptions.map((f) => ({ value: f, label: f }));
-const presetOpts = presetOptions.map((p) => ({ value: p, label: p }));
-const profileOpts = profileOptions.map((p) => ({ value: p, label: p }));
-const levelOpts = levelOptions.map((l) => ({ value: l, label: `Level ${l}` }));
-const audioCodecOpts = audioCodecOptions.map((c) => ({ value: c, label: c }));
-const sampleRateOpts = sampleRateOptions.map((s) => ({ value: s, label: s }));
-const channelOpts = channelOptions.map((c) => ({ value: c, label: c }));
+/** PfSelect 选项：格式（不支持的自动禁用并标注） */
+const formatOpts = computed(() =>
+  EXPORT_FORMATS.map((fmt) => ({
+    value: fmt.id,
+    label: codecSupport[fmt.id] ? fmt.label : `${fmt.label}（当前设备不支持）`,
+    disabled: !codecSupport[fmt.id],
+  })),
+);
+
+/** PfSelect 选项：质量等级（鼠标悬停显示详细说明） */
+const qualityOpts = computed(() =>
+  QUALITY_PRESETS.map((p) => ({
+    value: p.id,
+    label: p.label,
+    tooltip: p.tooltip,
+  })),
+);
+
+/** 解析分辨率字符串为数值 */
+const parsedResolution = computed(() => {
+  const m = resolution.value.match(/(\d+)\s*[×x]\s*(\d+)/);
+  return m ? { w: parseInt(m[1]), h: parseInt(m[2]) } : { w: 1920, h: 1080 };
+});
+
+/** 解析帧率字符串为数值 */
+const parsedFps = computed(() => {
+  const m = frameRate.value.match(/(\d+)/);
+  return m ? parseInt(m[1]) : 30;
+});
+
+/** 导出总时长（基于图片数量 × 每张展示时长） */
+const exportDuration = computed(() => {
+  const imageCount = assetStore.images.length;
+  if (imageCount === 0) return 0;
+  return imageCount * renderPerImageDuration.value;
+});
+
+/** 当前选择的格式信息 */
+const currentFormatInfo = computed(() =>
+  EXPORT_FORMATS.find((f) => f.id === renderFormat.value),
+);
 
 const estimatedFileSize = computed(() => {
-  const totalBitrate = renderTargetBitrate.value + renderAudioBitrate.value / 1000;
-  const sizeMB = (totalBitrate * projectDuration.value) / 8; // Mbps * seconds / 8 = MB
+  const duration = exportDuration.value;
+  if (duration === 0) return '—';
+  // 实际码率 = 用户设定码率 × 质量等级倍率
+  const qualityPreset = getQualityPreset(renderQuality.value);
+  const actualBitrate = renderTargetBitrate.value * qualityPreset.bitrateMultiplier;
+  const sizeMB = (actualBitrate * duration) / 8; // Mbps * seconds / 8 = MB
   if (sizeMB >= 1024) return `${(sizeMB / 1024).toFixed(2)} GB`;
   return `${sizeMB.toFixed(1)} MB`;
 });
 
-function startExport() {
+/** 导出按钮是否可用 */
+const canExport = computed(() => {
+  return (
+    !isExporting.value &&
+    !isCodecDetecting.value &&
+    assetStore.images.length > 0 &&
+    codecSupport[renderFormat.value]
+  );
+});
+
+/** 导出按钮提示文本 */
+const exportBtnTooltip = computed(() => {
+  if (isCodecDetecting.value) return '正在检测硬件编码支持…';
+  if (assetStore.images.length === 0) return '没有可导出的图片，请先导入或生成图片';
+  if (!codecSupport[renderFormat.value]) return '当前设备不支持此编码格式';
+  return '';
+});
+
+/** 运行时检测硬件编码能力 */
+async function detectHardwareSupport() {
+  isCodecDetecting.value = true;
+  try {
+    const { w, h } = parsedResolution.value;
+    const bitrate = renderTargetBitrate.value * 1_000_000; // Mbps → bps
+    const support = await detectCodecSupport(w, h, bitrate);
+    for (const fmt of EXPORT_FORMATS) {
+      codecSupport[fmt.id] = support.get(fmt.id) ?? false;
+    }
+    // 如果当前选中的格式不支持，自动切换到第一个支持的格式
+    if (!codecSupport[renderFormat.value]) {
+      const firstSupported = EXPORT_FORMATS.find((f) => codecSupport[f.id]);
+      if (firstSupported) {
+        renderFormat.value = firstSupported.id;
+      }
+    }
+  } catch (e) {
+    console.error('[Export] 编解码器检测失败:', e);
+  } finally {
+    isCodecDetecting.value = false;
+  }
+}
+
+/** 执行真实导出 */
+async function startExport() {
   if (isExporting.value) return;
+  if (assetStore.images.length === 0) {
+    exportError.value = '没有可导出的图片，请先在画布中导入或生成图片';
+    return;
+  }
+
   isExporting.value = true;
   exportProgress.value = 0;
-  const timer = setInterval(() => {
-    exportProgress.value += Math.random() * 4 + 1;
-    if (exportProgress.value >= 100) {
-      exportProgress.value = 100;
-      clearInterval(timer);
-      setTimeout(() => {
-        isExporting.value = false;
-        exportProgress.value = 0;
-      }, 1500);
-    }
-  }, 200);
+  exportError.value = null;
+  exportDone.value = false;
+
+  try {
+    const formatInfo = currentFormatInfo.value;
+    if (!formatInfo) throw new Error('未知的导出格式');
+
+    const { w, h } = parsedResolution.value;
+    const imageUrls = assetStore.images.map((a) => a.url);
+
+    const blob = await encodeImagesToVideo({
+      imageUrls,
+      width: w,
+      height: h,
+      fps: parsedFps.value,
+      perImageDuration: renderPerImageDuration.value,
+      bitrate: renderTargetBitrate.value * 1_000_000, // Mbps → bps
+      format: renderFormat.value,
+      quality: renderQuality.value,
+      onProgress: (p) => {
+        exportProgress.value = p;
+      },
+    });
+
+    const filename = `${renderOutputName.value || 'PixelForge_Export'}.${formatInfo.ext}`;
+    downloadBlob(blob, filename);
+
+    exportDone.value = true;
+  } catch (e) {
+    exportError.value = (e as Error).message;
+    console.error('[Export] 导出失败:', e);
+  } finally {
+    isExporting.value = false;
+  }
 }
+
+// 分辨率变化时重新检测硬件支持（码率变化用防抖，避免滑块拖动时风暴）
+let detectDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+watch([resolution, renderTargetBitrate], () => {
+  if (detectDebounceTimer) clearTimeout(detectDebounceTimer);
+  detectDebounceTimer = setTimeout(() => {
+    void detectHardwareSupport();
+    detectDebounceTimer = null;
+  }, 600);
+});
 </script>
 
 <template>
@@ -288,7 +449,9 @@ function startExport() {
     <TopHeader
       :theme="theme"
       :is-generating="isGenerating"
+      :show-timeline="showTimeline"
       @toggle-theme="store.toggleTheme"
+      @toggle-timeline="store.toggleTimeline"
       @export="isExportOpen = true"
     />
 
@@ -301,7 +464,7 @@ function startExport() {
 
       <div class="pf-content" ref="contentRef">
         <!-- Main Workspace -->
-        <div v-if="activeLeftTab === 'input'" class="pf-workspace">
+        <div v-if="activeLeftTab === 'input'" class="pf-workspace" :style="store.buildAccentVars(accentColors.video)">
           <div class="pf-workspace-top">
             <ControlPanel
               :prompt-text="livePromptText"
@@ -338,7 +501,7 @@ function startExport() {
         </div>
 
         <!-- 图片工作台 — 左AI对话 + 中画布 + 底部工作流 + 右资源管理 -->
-        <div v-else-if="activeLeftTab === 'image'" class="pf-workspace">
+        <div v-else-if="activeLeftTab === 'image'" class="pf-workspace" :style="store.buildAccentVars(accentColors.image)">
           <div class="pf-workspace-top">
             <!-- 左侧：AI 对话 -->
             <AIChatPanel />
@@ -365,10 +528,10 @@ function startExport() {
           </div>
 
           <!-- 底部：工作流（贯穿整个底部） -->
-          <WorkflowPanel />
+          <WorkflowPanel @step-click="handleWorkflowStepClick" />
         </div>
 
-        <!-- Elements Page -->
+        <!-- Elements Page — Asset Genome -->
         <div v-else-if="activeLeftTab === 'elements'" class="pf-page">
           <div class="pf-page-header">
             <button class="btn btn-icon" title="返回" @click="goBackToInput">
@@ -377,28 +540,10 @@ function startExport() {
                 <polyline points="12 19 5 12 12 5" />
               </svg>
             </button>
-            <span class="pf-page-title">元素</span>
+            <span class="pf-page-title">元素 · Asset Genome</span>
           </div>
-          <div class="pf-page-body" style="display: flex">
-            <div class="pf-panel" style="flex: 1; min-height: 0">
-              <div class="pf-panel-header">
-                <span class="pf-panel-title">图层元素</span>
-              </div>
-              <div class="pf-panel-body">
-                <div class="pf-chips">
-                  <button
-                    v-for="el in activeSnapshot.elements"
-                    :key="el.id"
-                    class="pf-chip"
-                    :class="{ active: el.active }"
-                    @click="store.toggleElement(el.id)"
-                  >
-                    <span class="pf-chip-dot" />
-                    {{ el.name }}
-                  </button>
-                </div>
-              </div>
-            </div>
+          <div class="pf-page-body" style="display: flex; min-height: 0; flex: 1;">
+            <AssetGenomePanel style="flex: 1; min-height: 0;" />
           </div>
         </div>
 
@@ -521,23 +666,24 @@ function startExport() {
           @back="goBackToInput"
         />
 
-        <!-- Render Page — Adobe Media Encoder 风格导出界面 -->
+        <!-- Render Page — WebCodecs 硬件加速导出界面 -->
         <div v-else-if="activeLeftTab === 'render'" class="pf-render">
           <!-- 左栏：设置区 -->
           <div class="pf-render-settings">
-            <!-- 格式与预设 -->
+            <!-- 格式 -->
             <div class="pf-panel">
               <div class="pf-panel-header">
-                <span class="pf-panel-title">格式与预设</span>
+                <span class="pf-panel-title">格式</span>
+                <span v-if="isCodecDetecting" class="pf-render-detect-hint">检测硬件支持中…</span>
               </div>
               <div class="pf-panel-body">
                 <div class="pf-render-row">
-                  <label class="pf-render-label">格式</label>
+                  <label class="pf-render-label">导出格式</label>
                   <PfSelect v-model="renderFormat" :options="formatOpts" />
                 </div>
                 <div class="pf-render-row">
-                  <label class="pf-render-label">预设</label>
-                  <PfSelect v-model="renderPreset" :options="presetOpts" />
+                  <label class="pf-render-label">质量等级</label>
+                  <PfSelect v-model="renderQuality" :options="qualityOpts" />
                 </div>
               </div>
             </div>
@@ -546,7 +692,6 @@ function startExport() {
             <div class="pf-panel">
               <div class="pf-panel-header">
                 <span class="pf-panel-title">视频</span>
-                <span class="pf-render-tab-active">视频</span>
               </div>
               <div class="pf-panel-body">
                 <div class="pf-render-row">
@@ -566,18 +711,10 @@ function startExport() {
                   </div>
                 </div>
                 <div class="pf-render-row">
-                  <label class="pf-render-label">编解码器配置</label>
-                  <div style="display: flex; gap: 8px;">
-                    <PfSelect v-model="renderProfile" :options="profileOpts" size="small" />
-                    <PfSelect v-model="renderLevel" :options="levelOpts" size="small" />
-                  </div>
-                </div>
-                <div class="pf-render-row">
-                  <label class="pf-render-label">码率模式</label>
-                  <div class="pf-seg">
-                    <button class="pf-seg-btn" :class="{ active: renderBitrateMode === 'CBR' }" @click="renderBitrateMode = 'CBR'">CBR</button>
-                    <button class="pf-seg-btn" :class="{ active: renderBitrateMode === 'VBR 1-pass' }" @click="renderBitrateMode = 'VBR 1-pass'">VBR 1-pass</button>
-                    <button class="pf-seg-btn" :class="{ active: renderBitrateMode === 'VBR 2-pass' }" @click="renderBitrateMode = 'VBR 2-pass'">VBR 2-pass</button>
+                  <label class="pf-render-label">每张图片时长</label>
+                  <div class="pf-render-bitrate">
+                    <input type="range" class="pf-slider" min="0.5" max="10" step="0.5" v-model.number="renderPerImageDuration" />
+                    <span class="pf-render-bitrate-val">{{ renderPerImageDuration }} 秒</span>
                   </div>
                 </div>
                 <div class="pf-render-row">
@@ -585,46 +722,6 @@ function startExport() {
                   <div class="pf-render-bitrate">
                     <input type="range" class="pf-slider" min="1" max="50" step="0.5" v-model.number="renderTargetBitrate" />
                     <span class="pf-render-bitrate-val">{{ renderTargetBitrate }} Mbps</span>
-                  </div>
-                </div>
-                <div v-if="renderBitrateMode !== 'CBR'" class="pf-render-row">
-                  <label class="pf-render-label">最大码率</label>
-                  <div class="pf-render-bitrate">
-                    <input type="range" class="pf-slider" min="1" max="60" step="0.5" v-model.number="renderMaxBitrate" />
-                    <span class="pf-render-bitrate-val">{{ renderMaxBitrate }} Mbps</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- 音频设置 -->
-            <div class="pf-panel">
-              <div class="pf-panel-header">
-                <span class="pf-panel-title">音频</span>
-              </div>
-              <div class="pf-panel-body">
-                <div class="pf-render-row">
-                  <label class="pf-render-label">音频编解码器</label>
-                  <PfSelect v-model="renderAudioCodec" :options="audioCodecOpts" />
-                </div>
-                <div class="pf-render-row">
-                  <label class="pf-render-label">采样率</label>
-                  <PfSelect v-model="renderSampleRate" :options="sampleRateOpts" />
-                </div>
-                <div class="pf-render-row">
-                  <label class="pf-render-label">声道</label>
-                  <PfSelect v-model="renderAudioChannels" :options="channelOpts" />
-                </div>
-                <div class="pf-render-row">
-                  <label class="pf-render-label">音频码率</label>
-                  <div class="pf-seg">
-                    <button
-                      v-for="b in audioBitrateOptions"
-                      :key="b"
-                      class="pf-seg-btn"
-                      :class="{ active: renderAudioBitrate === b }"
-                      @click="renderAudioBitrate = b"
-                    >{{ b }}k</button>
                   </div>
                 </div>
               </div>
@@ -645,7 +742,7 @@ function startExport() {
                 <div class="pf-render-summary-grid">
                   <div class="pf-render-summary-item">
                     <span class="pf-render-summary-label">格式</span>
-                    <span class="pf-render-summary-val">{{ renderFormat }}</span>
+                    <span class="pf-render-summary-val">{{ currentFormatInfo?.label ?? '—' }}</span>
                   </div>
                   <div class="pf-render-summary-item">
                     <span class="pf-render-summary-label">分辨率</span>
@@ -656,16 +753,20 @@ function startExport() {
                     <span class="pf-render-summary-val">{{ frameRate }}</span>
                   </div>
                   <div class="pf-render-summary-item">
+                    <span class="pf-render-summary-label">图片数</span>
+                    <span class="pf-render-summary-val">{{ assetStore.images.length }} 张</span>
+                  </div>
+                  <div class="pf-render-summary-item">
                     <span class="pf-render-summary-label">时长</span>
-                    <span class="pf-render-summary-val">{{ projectDuration.toFixed(1) }} s</span>
+                    <span class="pf-render-summary-val">{{ exportDuration.toFixed(1) }} s</span>
                   </div>
                   <div class="pf-render-summary-item">
-                    <span class="pf-render-summary-label">视频码率</span>
-                    <span class="pf-render-summary-val">{{ renderTargetBitrate }} Mbps</span>
+                    <span class="pf-render-summary-label">质量</span>
+                    <span class="pf-render-summary-val">{{ getQualityPreset(renderQuality).label }}</span>
                   </div>
                   <div class="pf-render-summary-item">
-                    <span class="pf-render-summary-label">音频码率</span>
-                    <span class="pf-render-summary-val">{{ renderAudioBitrate }} kbps</span>
+                    <span class="pf-render-summary-label">实际码率</span>
+                    <span class="pf-render-summary-val">{{ (renderTargetBitrate * getQualityPreset(renderQuality).bitrateMultiplier).toFixed(1) }} Mbps</span>
                   </div>
                   <div class="pf-render-summary-item pf-render-summary-highlight">
                     <span class="pf-render-summary-label">预估大小</span>
@@ -681,15 +782,41 @@ function startExport() {
                   <span class="pf-render-progress-text">{{ Math.round(exportProgress) }}%</span>
                 </div>
 
+                <!-- 错误信息 -->
+                <div v-if="exportError" class="pf-render-export-error">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="12" y1="8" x2="12" y2="12" />
+                    <line x1="12" y1="16" x2="12.01" y2="16" />
+                  </svg>
+                  <span>{{ exportError }}</span>
+                </div>
+
+                <!-- 成功提示 -->
+                <div v-if="exportDone && !isExporting" class="pf-render-export-success">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                  <span>导出完成，文件已开始下载</span>
+                </div>
+
                 <button
                   class="btn-primary pf-render-export-btn"
-                  :disabled="isExporting"
+                  :disabled="!canExport"
+                  :title="exportBtnTooltip"
                   @click="startExport"
                 >
-                  <PhPlay v-if="!isExporting" :size="14" weight="fill" />
-                  <PhSpinner v-else :size="14" />
-                  {{ isExporting ? '渲染中…' : '开始导出' }}
+                  <svg v-if="!isExporting" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                    <polygon points="5 3 19 12 5 21 5 3" fill="currentColor" />
+                  </svg>
+                  <svg v-else class="pf-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                    <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                  </svg>
+                  {{ isExporting ? '编码中…' : '开始导出' }}
                 </button>
+                <p v-if="assetStore.images.length === 0 && !isCodecDetecting" class="pf-render-hint">
+                  请先在「图片」页面导入或生成图片
+                </p>
               </div>
             </div>
           </div>
@@ -698,6 +825,15 @@ function startExport() {
         <!-- Performance Page (moved to PerformancePanel component above) -->
       </div>
     </div>
+
+    <!-- 全局时间轴面板（通过 TopHeader 按钮控制，跨 Tab 可用） -->
+    <TimelinePanel
+      v-if="showTimeline && activeLeftTab !== 'input'"
+      :current-time="currentTime"
+      :is-playing="isPlaying"
+      @seek="store.seek"
+      @toggle-play="store.togglePlay"
+    />
 
     <StatusBar
       :save-status="saveStatus"
@@ -720,21 +856,31 @@ function startExport() {
       @close="isExportOpen = false"
     />
 
-    <SettingsModal
-      :is-open="isSettingsOpen"
-      :theme="theme"
-      :auto-save-enabled="autoSaveEnabled"
-      :auto-save-interval="autoSaveInterval"
-      :last-saved-time="lastSavedTime"
-      :model-configs="modelConfigs"
-      @close="isSettingsOpen = false"
-      @select-theme="store.setTheme"
-      @toggle-auto-save="(enabled) => autoSaveEnabled = enabled"
-      @update-auto-save-interval="store.setAutoSaveInterval"
-      @force-save="store.handleForceSave"
-      @add-model="store.addModelConfig"
-      @update-model="store.updateModelConfig"
-      @remove-model="store.removeModelConfig"
+<SettingsModal
+:is-open="isSettingsOpen"
+:theme="theme"
+:auto-save-enabled="autoSaveEnabled"
+:auto-save-interval="autoSaveInterval"
+:last-saved-time="lastSavedTime"
+:model-configs="modelConfigs"
+:accent-colors="accentColors"
+@close="isSettingsOpen = false"
+@select-theme="store.setTheme"
+@toggle-auto-save="(enabled) => autoSaveEnabled = enabled"
+@update-auto-save-interval="store.setAutoSaveInterval"
+@force-save="store.handleForceSave"
+@add-model="store.addModelConfig"
+@update-model="store.updateModelConfig"
+@remove-model="store.removeModelConfig"
+@set-accent-color="store.setAccentColor"
+@reset-accent-colors="store.resetAccentColors"
+/>
+
+    <!-- 可视化编程引擎（Graph Editor 浮层） -->
+    <GraphEditor
+      :visible="showGraphEditor"
+      @update:visible="showGraphEditor = $event"
+      @apply-i-r="(_ir: any) => { showGraphEditor = false; }"
     />
   </div>
 </template>

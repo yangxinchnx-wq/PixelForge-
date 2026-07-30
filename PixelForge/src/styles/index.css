@@ -1529,6 +1529,11 @@ flex-shrink: 0;
   pointer-events: none;
 }
 
+.btn-active {
+  background: var(--accent, #4a9eff) !important;
+  color: #fff !important;
+}
+
 /* ─── Snap indicator line ─── */
 .snap-indicator {
   position: absolute;
@@ -1787,6 +1792,55 @@ flex-shrink: 0;
 .pf-render-export-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* --- 导出页：检测提示 / 错误 / 成功 / 旋转动画 --- */
+.pf-render-detect-hint {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+
+.pf-render-export-error {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 69, 58, 0.12);
+  border: 1px solid rgba(255, 69, 58, 0.3);
+  color: #ff453a;
+  font-size: 12px;
+}
+
+.pf-render-export-success {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: rgba(48, 209, 88, 0.12);
+  border: 1px solid rgba(48, 209, 88, 0.3);
+  color: #30d158;
+  font-size: 12px;
+}
+
+.pf-render-hint {
+  margin: 6px 0 0;
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.pf-spin {
+  animation: pfSpin 0.8s linear infinite;
+}
+
+@keyframes pfSpin {
+  to { transform: rotate(360deg); }
 }
 
 /* ==========================================================

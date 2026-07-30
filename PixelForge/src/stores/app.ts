@@ -36,6 +36,30 @@ export interface ModelConfig {
   enabled: boolean;
 }
 
+export interface AccentColors {
+  settings: string;
+  image: string;
+  video: string;
+}
+
+const DEFAULT_ACCENT: AccentColors = { settings: '', image: '', video: '' };
+
+/** 将 hex 色值转为带透明度的 rgba */
+function hexToRgba(hex: string, alpha: number): string {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+/** 将 hex 色值加深 */
+function darkenHex(hex: string, amount: number): string {
+  const r = Math.max(0, parseInt(hex.slice(1, 3), 16) - amount);
+  const g = Math.max(0, parseInt(hex.slice(3, 5), 16) - amount);
+  const b = Math.max(0, parseInt(hex.slice(5, 7), 16) - amount);
+  return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+}
+
 const AUTOSAVE_KEY = 'pixelforge_autosave_v2';
 const MAX_HISTORY_LENGTH = 50;
 
@@ -89,11 +113,46 @@ export const useAppStore = defineStore('app', () => {
   const theme = ref(loadedData?.theme || 'dark');
   const isGenerating = ref(false);
 
+  // ─── 全局时间轴显示开关 ─────────────────────────────
+  /** 是否在底部显示全局时间轴面板（跨 Tab 可用） */
+  const showTimeline = ref(false);
+
+  /** 切换时间轴显示 */
+  function toggleTimeline(): void {
+    showTimeline.value = !showTimeline.value;
+  }
+
   const autoSaveEnabled = ref(true);
   const autoSaveInterval = ref(1500);
   const saveStatus = ref<'saved' | 'saving' | 'unsaved'>('saved');
   const lastSavedTime = ref<string | null>(loadedData?.savedTime || null);
   let isInitialMount = true;
+
+  // ─── Accent Colors (per-section custom accent) ────
+  const accentColors = ref<AccentColors>(
+    loadedData?.accentColors ?? { ...DEFAULT_ACCENT }
+  );
+
+  function setAccentColor(section: keyof AccentColors, color: string): void {
+    accentColors.value = { ...accentColors.value, [section]: color };
+  }
+
+  function resetAccentColors(): void {
+    accentColors.value = { ...DEFAULT_ACCENT };
+  }
+
+  /** 根据自定义 accent 生成需要覆盖的 CSS 变量（用于 inline style） */
+  function buildAccentVars(hex: string): Record<string, string> | undefined {
+    if (!hex) return undefined;
+    return {
+      '--pf-accent': hex,
+      '--pf-accent-soft': hexToRgba(hex, 0.14),
+      '--pf-accent-deep': darkenHex(hex, 30),
+      '--accent': hex,
+      '--accent-hover': darkenHex(hex, 20),
+      '--accent-pressed': darkenHex(hex, 40),
+    };
+  }
 
   // ─── Model Configs ──────────────────────────────────
   const modelConfigs = ref<ModelConfig[]>(
@@ -495,6 +554,7 @@ export const useAppStore = defineStore('app', () => {
       frameRate: frameRate.value,
       theme: theme.value,
       modelConfigs: modelConfigs.value,
+      accentColors: accentColors.value,
       savedTime: time,
     });
     void unifiedStore.writeMetadata(AUTOSAVE_KEY, payload).catch((e) => {
@@ -515,6 +575,7 @@ export const useAppStore = defineStore('app', () => {
         frameRate: frameRate.value,
         theme: theme.value,
         modelConfigs: modelConfigs.value,
+        accentColors: accentColors.value,
         savedTime: time,
       });
       // 同步写 localStorage（向后兼容，保证刷新即恢复）
@@ -539,6 +600,7 @@ export const useAppStore = defineStore('app', () => {
     resolution.value = '1920 × 1080';
     frameRate.value = '30 fps';
     theme.value = 'dark';
+    accentColors.value = { ...DEFAULT_ACCENT };
     lastSavedTime.value = null;
     saveStatus.value = 'saved';
     clearHistory();
@@ -569,6 +631,7 @@ export const useAppStore = defineStore('app', () => {
           frameRate: frameRate.value,
           theme: theme.value,
           modelConfigs: modelConfigs.value,
+          accentColors: accentColors.value,
           savedTime: time,
         });
         // 同步写 localStorage（向后兼容）
@@ -601,6 +664,7 @@ export const useAppStore = defineStore('app', () => {
         frameRate?: string;
         theme?: string;
         modelConfigs?: ModelConfig[];
+        accentColors?: AccentColors;
         savedTime?: string;
       };
       // 统一存储有数据，覆盖 localStorage 的同步加载结果
@@ -611,6 +675,7 @@ export const useAppStore = defineStore('app', () => {
       if (data.treeData !== undefined) treeData.value = data.treeData;
       if (data.savedTime !== undefined) lastSavedTime.value = data.savedTime;
       if (data.modelConfigs !== undefined) modelConfigs.value = data.modelConfigs;
+      if (data.accentColors !== undefined) accentColors.value = data.accentColors;
       // 将当前状态推入 history 作为初始快照
       if (data.promptText !== undefined || data.elements !== undefined) {
         history.value = [{
@@ -656,11 +721,13 @@ export const useAppStore = defineStore('app', () => {
     isSettingsOpen,
     theme,
     isGenerating,
+    showTimeline,
     autoSaveEnabled,
     autoSaveInterval,
     saveStatus,
     lastSavedTime,
     modelConfigs,
+    accentColors,
     // Timeline State
     tracks,
     clips,
@@ -683,6 +750,7 @@ export const useAppStore = defineStore('app', () => {
     clearHistory,
     setTheme,
     toggleTheme,
+    toggleTimeline,
     startPlayback,
     stopPlayback,
     togglePlay,
@@ -704,6 +772,9 @@ export const useAppStore = defineStore('app', () => {
     addModelConfig,
     updateModelConfig,
     removeModelConfig,
+    setAccentColor,
+    resetAccentColors,
+    buildAccentVars,
     // Timeline Actions
     executeTimelineCommand,
     undoTimeline,
