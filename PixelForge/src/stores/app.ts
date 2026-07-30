@@ -473,9 +473,6 @@ export const useAppStore = defineStore('app', () => {
       unifiedStore.writeFrame(0, pixels),
       unifiedStore.writePrompt(timestamp, prompt),
     ])
-      .then(() => {
-        console.log('[Generate] 产物已写入三层存储', { shaderHash, irFrame: 0, frameSize: pixels.length, promptSaved: true });
-      })
       .catch((e) => {
         console.warn('[Generate] 产物写入存储失败', e);
       });

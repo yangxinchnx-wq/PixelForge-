@@ -141,6 +141,7 @@ function smoothValue(prev: number, target: number, smoothing: number) {
   return prev + (target - prev) * (1 - s)
 }
 function mapRange(v: number, inMin: number, inMax: number, outMin: number, outMax: number) {
+  if (inMax === inMin) return outMin
   const t = (v - inMin) / (inMax - inMin)
   return outMin + t * (outMax - outMin)
 }

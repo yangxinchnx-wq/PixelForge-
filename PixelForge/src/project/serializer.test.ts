@@ -8,12 +8,22 @@ import { deserializeProject, serializeProject, createProjectSnapshot } from './s
 import type { PixelForgeProject, TimelineStoreLike } from './types'
 
 // —— 模拟 timeline store（替代已删除的 @/stores/timeline）——
+// tracks 至少包含一条轨道(对齐原 store 的 createDefaultTracks 非空语义,
+// 深拷贝测试需要访问 tracks[0])
 function createMockTimeline(): TimelineStoreLike {
   return {
     currentFrame: 0,
     totalFrames: 300,
     fps: 30,
-    tracks: [],
+    tracks: [
+      {
+        id: 'track-1',
+        label: '测试轨道',
+        layerId: 'layer_1',
+        parameter: 'opacity',
+        keyframes: [],
+      },
+    ],
     seek: () => {},
   }
 }
