@@ -203,6 +203,7 @@ function makeScheduledEngine(opts: { device?: import('./types').RuntimeDeviceHan
     graphStore,
     materialStore,
     device: opts.device,
+    applyFrameToRuntime,
   })
 }
 
