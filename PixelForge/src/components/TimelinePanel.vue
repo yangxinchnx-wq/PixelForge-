@@ -234,7 +234,6 @@ function isTrackActive(track: Track): boolean {
 }
 
 const tc = computed(() => formatTimecode(props.currentTime, FPS));
-const totalTc = computed(() => formatTimecode(TOTAL_DURATION, FPS));
 
 // ─── Ruler ticks ──────────────────────────────────────
 const tickInterval = computed(() => {

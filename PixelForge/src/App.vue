@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { watch, onMounted, onUnmounted, computed, ref, nextTick } from 'vue';
+import { watch, onMounted, onUnmounted, ref, nextTick } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useAppStore } from './stores/app';
 import TopHeader from './components/TopHeader.vue';
@@ -13,7 +13,7 @@ import AmbientFluidCanvas from './components/AmbientFluidCanvas.vue';
 import ExportModal from './components/ExportModal.vue';
 import SettingsModal from './components/SettingsModal.vue';
 import { pageEnter } from './composables/useAnime';
-import { TOTAL_DURATION, FPS } from './data';
+import { TOTAL_DURATION } from './data';
 
 const store = useAppStore();
 const {
