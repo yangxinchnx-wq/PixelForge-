@@ -1,7 +1,12 @@
 <script setup lang="ts">
-import { watch, onMounted, onUnmounted, ref, nextTick, computed, reactive } from 'vue';
+import { watch, onMounted, onUnmounted, ref, nextTick, computed, reactive, defineAsyncComponent } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useAppStore } from './stores/app';
+import { useRuntimeStore } from './stores/runtime';
+import { useErrorStore } from './stores/errorStore';
+import type { RenderIR } from './compiler/ir/renderIR';
+import type { IRTreeNode } from './types';
+import { Opcode } from './shared/types';
 import TopHeader from './components/TopHeader.vue';
 import LeftRail from './components/LeftRail.vue';
 import ControlPanel from './components/ControlPanel.vue';
@@ -13,11 +18,7 @@ import StatusBar from './components/StatusBar.vue';
 import AIChatPanel from './components/AIChatPanel.vue';
 import ResourceManagerPanel from './components/ResourceManagerPanel.vue';
 import WorkflowPanel from './components/WorkflowPanel.vue';
-import GraphEditor from './components/editor/graph/GraphEditor.vue';
-import AssetGenomePanel from './components/AssetGenomePanel.vue';
 import AmbientFluidCanvas from './components/AmbientFluidCanvas.vue';
-import ExportModal from './components/ExportModal.vue';
-import SettingsModal from './components/SettingsModal.vue';
 import PfSelect from './components/ui/PfSelect.vue';
 import { pageEnter } from './composables/useAnime';
 import { TOTAL_DURATION } from './data';
@@ -27,11 +28,16 @@ import {
   QUALITY_PRESETS,
   getQualityPreset,
   detectCodecSupport,
-  encodeImagesToVideo,
   downloadBlob,
   type ExportFormatId,
   type QualityLevel,
-} from './media/video/encoder/videoEncoder';
+} from './media/video/encoder/videoEncoderTypes';
+
+// ─── 异步加载重型组件（按需加载，不阻塞初始渲染）──────────
+const GraphEditor = defineAsyncComponent(() => import('./components/editor/graph/GraphEditor.vue'));
+const AssetGenomePanel = defineAsyncComponent(() => import('./components/AssetGenomePanel.vue'));
+const ExportModal = defineAsyncComponent(() => import('./components/ExportModal.vue'));
+const SettingsModal = defineAsyncComponent(() => import('./components/SettingsModal.vue'));
 
 const store = useAppStore();
 const {
@@ -122,12 +128,22 @@ onUnmounted(() => {
 });
 
 // ─── Autosave ─────────────────────────────────────────
+// 拆分 deep watcher：主 watcher 使用浅层监听（标量 / 引用变化即可检测），
+// modelConfigs 单独 deep watch（因为 updateModelConfig 会原地修改数组元素的属性）
+// 这样避免了 deep:true 对整个 watch 列表 11 个源做深度遍历的开销
 watch(
-  [livePromptText, () => activeSnapshot.value.elements, () => activeSnapshot.value.tuningParams, treeData, resolution, frameRate, theme, autoSaveEnabled, modelConfigs, selectedModelId, accentColors],
+  [livePromptText, () => activeSnapshot.value.elements, () => activeSnapshot.value.tuningParams, treeData, resolution, frameRate, theme, autoSaveEnabled, () => modelConfigs.value.length, selectedModelId, accentColors],
   () => {
     store.triggerAutosave();
   },
-  { deep: true }
+);
+// modelConfigs 属性级变更（如修改 API Key / baseUrl）
+watch(
+  () => modelConfigs.value,
+  () => {
+    store.triggerAutosave();
+  },
+  { deep: true },
 );
 
 // ─── Page content ─────────────────────────────────────
@@ -218,6 +234,82 @@ watch(activeLeftTab, async () => {
 
 // ─── 可视化编程引擎（Graph Editor 浮层）──────────────────
 const showGraphEditor = ref(false);
+const runtimeStore = useRuntimeStore();
+const errorStore = useErrorStore();
+
+/** Opcode → 中文名称映射（用于 IR 树展示） */
+const OPCODE_LABELS: Record<number, string> = {
+  [Opcode.SOLID_COLOR]: '纯色填充',
+  [Opcode.LINEAR_GRADIENT]: '线性渐变',
+  [Opcode.NOISE]: '噪声',
+  [Opcode.BLEND]: '混合',
+  [Opcode.CIRCLE_SHAPE]: '圆形',
+  [Opcode.IMAGE_TEXTURE]: '图片纹理',
+};
+
+/** 将 RenderIR 转换为 IRTreeNode[]（供 IRPreviewPanel 展示） */
+function renderIRToTreeNodes(ir: RenderIR): IRTreeNode[] {
+  const layerNodes: IRTreeNode[] = ir.layers.map((layer, i) => ({
+    id: layer.id,
+    name: `${OPCODE_LABELS[layer.opcode] ?? '图层'} ${i + 1}`,
+    type: 'layer',
+    visible: layer.visible,
+    opcode: layer.opcode,
+    blendMode: layer.blendMode,
+    params: layer.params,
+  }));
+
+  const effectNodes: IRTreeNode[] = ir.effects.map((effect, i) => ({
+    id: effect.id,
+    name: `效果 ${i + 1} (${effect.type})`,
+    type: 'effect',
+    targetLayer: effect.targetLayer,
+    params: effect.params,
+  }));
+
+  const nodes: IRTreeNode[] = [];
+  if (layerNodes.length > 0) {
+    nodes.push({
+      id: 'layers-group',
+      name: `图层 (${layerNodes.length})`,
+      type: 'group',
+      children: layerNodes,
+    });
+  }
+  if (effectNodes.length > 0) {
+    nodes.push({
+      id: 'effects-group',
+      name: `效果 (${effectNodes.length})`,
+      type: 'group',
+      children: effectNodes,
+    });
+  }
+  if (nodes.length === 0) {
+    nodes.push({
+      id: 'empty',
+      name: '空 IR（无图层）',
+      type: 'empty',
+    });
+  }
+  return nodes;
+}
+
+/** GraphEditor 编译产物 → runtime store + IR 树更新 */
+function handleApplyIR(ir: RenderIR) {
+  try {
+    // 1. 推送到 runtime store（触发 GPU 重渲染）
+    runtimeStore.setRenderIR(ir);
+
+    // 2. 更新 appStore 的 IR 树（供 IRPreviewPanel 展示）
+    treeData.value = renderIRToTreeNodes(ir);
+
+    // 3. 关闭 Graph Editor 浮层
+    showGraphEditor.value = false;
+  } catch (e) {
+    errorStore.push(e, '可视化编程引擎编译产物应用失败');
+    showGraphEditor.value = false;
+  }
+}
 
 /** WorkflowPanel 步骤点击 → 打开对应功能 */
 function handleWorkflowStepClick(stepId: string) {
@@ -407,6 +499,8 @@ async function startExport() {
     const { w, h } = parsedResolution.value;
     const imageUrls = assetStore.images.map((a) => a.url);
 
+    // 动态加载重型视频编码模块（mp4-muxer / webm-muxer 仅在导出时加载）
+    const { encodeImagesToVideo } = await import('./media/video/encoder/videoEncoder');
     const blob = await encodeImagesToVideo({
       imageUrls,
       width: w,
@@ -464,7 +558,7 @@ watch([resolution, renderTargetBitrate], () => {
 
       <div class="pf-content" ref="contentRef">
         <!-- Main Workspace -->
-        <div v-if="activeLeftTab === 'input'" class="pf-workspace" :style="store.buildAccentVars(accentColors.video)">
+        <div v-show="activeLeftTab === 'input'" class="pf-workspace" :style="store.buildAccentVars(accentColors.video)">
           <div class="pf-workspace-top">
             <ControlPanel
               :prompt-text="livePromptText"
@@ -501,7 +595,7 @@ watch([resolution, renderTargetBitrate], () => {
         </div>
 
         <!-- 图片工作台 — 左AI对话 + 中画布 + 底部工作流 + 右资源管理 -->
-        <div v-else-if="activeLeftTab === 'image'" class="pf-workspace" :style="store.buildAccentVars(accentColors.image)">
+        <div v-show="activeLeftTab === 'image'" class="pf-workspace" :style="store.buildAccentVars(accentColors.image)">
           <div class="pf-workspace-top">
             <!-- 左侧：AI 对话 -->
             <AIChatPanel />
@@ -532,14 +626,14 @@ watch([resolution, renderTargetBitrate], () => {
         </div>
 
         <!-- Elements Page — Asset Genome -->
-        <div v-else-if="activeLeftTab === 'elements'" class="pf-page">
+        <div v-show="activeLeftTab === 'elements'" class="pf-page">
           <div class="pf-page-body" style="display: flex; min-height: 0; flex: 1;">
             <AssetGenomePanel style="flex: 1; min-height: 0;" />
           </div>
         </div>
 
         <!-- Effects Page -->
-        <div v-else-if="activeLeftTab === 'effects'" class="pf-page">
+        <div v-show="activeLeftTab === 'effects'" class="pf-page">
           <div class="pf-page-header">
             <button class="btn btn-icon" title="返回" @click="goBackToInput">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
@@ -590,7 +684,7 @@ watch([resolution, renderTargetBitrate], () => {
         </div>
 
         <!-- History Page -->
-        <div v-else-if="activeLeftTab === 'history'" class="pf-page">
+        <div v-show="activeLeftTab === 'history'" class="pf-page">
           <div class="pf-page-body" style="display: flex; gap: 12px">
             <div class="pf-panel" style="flex: 1; min-height: 0">
               <div class="pf-panel-header">
@@ -644,11 +738,11 @@ watch([resolution, renderTargetBitrate], () => {
 
         <!-- Performance Page -->
         <PerformancePanel
-          v-else-if="activeLeftTab === 'performance'"
+          v-show="activeLeftTab === 'performance'"
         />
 
         <!-- Render Page — WebCodecs 硬件加速导出界面 -->
-        <div v-else-if="activeLeftTab === 'render'" class="pf-render">
+        <div v-show="activeLeftTab === 'render'" class="pf-render">
           <!-- 左栏：设置区 -->
           <div class="pf-render-settings">
             <!-- 格式 -->
@@ -857,11 +951,12 @@ watch([resolution, renderTargetBitrate], () => {
 @reset-accent-colors="store.resetAccentColors"
 />
 
-    <!-- 可视化编程引擎（Graph Editor 浮层） -->
+    <!-- 可视化编程引擎（Graph Editor 浮层）— v-if 确保首次使用时才加载异步 chunk -->
     <GraphEditor
+      v-if="showGraphEditor"
       :visible="showGraphEditor"
       @update:visible="showGraphEditor = $event"
-      @apply-i-r="(_ir: any) => { showGraphEditor = false; }"
- />
+      @apply-i-r="handleApplyIR"
+    />
 </div>
 </template>

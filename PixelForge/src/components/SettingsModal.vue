@@ -985,8 +985,8 @@ watch(
                   </div>
                 </div>
 
-                <!-- 重新扫描按钮（仅当模型已配置 modelId 时显示） -->
-                <div v-if="model.modelId" class="pf-model-rescan-bar">
+                <!-- 重新扫描按钮 -->
+                <div class="pf-model-rescan-bar">
                   <button
                     class="pf-model-rescan-btn"
                     :disabled="rescanState.get(model.id)?.loading"
@@ -1079,14 +1079,28 @@ watch(
   height: 640px;
   max-width: 92vw;
   max-height: 88vh;
-  /* Apple Liquid Glass：纯白磨砂玻璃 */
-  background: rgba(255, 255, 255, 0.72);
-  backdrop-filter: blur(40px) saturate(200%);
-  -webkit-backdrop-filter: blur(40px) saturate(200%);
+  /* 纯白底色 */
+  background: #ffffff;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+  /* 磨砂玻璃卡片变量（浅色模式） */
+  --card-bg: rgba(255, 255, 255, 0.5);
+  --card-border: rgba(255, 255, 255, 0.8);
+  --card-border-hover: rgba(255, 255, 255, 1);
+  --card-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  --card-shadow-hover: 0 4px 12px rgba(0, 0, 0, 0.06);
+  --card-inset: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  --card-inset-hover: inset 0 1px 0 rgba(255, 255, 255, 0.8);
 }
 
 [data-theme="dark"] .pf-settings-modal {
-  background: rgba(28, 28, 30, 0.72);
+  background: #1c1c1e;
+  --card-bg: rgba(255, 255, 255, 0.08);
+  --card-border: rgba(255, 255, 255, 0.12);
+  --card-border-hover: rgba(255, 255, 255, 0.2);
+  --card-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  --card-shadow-hover: 0 4px 12px rgba(0, 0, 0, 0.3);
+  --card-inset: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  --card-inset-hover: inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
 /* ==========================================================
@@ -1185,19 +1199,19 @@ watch(
   justify-content: space-between;
   gap: 16px;
   padding: 14px 16px;
-  /* 浅白 */
-  background: rgba(255, 255, 255, 0.5);
-  border: 1px solid var(--separator);
+  /* 磨砂玻璃质感 */
+  background: var(--card-bg);
+  backdrop-filter: blur(12px) saturate(150%);
+  -webkit-backdrop-filter: blur(12px) saturate(150%);
+  border: 1px solid var(--card-border);
+  box-shadow: var(--card-shadow), var(--card-inset);
   border-radius: var(--radius-md);
-  transition: border-color 180ms var(--ease-out);
-}
-
-[data-theme="dark"] .pf-setting-card {
-  background: rgba(255, 255, 255, 0.08);
+  transition: border-color 180ms var(--ease-out), box-shadow 180ms var(--ease-out);
 }
 
 .pf-setting-card:hover {
-  border-color: var(--separator-strong);
+  border-color: var(--card-border-hover);
+  box-shadow: var(--card-shadow-hover), var(--card-inset-hover);
 }
 
 .pf-setting-card-info {
@@ -1556,20 +1570,20 @@ watch(
 }
 
 .pf-model-card {
-  /* 浅白 */
-  background: rgba(255, 255, 255, 0.5);
-  border: 1px solid var(--separator);
+  /* 磨砂玻璃质感 */
+  background: var(--card-bg);
+  backdrop-filter: blur(12px) saturate(150%);
+  -webkit-backdrop-filter: blur(12px) saturate(150%);
+  border: 1px solid var(--card-border);
+  box-shadow: var(--card-shadow), var(--card-inset);
   border-radius: var(--radius-md);
   overflow: hidden;
-  transition: border-color 180ms var(--ease-out);
-}
-
-[data-theme="dark"] .pf-model-card {
-  background: rgba(255, 255, 255, 0.08);
+  transition: border-color 180ms var(--ease-out), box-shadow 180ms var(--ease-out);
 }
 
 .pf-model-card:hover {
-  border-color: var(--separator-strong);
+  border-color: var(--card-border-hover);
+  box-shadow: var(--card-shadow-hover), var(--card-inset-hover);
 }
 
 .pf-model-card-header {
