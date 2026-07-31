@@ -26,7 +26,7 @@ const { modelConfigs, selectedModelId } = storeToRefs(store);
 const modelOptions = computed(() =>
   modelConfigs.value
     .filter((m) => m.enabled)
-    .map((m) => ({ value: m.id, label: m.name }))
+    .map((m) => ({ value: m.id, label: m.name || m.modelId || '未配置' }))
 );
 const selectedModel = computed({
   get: () => selectedModelId.value ?? '',

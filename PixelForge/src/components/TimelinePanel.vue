@@ -63,9 +63,20 @@ const contextMenuVisible = ref(false);
 const contextMenuX = ref(0);
 const contextMenuY = ref(0);
 const contextMenuRef = ref<HTMLElement | null>(null);
+const contextMenuTrackId = ref<string>('');
+const contextMenuPasteTime = ref(0);
+const contextMenuHasClip = ref(false);
 
 // ─── Clipboard ────────────────────────────────────────
 let clipboard: Clip[] | null = null;
+
+// ─── Clip warning modal (叹号图标弹窗) ──────────────────
+const warningModalVisible = ref(false);
+const warningModalClipId = ref<string | null>(null);
+const warningModalClip = computed(() => {
+  if (!warningModalClipId.value) return null;
+  return clips.value.find(c => c.id === warningModalClipId.value) ?? null;
+});
 
 // ─── Constants ────────────────────────────────────────
 const MIN_PPS = 8;
@@ -573,6 +584,44 @@ function isInDragGroup(clipId: string): boolean {
   return selectedClipIds.value.has(clipId);
 }
 
+// ─── Context menu helpers ────────────────────────────
+
+/** 将鼠标 X 坐标转换为轨道上的时间 */
+function clientXToTrackTime(clientX: number): number {
+  const scrollEl = tracksScrollRef.value;
+  if (!scrollEl) return 0;
+  const scrollRect = scrollEl.getBoundingClientRect();
+  const x = clientX - scrollRect.left + scrollEl.scrollLeft;
+  return Math.max(0, x / pps.value);
+}
+
+/** 显示右键菜单（始终向上展开） */
+function showContextMenuAt(clientX: number, clientY: number) {
+  contextMenuX.value = clientX;
+  contextMenuY.value = clientY;
+  contextMenuVisible.value = true;
+
+  nextTick(() => {
+    const menuEl = contextMenuRef.value;
+    if (!menuEl) return;
+    const rect = menuEl.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const statusbarH = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--statusbar-height')) || 28;
+    const vh = window.innerHeight - statusbarH - 8;
+
+    // 右边界溢出 → 向左偏移
+    if (contextMenuX.value + rect.width > vw - 8) {
+      contextMenuX.value = Math.max(8, vw - rect.width - 8);
+    }
+    // 始终向上展开：菜单底部贴在点击位置
+    contextMenuY.value = clientY - rect.height;
+    // 上边界溢出（空间不足） → 回退到向下展开，并防止底部溢出
+    if (contextMenuY.value < 8) {
+      contextMenuY.value = Math.min(clientY + 4, vh - rect.height);
+    }
+  });
+}
+
 // ─── Context menu handlers ────────────────────────────
 function handleClipContextMenu(e: MouseEvent, clip: Clip) {
   e.preventDefault();
@@ -583,31 +632,23 @@ function handleClipContextMenu(e: MouseEvent, clip: Clip) {
     store.selectClip(clip.id, false);
   }
 
-  // 先设为鼠标位置，渲染后再做边界修正
-  contextMenuX.value = e.clientX;
-  contextMenuY.value = e.clientY;
-  contextMenuVisible.value = true;
+  contextMenuTrackId.value = clip.trackId;
+  contextMenuHasClip.value = true;
+  contextMenuPasteTime.value = clientXToTrackTime(e.clientX);
 
-  nextTick(() => {
-    const menuEl = contextMenuRef.value;
-    if (!menuEl) return;
-    const rect = menuEl.getBoundingClientRect();
-    const vw = window.innerWidth;
-    // 底部状态栏高度（28px）+ 安全边距
-    const statusbarH = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--statusbar-height')) || 28;
-    const vh = window.innerHeight - statusbarH - 8;
+  showContextMenuAt(e.clientX, e.clientY);
+}
 
-    // 右边界溢出 → 向左偏移
-    if (contextMenuX.value + rect.width > vw - 8) {
-      contextMenuX.value = Math.max(8, vw - rect.width - 8);
-    }
-    // 始终向上展开：菜单底部贴在点击位置
-    contextMenuY.value = e.clientY - rect.height;
-    // 上边界溢出（空间不足） → 回退到向下展开，并防止底部溢出
-    if (contextMenuY.value < 8) {
-      contextMenuY.value = Math.min(e.clientY + 4, vh - rect.height);
-    }
-  });
+/** 右键轨道空白区域：不选中片段，但允许粘贴 */
+function handleTrackContextMenu(e: MouseEvent, trackId: string) {
+  e.preventDefault();
+  e.stopPropagation();
+
+  contextMenuTrackId.value = trackId;
+  contextMenuHasClip.value = false;
+  contextMenuPasteTime.value = clientXToTrackTime(e.clientX);
+
+  showContextMenuAt(e.clientX, e.clientY);
 }
 
 function closeContextMenu() {
@@ -671,18 +712,101 @@ function contextMenuCopy() {
   clipboard = selected.map(c => ({ ...c }));
 }
 
-// ─── 粘贴剪贴板片段（带 undo/redo） ──
+// ─── 粘贴剪贴板片段（禁止覆盖，自适应/顺延） ──
 function contextMenuPaste() {
   closeContextMenu();
   if (!clipboard || clipboard.length === 0) return;
+  if (!contextMenuTrackId.value) return;
 
+  const targetTrackId = contextMenuTrackId.value;
+  const pasteTime = contextMenuPasteTime.value;
   const before = [...clips.value];
-  const pastedClips: Clip[] = clipboard.map(c => ({
-    ...c,
-    id: `clip-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-    start: c.start + 1,
-  }));
-  const after = [...clips.value, ...pastedClips];
+  let after = [...clips.value];
+  const pastedIds: string[] = [];
+
+  for (const cbClip of clipboard) {
+    const origDuration = cbClip.duration;
+    // 取目标轨道上已有片段（含已粘贴的），按 start 排序
+    const trackClips = after
+      .filter(c => c.trackId === targetTrackId)
+      .sort((a, b) => a.start - b.start);
+
+    // 找到 pasteTime 落在哪个区间
+    let gapStart = 0;
+    let gapEnd = TOTAL_DURATION;
+    let foundGap = false;
+    let onClip: Clip | null = null;
+
+    for (let i = 0; i <= trackClips.length; i++) {
+      const clip = trackClips[i];
+      const prevClip = i > 0 ? trackClips[i - 1] : null;
+      const prevEnd = prevClip ? prevClip.start + prevClip.duration : 0;
+      const clipStart = clip ? clip.start : TOTAL_DURATION;
+
+      if (pasteTime >= prevEnd && pasteTime < clipStart) {
+        // pasteTime 落在间隙中
+        gapStart = prevEnd;
+        gapEnd = clipStart;
+        foundGap = true;
+        break;
+      } else if (clip && pasteTime >= clip.start && pasteTime < clip.start + clip.duration) {
+        // pasteTime 落在某个片段上
+        onClip = clip;
+        break;
+      }
+    }
+
+    const newId = `clip-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    pastedIds.push(newId);
+
+    if (foundGap) {
+      // 间隙中 → 自适应填充
+      const gapSize = gapEnd - gapStart;
+      const fitDuration = Math.min(origDuration, gapSize);
+      const newClip: Clip = {
+        ...cbClip,
+        id: newId,
+        trackId: targetTrackId,
+        start: gapStart,
+        duration: fitDuration,
+        originalDuration: fitDuration < origDuration ? origDuration : undefined,
+      };
+      after = [...after, newClip];
+    } else if (onClip) {
+      // 在片段上 → 顺延：插在该片段之后，后续片段全部后推
+      const insertAt = onClip.start + onClip.duration;
+      const pushAmount = origDuration;
+      // 把同轨道 start >= insertAt 的片段后推（排除 onClip 自身）
+      after = after.map(c => {
+        if (c.trackId === targetTrackId && c.start >= insertAt && c.id !== onClip!.id) {
+          return { ...c, start: c.start + pushAmount };
+        }
+        return c;
+      });
+      const newClip: Clip = {
+        ...cbClip,
+        id: newId,
+        trackId: targetTrackId,
+        start: insertAt,
+        duration: origDuration,
+      };
+      after = [...after, newClip];
+    } else {
+      // 在最后一个片段之后 → 直接追加
+      const lastEnd = trackClips.length > 0
+        ? trackClips[trackClips.length - 1].start + trackClips[trackClips.length - 1].duration
+        : 0;
+      const placeStart = Math.max(lastEnd, pasteTime);
+      const newClip: Clip = {
+        ...cbClip,
+        id: newId,
+        trackId: targetTrackId,
+        start: placeStart,
+        duration: origDuration,
+      };
+      after = [...after, newClip];
+    }
+  }
 
   const cmd: Command = {
     label: '粘贴片段',
@@ -692,10 +816,87 @@ function contextMenuPaste() {
   store.executeTimelineCommand(cmd);
   // 选中新粘贴的片段
   store.clearSelection();
-  pastedClips.forEach(c => store.selectClip(c.id, true));
+  pastedIds.forEach(id => store.selectClip(id, true));
+}
+
+// ─── 判断片段是否被缩短 ──
+function isClipShortened(clip: Clip): boolean {
+  return clip.originalDuration !== undefined && clip.originalDuration > clip.duration;
+}
+
+// ─── 叹号图标点击：弹出原始数据 + 选项框 ──
+function handleWarningClick(e: MouseEvent, clip: Clip) {
+  e.stopPropagation();
+  e.preventDefault();
+  warningModalClipId.value = clip.id;
+  warningModalVisible.value = true;
+}
+
+function closeWarningModal() {
+  warningModalVisible.value = false;
+  warningModalClipId.value = null;
+}
+
+// ─── 选项1：保持原样（不做任何修改） ──
+function warningKeepAsIs() {
+  closeWarningModal();
+}
+
+// ─── 选项2：自适应（展开原始时长，推后后续片段，头尾吸附） ──
+function warningAutoFit() {
+  const clipId = warningModalClipId.value;
+  if (!clipId) { closeWarningModal(); return; }
+
+  const clip = clips.value.find(c => c.id === clipId);
+  if (!clip || !clip.originalDuration) { closeWarningModal(); return; }
+
+  const before = [...clips.value];
+  const targetDuration = clip.originalDuration;
+
+  // 同轨道片段按 start 排序
+  const trackClips = clips.value
+    .filter(c => c.trackId === clip.trackId)
+    .sort((a, b) => a.start - b.start);
+  const idx = trackClips.findIndex(c => c.id === clipId);
+  const prevClip = idx > 0 ? trackClips[idx - 1] : null;
+  const prevEnd = prevClip ? prevClip.start + prevClip.duration : 0;
+
+  // 头部吸附：如果展开后与前一个片段重叠，则把 start 移到前一个片段之后
+  let newStart = clip.start;
+  if (clip.start < prevEnd) {
+    newStart = prevEnd;
+  }
+
+  // 推后量 = 新末尾 - 旧末尾（同时考虑位移和展开）
+  const oldEnd = clip.start + clip.duration;
+  const newEnd = newStart + targetDuration;
+  const pushAmount = Math.max(0, newEnd - oldEnd);
+
+  // 推后同轨道 start >= clip.start 的后续片段（排除自身），尾部自动吸附
+  const after = clips.value.map(c => {
+    if (c.id === clipId) {
+      return { ...c, start: newStart, duration: targetDuration, originalDuration: undefined };
+    }
+    if (c.trackId === clip.trackId && c.start >= clip.start && c.id !== clipId) {
+      return { ...c, start: c.start + pushAmount };
+    }
+    return c;
+  });
+
+  const cmd: Command = {
+    label: '自适应恢复片段',
+    execute() { store.setClips([...after]); },
+    undo() { store.setClips([...before]); },
+  };
+  store.executeTimelineCommand(cmd);
+  closeWarningModal();
 }
 
 const zoomPercent = computed(() => ((pps.value - MIN_PPS) / (MAX_PPS - MIN_PPS)) * 100);
+
+// ─── 右键菜单：复制是否可用 ──
+const canCopyInMenu = computed(() => contextMenuHasClip.value && hasSelectedClips.value);
+const canPasteInMenu = computed(() => clipboard !== null && clipboard.length > 0);
 </script>
 
 <template>
@@ -960,6 +1161,7 @@ const zoomPercent = computed(() => ((pps.value - MIN_PPS) / (MAX_PPS - MIN_PPS))
                   class="track"
                   :class="{ dimmed: !isTrackActive(track) }"
                   @click.self="handleBackgroundClick"
+                  @contextmenu.prevent="handleTrackContextMenu($event, track.id)"
                 >
                   <div
                     v-for="clip in clipsForTrack(track.id)"
@@ -977,7 +1179,20 @@ const zoomPercent = computed(() => ((pps.value - MIN_PPS) / (MAX_PPS - MIN_PPS))
                       <div class="clip-handle-grip" />
                     </div>
                     <div class="clip-header">
-                      <span style="overflow: hidden; text-overflow: ellipsis">{{ clip.name }}</span>
+                      <span style="overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0">{{ clip.name }}</span>
+                      <!-- 叹号图标：片段被缩短时显示 -->
+                      <div
+                        v-if="isClipShortened(clip)"
+                        class="clip-warning-icon"
+                        title="片段已被缩短，点击查看选项"
+                        @click="handleWarningClick($event, clip)"
+                      >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12">
+                          <circle cx="12" cy="12" r="10" />
+                          <line x1="12" y1="8" x2="12" y2="12" />
+                          <line x1="12" y1="16" x2="12.01" y2="16" />
+                        </svg>
+                      </div>
                     </div>
                     <div class="clip-body">
                       <!-- Audio waveform -->
@@ -1071,14 +1286,24 @@ const zoomPercent = computed(() => ((pps.value - MIN_PPS) / (MAX_PPS - MIN_PPS))
       </svg>
       <span>合并</span>
     </button>
-    <button class="ctx-menu-item" @click="contextMenuCopy">
+    <button
+      class="ctx-menu-item"
+      :class="{ 'ctx-menu-item-disabled': !canCopyInMenu }"
+      :disabled="!canCopyInMenu"
+      @click="canCopyInMenu && contextMenuCopy()"
+    >
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
         <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
         <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
       </svg>
       <span>复制</span>
     </button>
-    <button class="ctx-menu-item" @click="contextMenuPaste">
+    <button
+      class="ctx-menu-item"
+      :class="{ 'ctx-menu-item-disabled': !canPasteInMenu }"
+      :disabled="!canPasteInMenu"
+      @click="canPasteInMenu && contextMenuPaste()"
+    >
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
         <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
         <rect x="8" y="2" width="8" height="4" rx="1" ry="1" />
@@ -1086,4 +1311,49 @@ const zoomPercent = computed(() => ((pps.value - MIN_PPS) / (MAX_PPS - MIN_PPS))
       <span>粘贴</span>
     </button>
   </div>
+
+  <!-- 叹号图标弹窗：原始数据 + 选项 -->
+  <Teleport to="body">
+    <div v-if="warningModalVisible" class="pf-warning-overlay" @click.self="closeWarningModal">
+      <div class="pf-warning-modal" @click.stop>
+        <div class="pf-warning-modal-header">
+          <span class="pf-warning-modal-title">片段已缩短</span>
+          <button class="pf-warning-modal-close" @click="closeWarningModal">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+        <div v-if="warningModalClip" class="pf-warning-modal-body">
+          <div class="pf-warning-info">
+            <div class="pf-warning-info-row">
+              <span class="pf-warning-info-label">片段名称</span>
+              <span class="pf-warning-info-value">{{ warningModalClip.name }}</span>
+            </div>
+            <div class="pf-warning-info-row">
+              <span class="pf-warning-info-label">当前时长</span>
+              <span class="pf-warning-info-value">{{ warningModalClip.duration.toFixed(2) }}s</span>
+            </div>
+            <div class="pf-warning-info-row">
+              <span class="pf-warning-info-label">原始时长</span>
+              <span class="pf-warning-info-value pf-warning-info-original">{{ warningModalClip.originalDuration?.toFixed(2) }}s</span>
+            </div>
+            <div class="pf-warning-info-row">
+              <span class="pf-warning-info-label">起始位置</span>
+              <span class="pf-warning-info-value">{{ warningModalClip.start.toFixed(2) }}s</span>
+            </div>
+          </div>
+          <div class="pf-warning-actions">
+            <button class="pf-warning-btn pf-warning-btn-secondary" @click="warningKeepAsIs">
+              保持原样
+            </button>
+            <button class="pf-warning-btn pf-warning-btn-primary" @click="warningAutoFit">
+              自适应
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </Teleport>
 </template>

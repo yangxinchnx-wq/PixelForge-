@@ -1154,11 +1154,11 @@ flex-shrink: 0;
 
 /* --- Clips --- */
 .clip {
-  position: absolute;
-  top: 6px; bottom: 6px;
-  border-radius: var(--radius-xs);
-  cursor: grab;
-  overflow: hidden;
+position: absolute;
+top: 6px; bottom: 6px;
+border-radius: var(--radius-xs);
+cursor: default;
+overflow: hidden;
   display: flex; flex-direction: column;
   background: var(--clip-bg);
   box-shadow: var(--clip-shadow);
@@ -1172,8 +1172,8 @@ flex-shrink: 0;
 }
 
 .clip.dragging {
-  cursor: grabbing;
-  z-index: 10;
+cursor: default;
+z-index: 10;
 }
 
 .clip-selected {
@@ -1565,7 +1565,7 @@ z-index: 31;
   background: transparent;
   color: var(--text-primary);
   font-size: 12px;
-  cursor: pointer;
+  cursor: default;
   transition: background 0.15s ease;
 }
 
@@ -1586,6 +1586,174 @@ z-index: 31;
 
 .ctx-menu-item:first-child:hover {
   background: rgba(229, 57, 53, 0.12);
+}
+
+/* 禁用状态的右键菜单项 */
+.ctx-menu-item-disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* ── 片段叹号图标 ── */
+.clip-warning-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  margin-left: auto;
+  color: #f59e0b;
+  cursor: pointer;
+  border-radius: var(--radius-xs);
+  transition: background 120ms ease;
+  position: relative;
+  z-index: 6;
+}
+
+.clip-warning-icon:hover {
+  background: rgba(245, 158, 11, 0.15);
+}
+
+/* ── 叹号弹窗 ── */
+.pf-warning-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: pfWarningFadeIn 160ms ease;
+}
+
+@keyframes pfWarningFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.pf-warning-modal {
+  min-width: 300px;
+  max-width: 400px;
+  background: var(--base-bg);
+  border: 1px solid var(--separator-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+  animation: pfWarningSlideIn 200ms var(--ease-out);
+}
+
+@keyframes pfWarningSlideIn {
+  from { opacity: 0; transform: translateY(-12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.pf-warning-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--separator);
+}
+
+.pf-warning-modal-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.pf-warning-modal-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px; height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: default;
+  border-radius: var(--radius-xs);
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.pf-warning-modal-close:hover {
+  background: var(--track-bg-hover);
+  color: var(--text-primary);
+}
+
+.pf-warning-modal-body {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.pf-warning-info {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pf-warning-info-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.pf-warning-info-label {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+.pf-warning-info-value {
+  font-size: 12px;
+  color: var(--text-primary);
+  font-weight: 500;
+  text-align: right;
+}
+
+.pf-warning-info-original {
+  color: #f59e0b;
+}
+
+.pf-warning-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.pf-warning-btn {
+  flex: 1;
+  height: 32px;
+  border: 1px solid var(--separator-strong);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: default;
+  transition: background 150ms ease, border-color 150ms ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pf-warning-btn-secondary {
+  background: var(--glass-bg);
+  color: var(--text-primary);
+}
+
+.pf-warning-btn-secondary:hover {
+  background: var(--glass-bg-hover);
+}
+
+.pf-warning-btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+.pf-warning-btn-primary:hover {
+  opacity: 0.9;
 }
 
 @media (max-width: 768px) {

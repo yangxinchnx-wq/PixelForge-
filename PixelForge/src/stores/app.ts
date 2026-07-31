@@ -8,6 +8,8 @@ import {
   initialIRTree,
 } from '../data/presetData';
 import { TOTAL_DURATION, FPS, initialTracks, initialClips } from '../data';
+import { callLLM } from '../authoring/llm/callLLM';
+import type { LLMProviderConfig } from '../authoring/llm/types';
 import { unifiedStore } from '@/storage';
 import { CommandHistory, type Command } from '@/utils/commandHistory';
 import { evaluateAllTracks } from '@/utils/keyframe';
@@ -615,12 +617,61 @@ export const useAppStore = defineStore('app', () => {
     };
   }
 
-  function handleGenerate() {
+  // ─── 模型请求桥接（store ModelConfig → callLLM）────────────────
+
+  /** 将 store 的 ModelConfig 转换为 callLLM 所需的 LLMProviderConfig */
+  function modelConfigToLLMConfig(config: ModelConfig): LLMProviderConfig | null {
+    // 'custom' 和 'openai' 走 OpenAI 兼容接口；'google' 暂不支持文本对话
+    let provider: 'openai' | 'anthropic';
+    if (config.provider === 'anthropic') {
+      provider = 'anthropic';
+    } else {
+      provider = 'openai';
+    }
+
+    if (!config.apiKey || !config.modelId) return null;
+
+    return {
+      provider,
+      apiKey: config.apiKey,
+      baseUrl: config.baseUrl || undefined,
+      defaultModel: config.modelId,
+    };
+  }
+
+  /** 调用当前选中的模型，返回 LLM 文本响应（失败时返回 null） */
+  async function callSelectedModel(prompt: string, systemPrompt?: string): Promise<string | null> {
+    const config = selectedModelConfig.value;
+    if (!config) return null;
+
+    const llmConfig = modelConfigToLLMConfig(config);
+    if (!llmConfig) return null;
+
+    try {
+      const response = await callLLM(
+        { prompt, systemPrompt, maxTokens: 4096 },
+        llmConfig,
+        null,
+      );
+      return response.content;
+    } catch (e) {
+      console.error('[AppStore] LLM 调用失败', e);
+      return null;
+    }
+  }
+
+  async function handleGenerate() {
     isGenerating.value = true;
 
     // 生成产物写入三层存储（L1+L2+L3）
     const prompt = livePromptText.value;
     const timestamp = Date.now();
+
+    // 尝试调用真实 LLM
+    const llmResponse = await callSelectedModel(
+      prompt,
+      '你是一个创意图片生成助手。请根据用户的描述，生成一段简洁的创意说明文字。',
+    );
 
     // 1. WGSL 着色器源码（模拟编译产物）
     const shaderHash = hashString(prompt);
@@ -895,6 +946,7 @@ export const useAppStore = defineStore('app', () => {
     setTuningParams,
     toggleIRVisibility,
     handleGenerate,
+    callSelectedModel,
     handleForceSave,
     handleResetProject,
     setAutoSaveInterval,

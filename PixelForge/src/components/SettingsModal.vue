@@ -4,6 +4,7 @@ import { modalEnter, modalLeave } from '../composables/useAnime';
 import PfSelect from './ui/PfSelect.vue';
 import type { ModelConfig, AccentColors, ModelMetadata } from '../stores/app';
 import { fetchModels, lookupModel, type DiscoveredModel, type ModelFetchError } from '../authoring/llm/modelDiscovery';
+import { inferCapabilities } from '../authoring/llm/modelRegistry';
 
 const props = defineProps<{
   isOpen: boolean;
@@ -242,6 +243,7 @@ function handleSelectModel(model: ModelConfig, discovered: DiscoveredModel) {
 /** 手动输入 modelId 时自动查静态元数据库 */
 function handleModelIdInput(model: ModelConfig, value: string) {
   const meta = lookupModel(model.provider, value);
+  const caps = inferCapabilities(value);
   handleUpdateModel(model.id, {
     modelId: value,
     metadata: meta ? {
@@ -251,6 +253,9 @@ function handleModelIdInput(model: ModelConfig, value: string) {
       supportsThinking: meta.supportsThinking,
       supportsVision: meta.supportsVision,
       supportsFunctionCalling: meta.supportsFunctionCalling,
+      supportsImageGeneration: meta.supportsImageGeneration ?? caps.supportsImageGeneration,
+      supportsVideoGeneration: meta.supportsVideoGeneration ?? caps.supportsVideoGeneration,
+      supportsAudioGeneration: meta.supportsAudioGeneration ?? caps.supportsAudioGeneration,
       rpmLimit: meta.rpmLimit,
       tpmLimit: meta.tpmLimit,
     } : undefined,
@@ -692,6 +697,7 @@ watch(
                       :model-value="model.provider"
                       :options="providerOptions"
                       size="small"
+                      light-menu
                       class="pf-model-field-select"
                       @update:model-value="(v: string) => handleProviderChange(model.id, v)"
                     />
@@ -862,6 +868,22 @@ watch(
   height: 640px;
   max-width: 92vw;
   max-height: 88vh;
+  /* 纯白色磨砂玻璃：覆盖全局 --glass-bg */
+  background: rgba(255, 255, 255, 0.75);
+  /* 强制浅色模式变量，确保纯白背景上文字/边框/输入框等均可见 */
+  --text-primary: rgba(0, 0, 0, 0.92);
+  --text-secondary: rgba(0, 0, 0, 0.62);
+  --text-tertiary: rgba(0, 0, 0, 0.4);
+  --text-quaternary: rgba(0, 0, 0, 0.15);
+  --separator: rgba(0, 0, 0, 0.1);
+  --separator-strong: rgba(0, 0, 0, 0.16);
+  --glass-bg: rgba(255, 255, 255, 0.75);
+  --glass-bg-hover: rgba(255, 255, 255, 0.85);
+  --glass-bg-pressed: rgba(255, 255, 255, 0.65);
+  --glass-border: rgba(0, 0, 0, 0.12);
+  --glass-edge: rgba(0, 0, 0, 0.08);
+  --track-bg: rgba(0, 0, 0, 0.04);
+  --track-bg-hover: rgba(0, 0, 0, 0.06);
 }
 
 /* ==========================================================
@@ -960,14 +982,15 @@ watch(
   justify-content: space-between;
   gap: 16px;
   padding: 14px 16px;
-  background: var(--glass-bg-hover);
-  border: 1px solid var(--separator);
+  /* 纯白色磨砂玻璃：覆盖 --glass-bg-hover，比弹窗底色略透明形成层次 */
+  background: rgba(255, 255, 255, 0.4);
+  border: 1px solid rgba(0, 0, 0, 0.1);
   border-radius: var(--radius-md);
   transition: border-color 180ms var(--ease-out);
 }
 
 .pf-setting-card:hover {
-  border-color: var(--separator-strong);
+  border-color: rgba(0, 0, 0, 0.16);
 }
 
 .pf-setting-card-info {
@@ -1326,15 +1349,15 @@ watch(
 }
 
 .pf-model-card {
-  background: var(--glass-bg-hover);
-  border: 1px solid var(--separator);
+  background: rgba(255, 255, 255, 0.4);
+  border: 1px solid rgba(0, 0, 0, 0.1);
   border-radius: var(--radius-md);
   overflow: hidden;
   transition: border-color 180ms var(--ease-out);
 }
 
 .pf-model-card:hover {
-  border-color: var(--separator-strong);
+  border-color: rgba(0, 0, 0, 0.16);
 }
 
 .pf-model-card-header {
@@ -1344,6 +1367,33 @@ watch(
   gap: 12px;
   padding: 10px 14px;
   border-bottom: 1px solid var(--separator);
+  cursor: pointer;
+  user-select: none;
+}
+
+.pf-model-card.collapsed .pf-model-card-header {
+  border-bottom: none;
+}
+
+.pf-model-display-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.pf-model-card-chevron {
+  color: var(--text-tertiary);
+  transition: transform 200ms var(--ease-out);
+  flex-shrink: 0;
+}
+
+.pf-model-card-chevron.expanded {
+  transform: rotate(180deg);
 }
 
 .pf-model-card-header-info {
@@ -1565,12 +1615,21 @@ position: relative;
 
 /* ── 模型下拉列表（Teleport 到 body，使用 fixed 定位） ── */
 .pf-model-dropdown {
-  background: var(--base-bg);
-  border: 1px solid var(--separator-strong);
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.16);
   border-radius: var(--radius-sm);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2), 0 8px 32px rgba(0, 0, 0, 0.15);
   overflow: hidden;
   animation: pfModelDropdownEnter 160ms var(--ease-out);
+  /* Teleport 到 body，需单独覆盖变量以匹配纯白弹窗风格 */
+  --text-primary: rgba(0, 0, 0, 0.92);
+  --text-secondary: rgba(0, 0, 0, 0.62);
+  --text-tertiary: rgba(0, 0, 0, 0.4);
+  --text-quaternary: rgba(0, 0, 0, 0.15);
+  --separator: rgba(0, 0, 0, 0.1);
+  --separator-strong: rgba(0, 0, 0, 0.16);
+  --track-bg: rgba(0, 0, 0, 0.04);
+  --track-bg-hover: rgba(0, 0, 0, 0.06);
 }
 
 @keyframes pfModelDropdownEnter {
@@ -1696,6 +1755,21 @@ position: relative;
 .pf-model-badge-ctx {
   background: rgba(10, 132, 255, 0.12);
   color: var(--accent);
+}
+
+.pf-model-badge-image {
+  background: rgba(168, 85, 247, 0.15);
+  color: #a855f7;
+}
+
+.pf-model-badge-video {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.pf-model-badge-audio {
+  background: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
 }
 
 .pf-model-dropdown-item.active .pf-model-badge {

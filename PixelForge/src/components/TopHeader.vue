@@ -37,7 +37,7 @@ async function handleClose() {
     <div class="toolbar-section">
       <button
         class="theme-toggle"
-        :title="theme === 'dark' ? '浅色模式' : '深色模式'"
+        :data-tip="theme === 'dark' ? '浅色模式' : '深色模式'"
         @click="emit('toggleTheme')"
       >
         <PhSun v-if="theme === 'dark'" :size="16" weight="duotone" />
@@ -46,17 +46,17 @@ async function handleClose() {
 
       <!-- 窗口控制按钮：最小化 / 最大化 / 关闭 -->
       <div class="window-controls">
-        <button class="wc-btn" title="最小化" @click="handleMinimize">
+        <button class="wc-btn" @click="handleMinimize">
           <svg width="10" height="10" viewBox="0 0 10 10">
             <path d="M0 5h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
           </svg>
         </button>
-        <button class="wc-btn" title="最大化/还原" @click="handleToggleMaximize">
+        <button class="wc-btn" @click="handleToggleMaximize">
           <svg width="10" height="10" viewBox="0 0 10 10">
             <rect x="0.75" y="0.75" width="8.5" height="8.5" fill="none" stroke="currentColor" stroke-width="1.5" rx="1.5" />
           </svg>
         </button>
-        <button class="wc-btn wc-close" title="关闭" @click="handleClose">
+        <button class="wc-btn wc-close" @click="handleClose">
           <svg width="10" height="10" viewBox="0 0 10 10">
             <path d="M0 0L10 10M10 0L0 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
           </svg>
@@ -136,6 +136,8 @@ async function handleClose() {
   color: var(--text-tertiary);
   cursor: pointer;
   transition: all 160ms ease;
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .wc-btn:hover {
@@ -147,4 +149,25 @@ async function handleClose() {
   background: #e85555;
   color: #fff;
 }
+
+/* ─── 自定义 tooltip（替代原生 title 属性，避免系统默认浅白色提示框） ─── */
+[data-tip] { position: relative; }
+[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 7px);
+  left: 50%;
+  transform: translateX(-50%) scale(0.95);
+  padding: 5px 10px;
+  background: var(--text-primary);
+  color: var(--base-bg);
+  font-size: 11px;
+  border-radius: 7px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms ease, transform 150ms cubic-bezier(0.22, 1, 0.36, 1);
+  z-index: 50;
+}
+[data-tip]:hover::after { opacity: 1; transform: translateX(-50%) scale(1); }
 </style>

@@ -14,6 +14,8 @@ export interface Clip {
   start: number;      // seconds
   duration: number;   // seconds
   type: ClipType;
+  /** 原始时长（秒，粘贴自适应缩短后记录原始值，用于"自适应恢复"功能） */
+  originalDuration?: number;
   /** 源素材起始时间（秒，可选） */
   sourceStart?: number;
   /** 播放速度倍率（1.0 = 正常，可选） */
