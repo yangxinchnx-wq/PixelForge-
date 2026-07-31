@@ -1079,16 +1079,14 @@ watch(
   height: 640px;
   max-width: 92vw;
   max-height: 88vh;
-  /* 纯白磨砂玻璃 */
-  background: rgba(255, 255, 255, 0.92);
-  backdrop-filter: blur(30px) saturate(180%);
-  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  /* Apple Liquid Glass：纯白磨砂玻璃 */
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(40px) saturate(200%);
+  -webkit-backdrop-filter: blur(40px) saturate(200%);
 }
 
 [data-theme="dark"] .pf-settings-modal {
-  background: rgba(28, 28, 30, 0.92);
-  backdrop-filter: blur(30px) saturate(180%);
-  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  background: rgba(28, 28, 30, 0.72);
 }
 
 /* ==========================================================
