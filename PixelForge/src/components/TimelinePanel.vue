@@ -595,7 +595,7 @@ function clientXToTrackTime(clientX: number): number {
   return Math.max(0, x / pps.value);
 }
 
-/** 显示右键菜单（始终向上展开） */
+/** 显示右键菜单（限制在轨道区域内，始终优先向上展开） */
 function showContextMenuAt(clientX: number, clientY: number) {
   contextMenuX.value = clientX;
   contextMenuY.value = clientY;
@@ -605,20 +605,35 @@ function showContextMenuAt(clientX: number, clientY: number) {
     const menuEl = contextMenuRef.value;
     if (!menuEl) return;
     const rect = menuEl.getBoundingClientRect();
-    const vw = window.innerWidth;
-    const statusbarH = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--statusbar-height')) || 28;
-    const vh = window.innerHeight - statusbarH - 8;
 
-    // 右边界溢出 → 向左偏移
-    if (contextMenuX.value + rect.width > vw - 8) {
-      contextMenuX.value = Math.max(8, vw - rect.width - 8);
+    // 以轨道滚动区域作为边界约束
+    const scrollEl = tracksScrollRef.value;
+    const bounds = scrollEl
+      ? scrollEl.getBoundingClientRect()
+      : { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight };
+
+    // 水平：右边界溢出 → 向左偏移，左边界不溢出
+    let x = clientX;
+    if (x + rect.width > bounds.right - 4) {
+      x = Math.max(bounds.left + 4, bounds.right - rect.width - 4);
     }
-    // 始终向上展开：菜单底部贴在点击位置
-    contextMenuY.value = clientY - rect.height;
-    // 上边界溢出（空间不足） → 回退到向下展开，并防止底部溢出
-    if (contextMenuY.value < 8) {
-      contextMenuY.value = Math.min(clientY + 4, vh - rect.height);
+    if (x < bounds.left + 4) {
+      x = bounds.left + 4;
     }
+
+    // 垂直：始终优先向上展开，菜单底部贴在点击位置
+    let y = clientY - rect.height;
+    // 上边界溢出（空间不足）→ 回退到向下展开
+    if (y < bounds.top + 4) {
+      y = clientY + 4;
+    }
+    // 底部不超出轨道区域
+    if (y + rect.height > bounds.bottom - 4) {
+      y = Math.max(bounds.top + 4, bounds.bottom - rect.height - 4);
+    }
+
+    contextMenuX.value = x;
+    contextMenuY.value = y;
   });
 }
 

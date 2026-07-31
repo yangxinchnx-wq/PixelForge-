@@ -3,7 +3,7 @@ import { ref, watch, nextTick, computed, onMounted, onBeforeUnmount } from 'vue'
 import { modalEnter, modalLeave } from '../composables/useAnime';
 import PfSelect from './ui/PfSelect.vue';
 import type { ModelConfig, AccentColors, ModelMetadata } from '../stores/app';
-import { fetchModels, lookupModel, type DiscoveredModel, type ModelFetchError } from '../authoring/llm/modelDiscovery';
+import { fetchModels, lookupModel, clearModelCache, type DiscoveredModel, type ModelFetchError } from '../authoring/llm/modelDiscovery';
 import { inferCapabilities } from '../authoring/llm/modelRegistry';
 
 const props = defineProps<{
@@ -82,6 +82,7 @@ function handleProviderChange(id: string, provider: string) {
   // 切换 provider 时清除已拉取的模型列表和元数据
   modelListCache.value.delete(id);
   modelFetchState.value.delete(id);
+  rescanState.value.delete(id);
   handleUpdateModel(id, { provider: provider as ModelConfig['provider'], baseUrl, metadata: undefined });
 }
 
@@ -260,6 +261,193 @@ function handleModelIdInput(model: ModelConfig, value: string) {
       tpmLimit: meta.tpmLimit,
     } : undefined,
   });
+}
+
+/** 重新扫描已保存模型的元数据 */
+interface RescanState {
+  loading: boolean;
+  message: string | null;
+  error: string | null;
+}
+
+const rescanState = ref<Map<string, RescanState>>(new Map());
+
+async function handleRescanModel(model: ModelConfig) {
+  if (!model.modelId) {
+    rescanState.value.set(model.id, { loading: false, message: null, error: '请先填写模型 ID' });
+    return;
+  }
+
+  rescanState.value.set(model.id, { loading: true, message: '正在扫描元数据...', error: null });
+
+  // 第一步：本地静态数据库查询（同步，不依赖网络）
+  const localMeta = lookupModel(model.provider, model.modelId);
+  const caps = inferCapabilities(model.modelId);
+
+  // 如果没有 API Key 或 Base URL，仅使用本地数据库结果
+  if (!model.apiKey || !model.baseUrl) {
+    if (localMeta) {
+      handleUpdateModel(model.id, {
+        metadata: {
+          displayName: localMeta.displayName,
+          contextWindow: localMeta.contextWindow,
+          maxOutputTokens: localMeta.maxOutputTokens,
+          supportsThinking: localMeta.supportsThinking,
+          supportsVision: localMeta.supportsVision,
+          supportsFunctionCalling: localMeta.supportsFunctionCalling,
+          supportsImageGeneration: localMeta.supportsImageGeneration ?? caps.supportsImageGeneration,
+          supportsVideoGeneration: localMeta.supportsVideoGeneration ?? caps.supportsVideoGeneration,
+          supportsAudioGeneration: localMeta.supportsAudioGeneration ?? caps.supportsAudioGeneration,
+          rpmLimit: localMeta.rpmLimit,
+          tpmLimit: localMeta.tpmLimit,
+        },
+      });
+      rescanState.value.set(model.id, { loading: false, message: '已从本地数据库更新元数据', error: null });
+    } else {
+      handleUpdateModel(model.id, { metadata: undefined });
+      rescanState.value.set(model.id, { loading: false, message: null, error: '本地数据库中未找到该模型，且未配置 API Key / Base URL，无法从服务器获取' });
+    }
+    return;
+  }
+
+  // 第二步：清除缓存后从 API 拉取最新模型列表
+  clearModelCache(model.provider);
+  // 同时清除本组件内的列表缓存，保持一致
+  modelListCache.value.delete(model.id);
+
+  const deadlineTimer = setTimeout(() => {
+    if (rescanState.value.get(model.id)?.loading) {
+      rescanState.value.set(model.id, {
+        loading: false,
+        message: null,
+        error: '请求超时（10 秒），请检查网络连接、API Key 或 Base URL 是否正确',
+      });
+    }
+  }, FETCH_DEADLINE_MS);
+
+  try {
+    const models = await fetchModels({
+      provider: model.provider,
+      apiKey: model.apiKey,
+      baseUrl: model.baseUrl,
+    });
+    clearTimeout(deadlineTimer);
+
+    // 在返回的列表中查找匹配的模型
+    const found = models.find((m) => m.id === model.modelId);
+    if (found) {
+      // 使用 API 返回的元数据（已与静态数据库合并）
+      handleUpdateModel(model.id, {
+        metadata: {
+          displayName: found.displayName,
+          contextWindow: found.contextWindow,
+          maxOutputTokens: found.maxOutputTokens,
+          supportsThinking: found.supportsThinking,
+          supportsVision: found.supportsVision,
+          supportsFunctionCalling: found.supportsFunctionCalling,
+          supportsImageGeneration: found.supportsImageGeneration,
+          supportsVideoGeneration: found.supportsVideoGeneration,
+          supportsAudioGeneration: found.supportsAudioGeneration,
+          rpmLimit: found.rpmLimit,
+          tpmLimit: found.tpmLimit,
+        },
+      });
+      // 同时更新本地列表缓存
+      modelListCache.value.set(model.id, models);
+      rescanState.value.set(model.id, {
+        loading: false,
+        message: `已从服务器更新元数据（${found.fromApi ? 'API 确认' : '本地回退'}）`,
+        error: null,
+      });
+    } else if (localMeta) {
+      // API 返回的列表中未找到该模型，但本地数据库有 → 用本地数据
+      handleUpdateModel(model.id, {
+        metadata: {
+          displayName: localMeta.displayName,
+          contextWindow: localMeta.contextWindow,
+          maxOutputTokens: localMeta.maxOutputTokens,
+          supportsThinking: localMeta.supportsThinking,
+          supportsVision: localMeta.supportsVision,
+          supportsFunctionCalling: localMeta.supportsFunctionCalling,
+          supportsImageGeneration: localMeta.supportsImageGeneration ?? caps.supportsImageGeneration,
+          supportsVideoGeneration: localMeta.supportsVideoGeneration ?? caps.supportsVideoGeneration,
+          supportsAudioGeneration: localMeta.supportsAudioGeneration ?? caps.supportsAudioGeneration,
+          rpmLimit: localMeta.rpmLimit,
+          tpmLimit: localMeta.tpmLimit,
+        },
+      });
+      modelListCache.value.set(model.id, models);
+      rescanState.value.set(model.id, {
+        loading: false,
+        message: '服务器模型列表中未找到该模型，已使用本地数据库元数据',
+        error: null,
+      });
+    } else {
+      // API 和本地数据库都没有
+      modelListCache.value.set(model.id, models);
+      rescanState.value.set(model.id, {
+        loading: false,
+        message: null,
+        error: `服务器模型列表和本地数据库中均未找到模型 "${model.modelId}"，请检查模型 ID 是否正确`,
+      });
+    }
+  } catch (err) {
+    clearTimeout(deadlineTimer);
+
+    // API 拉取失败 → 回退到本地数据库
+    if (localMeta) {
+      handleUpdateModel(model.id, {
+        metadata: {
+          displayName: localMeta.displayName,
+          contextWindow: localMeta.contextWindow,
+          maxOutputTokens: localMeta.maxOutputTokens,
+          supportsThinking: localMeta.supportsThinking,
+          supportsVision: localMeta.supportsVision,
+          supportsFunctionCalling: localMeta.supportsFunctionCalling,
+          supportsImageGeneration: localMeta.supportsImageGeneration ?? caps.supportsImageGeneration,
+          supportsVideoGeneration: localMeta.supportsVideoGeneration ?? caps.supportsVideoGeneration,
+          supportsAudioGeneration: localMeta.supportsAudioGeneration ?? caps.supportsAudioGeneration,
+          rpmLimit: localMeta.rpmLimit,
+          tpmLimit: localMeta.tpmLimit,
+        },
+      });
+      let apiErr: string;
+      if (err instanceof ModelFetchError) {
+        if (err.isRateLimited) {
+          apiErr = 'API 请求被限流 (429)';
+        } else if (err.statusCode === 401) {
+          apiErr = 'API Key 认证失败 (401)';
+        } else {
+          apiErr = `API 请求失败（HTTP ${err.statusCode}）`;
+        }
+      } else {
+        apiErr = `API 请求失败: ${String(err)}`;
+      }
+      rescanState.value.set(model.id, {
+        loading: false,
+        message: `${apiErr}，已使用本地数据库元数据`,
+        error: null,
+      });
+    } else {
+      let apiErr: string;
+      if (err instanceof ModelFetchError) {
+        if (err.isRateLimited) {
+          apiErr = 'API 请求被限流 (429)，请稍后重试';
+        } else if (err.statusCode === 401) {
+          apiErr = 'API Key 认证失败 (401)，请检查密钥是否正确';
+        } else if (err.statusCode === 404) {
+          apiErr = `接口地址不存在 (404)，请检查 Base URL 是否正确`;
+        } else if (err.statusCode === 0) {
+          apiErr = err.message;
+        } else {
+          apiErr = `${err.message}（HTTP ${err.statusCode}）`;
+        }
+      } else {
+        apiErr = `扫描失败: ${String(err)}`;
+      }
+      rescanState.value.set(model.id, { loading: false, message: null, error: apiErr });
+    }
+  }
 }
 
 /** 格式化 token 数为可读字符串 */
@@ -461,8 +649,8 @@ watch(
 </script>
 
 <template>
-  <div v-if="internalVisible" ref="overlayRef" class="pf-modal-overlay" @click="emit('close')">
-    <div ref="modalRef" class="pf-modal pf-settings-modal" :style="[modalStyle, settingsAccentStyle]" @click.stop>
+  <div v-if="internalVisible" ref="overlayRef" class="pf-modal-overlay">
+    <div ref="modalRef" class="pf-modal pf-settings-modal" :style="[modalStyle, settingsAccentStyle]">
       <!-- 标题栏 -->
       <div class="pf-modal-header">
         <span class="pf-modal-title">设置</span>
@@ -796,6 +984,30 @@ watch(
                       @input="handleUpdateModel(model.id, { baseUrl: ($event.target as HTMLInputElement).value })"
                     />
                   </div>
+                </div>
+
+                <!-- 重新扫描按钮（仅当模型已配置 modelId 时显示） -->
+                <div v-if="model.modelId" class="pf-model-rescan-bar">
+                  <button
+                    class="pf-model-rescan-btn"
+                    :disabled="rescanState.get(model.id)?.loading"
+                    @click="handleRescanModel(model)"
+                  >
+                    <svg v-if="rescanState.get(model.id)?.loading" class="pf-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="13" height="13">
+                      <path d="M21 12a9 9 0 1 1-6.219-8.56" stroke-linecap="round" />
+                    </svg>
+                    <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
+                      <path d="M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9c2.39 0 4.68.94 6.36 2.64L21 3" stroke-linecap="round" />
+                      <path d="M21 3v6h-6" stroke-linecap="round" />
+                    </svg>
+                    {{ rescanState.get(model.id)?.loading ? '扫描中...' : '重新扫描' }}
+                  </button>
+                  <span v-if="rescanState.get(model.id)?.message" class="pf-model-rescan-msg">
+                    {{ rescanState.get(model.id)?.message }}
+                  </span>
+                  <span v-if="rescanState.get(model.id)?.error" class="pf-model-rescan-err">
+                    {{ rescanState.get(model.id)?.error }}
+                  </span>
                 </div>
 
                 <!-- 模型元数据展示 -->
@@ -1817,6 +2029,61 @@ position: relative;
 
 .pf-meta-yes {
   color: #22c55e;
+}
+
+/* ── 重新扫描按钮行 ── */
+.pf-model-rescan-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 14px;
+  border-top: 1px solid var(--separator);
+  background: var(--track-bg);
+}
+
+.pf-model-rescan-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--separator-strong);
+  border-radius: var(--radius-xs);
+  background: var(--glass-bg-hover);
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: border-color 180ms var(--ease-out),
+              color 180ms var(--ease-out),
+              background 180ms var(--ease-out);
+}
+
+.pf-model-rescan-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(10, 132, 255, 0.06);
+}
+
+.pf-model-rescan-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.pf-model-rescan-msg {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  line-height: 1.4;
+}
+
+.pf-model-rescan-err {
+  font-size: 11px;
+  color: #ff6b6b;
+  line-height: 1.4;
+  word-break: break-all;
 }
 
 /* ==========================================================
