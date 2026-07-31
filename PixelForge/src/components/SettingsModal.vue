@@ -1079,6 +1079,16 @@ watch(
   height: 640px;
   max-width: 92vw;
   max-height: 88vh;
+  /* 纯白磨砂玻璃 */
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(30px) saturate(180%);
+  -webkit-backdrop-filter: blur(30px) saturate(180%);
+}
+
+[data-theme="dark"] .pf-settings-modal {
+  background: rgba(28, 28, 30, 0.92);
+  backdrop-filter: blur(30px) saturate(180%);
+  -webkit-backdrop-filter: blur(30px) saturate(180%);
 }
 
 /* ==========================================================
@@ -1177,10 +1187,15 @@ watch(
   justify-content: space-between;
   gap: 16px;
   padding: 14px 16px;
-  background: var(--glass-bg-hover);
+  /* 浅白 */
+  background: rgba(255, 255, 255, 0.5);
   border: 1px solid var(--separator);
   border-radius: var(--radius-md);
   transition: border-color 180ms var(--ease-out);
+}
+
+[data-theme="dark"] .pf-setting-card {
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .pf-setting-card:hover {
@@ -1543,11 +1558,16 @@ watch(
 }
 
 .pf-model-card {
-  background: var(--glass-bg-hover);
+  /* 浅白 */
+  background: rgba(255, 255, 255, 0.5);
   border: 1px solid var(--separator);
   border-radius: var(--radius-md);
   overflow: hidden;
   transition: border-color 180ms var(--ease-out);
+}
+
+[data-theme="dark"] .pf-model-card {
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .pf-model-card:hover {

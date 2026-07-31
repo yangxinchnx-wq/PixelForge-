@@ -1274,15 +1274,16 @@ const canPasteInMenu = computed(() => clipboard !== null && clipboard.length > 0
   <!-- AI Director 面板 -->
   <DirectorPanel v-model:visible="showDirector" />
 
-  <!-- 片段右键上下文菜单 -->
-  <div
-    v-if="contextMenuVisible"
-    class="pf-clip-context-menu"
-    ref="contextMenuRef"
-    :style="{ left: contextMenuX + 'px', top: contextMenuY + 'px' }"
-    @click.stop
-    @contextmenu.prevent
-  >
+  <!-- 片段右键上下文菜单（Teleport 到 body 以脱离 .pf-timeline 层叠上下文） -->
+  <Teleport to="body">
+    <div
+      v-if="contextMenuVisible"
+      class="pf-clip-context-menu"
+      ref="contextMenuRef"
+      :style="{ left: contextMenuX + 'px', top: contextMenuY + 'px' }"
+      @click.stop
+      @contextmenu.prevent
+    >
     <button class="ctx-menu-item" @click="contextMenuDelete">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
         <path d="M3 6h18" />
@@ -1325,7 +1326,8 @@ const canPasteInMenu = computed(() => clipboard !== null && clipboard.length > 0
       </svg>
       <span>粘贴</span>
     </button>
-  </div>
+    </div>
+  </Teleport>
 
   <!-- 叹号图标弹窗：原始数据 + 选项 -->
   <Teleport to="body">
