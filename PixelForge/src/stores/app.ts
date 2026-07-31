@@ -11,6 +11,8 @@ import { TOTAL_DURATION, FPS, initialTracks, initialClips } from '../data';
 import { unifiedStore } from '@/storage';
 import { CommandHistory, type Command } from '@/utils/commandHistory';
 import { evaluateAllTracks } from '@/utils/keyframe';
+import { useAssetStore } from '@/assets/assetStore';
+import type { Asset } from '@/assets/types';
 
 // ─── Types ─────────────────────────────────────────────
 export interface AppStateSnapshot {
@@ -34,6 +36,38 @@ export interface ModelConfig {
   apiKey: string;
   baseUrl: string;
   enabled: boolean;
+  /** 模型元数据（从 API 拉取或静态数据库查询得到） */
+  metadata?: ModelMetadata;
+}
+
+/**
+ * 模型元数据（上下文窗口、思考能力、限流等）。
+ * 与 authoring/llm/modelRegistry 中的 ModelMetadata 结构一致，
+ * 但在此独立定义以避免 store 层直接依赖 authoring 层。
+ */
+export interface ModelMetadata {
+  /** 展示名称 */
+  displayName: string;
+  /** 上下文窗口大小（token 数），0 表示未知 */
+  contextWindow: number;
+  /** 最大输出 token 数，0 表示未知 */
+  maxOutputTokens: number;
+  /** 是否支持思考/推理模式 */
+  supportsThinking: boolean;
+  /** 是否支持视觉输入 */
+  supportsVision: boolean;
+  /** 是否支持函数调用 */
+  supportsFunctionCalling: boolean;
+  /** 是否支持图片生成 */
+  supportsImageGeneration?: boolean;
+  /** 是否支持视频生成 */
+  supportsVideoGeneration?: boolean;
+  /** 是否支持音频/音乐生成 */
+  supportsAudioGeneration?: boolean;
+  /** 请求频率限制（RPM） */
+  rpmLimit?: number;
+  /** Token 频率限制（TPM） */
+  tpmLimit?: number;
 }
 
 export interface AccentColors {
@@ -147,10 +181,23 @@ export const useAppStore = defineStore('app', () => {
   const modelConfigs = ref<ModelConfig[]>(
     Array.isArray(loadedData?.modelConfigs) ? loadedData.modelConfigs : []
   );
+  /** 当前选中的模型配置 ID（供 AIChatPanel / ControlPanel 共享） */
+  const selectedModelId = ref<string | null>(
+    loadedData?.selectedModelId ?? null
+  );
+
+  /** 当前选中的模型配置对象 */
+  const selectedModelConfig = computed<ModelConfig | null>(() =>
+    selectedModelId.value
+      ? modelConfigs.value.find((m) => m.id === selectedModelId.value) ?? null
+      : null
+  );
 
   function addModelConfig(config: Omit<ModelConfig, 'id'>): string {
     const id = `model-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
     modelConfigs.value.push({ ...config, id });
+    // 若之前没有选中模型，自动选中新添加的
+    if (!selectedModelId.value) selectedModelId.value = id;
     return id;
   }
 
@@ -163,6 +210,14 @@ export const useAppStore = defineStore('app', () => {
 
   function removeModelConfig(id: string): void {
     modelConfigs.value = modelConfigs.value.filter((m) => m.id !== id);
+    // 若删除的正是当前选中模型，自动切换到第一个
+    if (selectedModelId.value === id) {
+      selectedModelId.value = modelConfigs.value[0]?.id ?? null;
+    }
+  }
+
+  function setSelectedModel(id: string): void {
+    selectedModelId.value = id;
   }
 
   // ─── Timeline State ────────────────────────────────
@@ -487,6 +542,79 @@ export const useAppStore = defineStore('app', () => {
     return `h_${(h >>> 0).toString(16)}`;
   }
 
+  function createGeneratedImageAsset(prompt: string): Asset | null {
+    if (typeof document === 'undefined') return null;
+
+    const width = 512;
+    const height = 512;
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+
+    // 基于 prompt hash 生成稳定色调
+    const hash = hashString(prompt);
+    const hue = parseInt(hash.slice(2, 5), 16) % 360;
+    const gradient = ctx.createLinearGradient(0, 0, width, height);
+    gradient.addColorStop(0, `hsl(${hue}, 70%, 22%)`);
+    gradient.addColorStop(0.5, `hsl(${(hue + 30) % 360}, 60%, 35%)`);
+    gradient.addColorStop(1, `hsl(${(hue + 70) % 360}, 70%, 25%)`);
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, width, height);
+
+    // 随机散点模拟星空/粒子
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
+    let seed = parseInt(hash.slice(5, 10), 16) || 1;
+    const rnd = () => {
+      seed = (seed * 16807) % 2147483647;
+      return (seed - 1) / 2147483646;
+    };
+    for (let i = 0; i < 80; i++) {
+      const x = rnd() * width;
+      const y = rnd() * height;
+      const r = rnd() * 1.8 + 0.4;
+      ctx.globalAlpha = rnd() * 0.7 + 0.3;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    // 提示词文本
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
+    ctx.font = 'bold 26px system-ui, -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const displayPrompt = prompt.length > 18 ? prompt.slice(0, 18) + '…' : prompt || 'AI Generated';
+    ctx.fillText(displayPrompt, width / 2, height / 2 - 12);
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
+    ctx.font = '14px system-ui, -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.fillText('512 × 512 · PixelForge', width / 2, height / 2 + 22);
+
+    const dataUrl = canvas.toDataURL('image/png');
+    const binary = atob(dataUrl.split(',')[1]);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+
+    const timestamp = Date.now();
+    return {
+      id: `gen-${timestamp}`,
+      name: `AI生成_${new Date(timestamp).toLocaleTimeString('zh-CN', { hour12: false })}.png`,
+      type: 'image',
+      url: dataUrl,
+      thumbnail: dataUrl,
+      width,
+      height,
+      size: bytes.length,
+      createdAt: timestamp,
+      mimeType: 'image/png',
+    };
+  }
+
   function handleGenerate() {
     isGenerating.value = true;
 
@@ -526,6 +654,12 @@ export const useAppStore = defineStore('app', () => {
       });
 
     setTimeout(() => {
+      // 4. 将生成图片加入资源库，供 ResourceManagerPanel 展示
+      const asset = createGeneratedImageAsset(prompt);
+      if (asset) {
+        const assetStore = useAssetStore();
+        assetStore.add(asset);
+      }
       isGenerating.value = false;
     }, 1200);
   }
@@ -543,6 +677,7 @@ export const useAppStore = defineStore('app', () => {
       frameRate: frameRate.value,
       theme: theme.value,
       modelConfigs: modelConfigs.value,
+      selectedModelId: selectedModelId.value,
       accentColors: accentColors.value,
       savedTime: time,
     });
@@ -563,10 +698,11 @@ export const useAppStore = defineStore('app', () => {
         resolution: resolution.value,
         frameRate: frameRate.value,
         theme: theme.value,
-        modelConfigs: modelConfigs.value,
-        accentColors: accentColors.value,
-        savedTime: time,
-      });
+      modelConfigs: modelConfigs.value,
+      selectedModelId: selectedModelId.value,
+      accentColors: accentColors.value,
+      savedTime: time,
+    });
       // 同步写 localStorage（向后兼容，保证刷新即恢复）
       localStorage.setItem(AUTOSAVE_KEY, payload);
       // 异步写三层统一存储（持久化 + 高性能读取）
@@ -590,6 +726,8 @@ export const useAppStore = defineStore('app', () => {
     frameRate.value = '30 fps';
     theme.value = 'dark';
     accentColors.value = { ...DEFAULT_ACCENT };
+    modelConfigs.value = [];
+    selectedModelId.value = null;
     lastSavedTime.value = null;
     saveStatus.value = 'saved';
     clearHistory();
@@ -619,10 +757,11 @@ export const useAppStore = defineStore('app', () => {
           resolution: resolution.value,
           frameRate: frameRate.value,
           theme: theme.value,
-          modelConfigs: modelConfigs.value,
-          accentColors: accentColors.value,
-          savedTime: time,
-        });
+        modelConfigs: modelConfigs.value,
+        selectedModelId: selectedModelId.value,
+        accentColors: accentColors.value,
+        savedTime: time,
+      });
         // 同步写 localStorage（向后兼容）
         localStorage.setItem(AUTOSAVE_KEY, payload);
         // 异步写三层统一存储
@@ -653,6 +792,7 @@ export const useAppStore = defineStore('app', () => {
         frameRate?: string;
         theme?: string;
         modelConfigs?: ModelConfig[];
+        selectedModelId?: string | null;
         accentColors?: AccentColors;
         savedTime?: string;
       };
@@ -664,6 +804,7 @@ export const useAppStore = defineStore('app', () => {
       if (data.treeData !== undefined) treeData.value = data.treeData;
       if (data.savedTime !== undefined) lastSavedTime.value = data.savedTime;
       if (data.modelConfigs !== undefined) modelConfigs.value = data.modelConfigs;
+      if (data.selectedModelId !== undefined) selectedModelId.value = data.selectedModelId;
       if (data.accentColors !== undefined) accentColors.value = data.accentColors;
       // 将当前状态推入 history 作为初始快照
       if (data.promptText !== undefined || data.elements !== undefined) {
@@ -716,6 +857,8 @@ export const useAppStore = defineStore('app', () => {
     saveStatus,
     lastSavedTime,
     modelConfigs,
+    selectedModelId,
+    selectedModelConfig,
     accentColors,
     // Timeline State
     tracks,
@@ -761,6 +904,7 @@ export const useAppStore = defineStore('app', () => {
     addModelConfig,
     updateModelConfig,
     removeModelConfig,
+    setSelectedModel,
     setAccentColor,
     resetAccentColors,
     buildAccentVars,

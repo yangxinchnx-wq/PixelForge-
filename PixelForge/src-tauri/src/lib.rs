@@ -1,5 +1,7 @@
 #![cfg_attr(not(debug_assertions), warn(unused_crate_dependencies))]
 
+use tauri::Manager;
+
 mod db;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -7,19 +9,16 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .setup(|app| {
-            // 初始化 L3 持久化数据库（redb）
-            let app_handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                match db::init_db(&app_handle) {
-                    Ok(database) => {
-                        app_handle.manage(db::DbState(std::sync::Mutex::new(database)));
-                        println!("[L3] redb 数据库初始化成功");
-                    }
-                    Err(e) => {
-                        eprintln!("[L3] redb 数据库初始化失败: {}", e);
-                    }
+            // 初始化 L3 持久化数据库（redb）— 同步执行，确保命令可调用前 DbState 已 manage
+            match db::init_db(app.handle()) {
+                Ok(database) => {
+                    app.manage(db::DbState(std::sync::Mutex::new(database)));
+                    println!("[L3] redb 数据库初始化成功");
                 }
-            });
+                Err(e) => {
+                    eprintln!("[L3] redb 数据库初始化失败: {}", e);
+                }
+            }
             // DevTools 默认不自动打开，需要时按 F12 手动打开
             Ok(())
         })

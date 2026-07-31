@@ -1,31 +1,28 @@
 <script setup lang="ts">
 /**
- * AI Director 面板 — 对话式创作辅助，与时间轴整合。
+ * AI Director 面板 — 对话式图片创作辅助。
  *
  * 功能:
- * - 多轮对话：用户描述动画意图 → AI Director 生成时间轴轨道
- * - Timeline 注入：Director 生成的关键帧轨道直接注入到时间轴
- * - 上下文感知：Director 读取当前 RenderIR + Timeline 状态
+ * - 多轮对话：用户描述画面 → AI Director 调用生成引擎
+ * - 结果输出：生成完成后图片进入资源管理面板
+ * - 上下文感知：Director 读取当前 RenderIR 状态
  *
  * 数据流:
- *   用户输入 → converse() → LLM → DirectorDecision
- *   DirectorDecision → extractAnimationParams → createTimelineFromAnimations
- *   TimelineContent → 注入 appStore 的 paramTracks
+ *   用户输入 → parseEnhancedIntent → appStore.handleGenerate
+ *   isGenerating 触发 WorkflowPanel 步骤动画
+ *   生成完成 → createGeneratedImageAsset → assetStore.add
+ *   ResourceManagerPanel 自动展示新资源
  */
-import { ref, computed, nextTick } from 'vue';
+import { ref, computed, nextTick, watch } from 'vue';
 import { useAppStore } from '../stores/app';
+import { useAssetStore } from '../assets/assetStore';
 import {
   createConversation,
   addUserMessage,
   addDirectorMessage,
-  serializeConversation,
-  extractAnimationParams,
-  createTimelineFromAnimations,
-  generateTimelineFromLLM,
   type ConversationSession,
 } from '../world/director/directorConversation';
 import { parseEnhancedIntent } from '../world/director/directorEnhanced';
-import type { LLMOutput } from '../authoring/llm/types';
 
 const props = defineProps<{
   visible: boolean;
@@ -36,6 +33,7 @@ const emit = defineEmits<{
 }>();
 
 const appStore = useAppStore();
+const assetStore = useAssetStore();
 
 // ─── 对话状态 ──────────────────────────────────────────
 const session = ref<ConversationSession>(createConversation());
@@ -79,117 +77,27 @@ async function sendMessage() {
   await nextTick();
   scrollToBottom();
 
-  // 模拟 Director 决策（实际应调用 converse()，但需要 LLM 配置）
-  // 这里使用演示模式：根据用户输入生成动画轨道
-  setTimeout(() => {
-    const demoOutput = generateDemoOutput(text);
-    const animations = extractAnimationParams(demoOutput, null);
+  // 将输入同步到 store 并触发生成
+  appStore.handlePromptTextChange(text);
+  appStore.handleGenerate();
 
-    let patchCount = 0;
-    if (animations.length > 0) {
-      // 生成时间轴轨道
-      const timeline = createTimelineFromAnimations(animations, 60, true);
-
-      // 注入到 appStore 的 paramTracks
-      for (const track of timeline.tracks) {
-        // 使用 store API 创建参数轨道，再逐个添加关键帧
-        const trackId = appStore.addParamTrack(
-          track.name,
-          track.targetId,
-          track.paramKey,
-        );
-        for (const kf of track.keyframes) {
-          const value = typeof kf.value === 'number' ? kf.value : 0;
-          const interp = kf.interpolation as 'linear' | 'ease' | 'hold' | 'bezier' | 'step';
-          appStore.addKeyframe(trackId, kf.time, value, interp);
-        }
-        patchCount++;
+  // 监听生成完成
+  const unwatch = watch(
+    () => appStore.isGenerating,
+    (generating) => {
+      if (!generating) {
+        unwatch();
+        const decision = {
+          intentId: intent.id,
+          patches: [],
+          reasoning: '图片已生成完成，你可以在「资源管理」面板中查看并使用它。',
+        };
+        session.value = addDirectorMessage(session.value, decision);
+        isProcessing.value = false;
+        scrollToBottom();
       }
-    }
-
-    // 添加 Director 消息到会话
-    const decision = {
-      intentId: intent.id,
-      patches: [],
-      reasoning: animations.length > 0
-        ? `已生成 ${animations.length} 个动画轨道并注入时间轴（${patchCount} 个参数轨道）`
-        : '未检测到动画参数，请尝试描述如"从红色渐变到蓝色，持续2秒"',
-    };
-    session.value = addDirectorMessage(session.value, decision);
-
-    isProcessing.value = false;
-    scrollToBottom();
-  }, 800);
-}
-
-// ─── 演示模式：根据用户输入生成模拟 LLM 输出 ────────────
-function generateDemoOutput(prompt: string): LLMOutput {
-  const lower = prompt.toLowerCase();
-
-  // 检测颜色变化
-  const colorMatch = prompt.match(/(\w+).*(?:到|→|->).*(\w+)/);
-  if (lower.includes('颜色') || lower.includes('渐变') || colorMatch) {
-    return {
-      scene: '颜色动画',
-      elements: [{
-        type: 'background',
-        color: [255, 0, 0],
-        layer: 0,
-        description: '颜色渐变动画',
-        params: {
-          animateFrom: [255, 0, 0],
-          animateTo: [0, 0, 255],
-          duration: 2.0,
-        },
-      }],
-    };
-  }
-
-  // 检测亮度变化
-  if (lower.includes('亮度') || lower.includes('闪烁')) {
-    return {
-      scene: '亮度动画',
-      elements: [{
-        type: 'background',
-        color: [128, 128, 128],
-        layer: 0,
-        description: '亮度变化',
-        params: {
-          animateFrom: 0.3,
-          animateTo: 0.9,
-          duration: 1.5,
-        },
-      }],
-    };
-  }
-
-  // 检测缩放
-  if (lower.includes('缩放') || lower.includes('放大') || lower.includes('缩小')) {
-    return {
-      scene: '缩放动画',
-      elements: [{
-        type: 'circle',
-        color: [100, 200, 255],
-        layer: 0,
-        description: '缩放效果',
-        params: {
-          animateFrom: 0.5,
-          animateTo: 2.0,
-          duration: 3.0,
-        },
-      }],
-    };
-  }
-
-  return {
-    scene: '无动画',
-    elements: [{
-      type: 'background',
-      color: [0, 0, 0],
-      layer: 0,
-      description: '未检测到动画意图',
-    }],
-  };
+    },
+  );
 }
 
 // ─── 辅助 ──────────────────────────────────────────────
@@ -199,6 +107,17 @@ function scrollToBottom() {
       messagesRef.value.scrollTop = messagesRef.value.scrollHeight;
     }
   });
+}
+
+function formatTime(ts: number): string {
+  return new Date(ts).toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit' });
+}
+
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
 }
 
 function close() {
@@ -211,9 +130,9 @@ function clearConversation() {
 
 // ─── 快捷提示词 ────────────────────────────────────────
 const quickPrompts = [
-  '从红色渐变到蓝色，持续2秒',
-  '亮度从暗到亮闪烁',
-  '缩放从小到大',
+  '壮丽的高分辨率电影级夜景：静谧的水晶高山湖泊倒映星空',
+  '赛博朋克风格未来都市街道，霓虹灯光，雨天反射',
+  '极简主义白色空间中的抽象几何雕塑',
 ];
 
 function useQuickPrompt(text: string) {
@@ -232,7 +151,7 @@ function useQuickPrompt(text: string) {
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
                 <path d="M12 2a3 3 0 0 0-3 3 3 3 0 0 0-3 3 3 3 0 0 0-1 5.87V17a3 3 0 0 0 3 3 3 3 0 0 0 4 0 3 3 0 0 0 4 0 3 3 0 0 0 3-3v-3.13A3 3 0 0 0 18 8a3 3 0 0 0-3-3 3 3 0 0 0-3-3z" />
               </svg>
-              <span>AI Director · 时间轴动画</span>
+              <span>AI Director · 图片创作</span>
             </div>
             <div class="pf-director-header-actions">
               <button class="pf-director-btn small" title="清空对话" @click="clearConversation">
@@ -251,15 +170,15 @@ function useQuickPrompt(text: string) {
           </div>
 
           <!-- Messages -->
-          <div class="pf-director-messages" ref="messagesRef">
+          <div class="pf-chat-messages" ref="messagesRef">
             <div v-if="displayMessages.length === 0" class="pf-director-welcome">
               <div class="pf-director-welcome-icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="40" height="40" opacity="0.3">
-                  <path d="M12 2a3 3 0 0 0-3 3 3 3 0 0 0-3 3 3 3 0 0 0-1 5.87V17a3 3 0 0 0 3 3 3 3 0 0 0 4 0 3 3 0 0 0 4 0 3 3 0 0 0 3-3v-3.13A3 3 0 0 0 18 8a3 3 0 0 0-3-3 3 3 0 0 0-3-3z" />
+                <svg viewBox="0 0 24 24" fill="currentColor" width="40" height="40" opacity="0.3">
+                  <path d="M12 2l1.9 5.8L20 10l-6.1 2.2L12 18l-1.9-5.8L4 10l6.1-2.2L12 2z" />
                 </svg>
               </div>
               <h3>AI Director</h3>
-              <p>描述你想要的动画效果，AI 会自动生成时间轴关键帧并注入到时间轴中。</p>
+              <p>你好！我是 AI 创作助手。描述你想要生成的图片，我来帮你实现。</p>
               <div class="pf-director-quick-prompts">
                 <button
                   v-for="prompt in quickPrompts"
@@ -273,26 +192,40 @@ function useQuickPrompt(text: string) {
             <div
               v-for="msg in displayMessages"
               :key="msg.id"
-              class="pf-director-msg"
-              :class="'role-' + msg.role"
+              class="pf-chat-msg"
+              :class="'pf-chat-msg-' + (msg.role === 'user' ? 'user' : 'assistant')"
             >
-              <div class="pf-director-msg-avatar">
-                {{ msg.role === 'user' ? '你' : 'AI' }}
+              <div class="pf-chat-msg-avatar">
+                <template v-if="msg.role === 'user'">
+                  <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+                    <path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10zm0 2c-5 0-9 2.5-9 5.5V21h18v-1.5c0-3-4-5.5-9-5.5z" />
+                  </svg>
+                </template>
+                <template v-else>
+                  <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+                    <path d="M12 2l1.9 5.8L20 10l-6.1 2.2L12 18l-1.9-5.8L4 10l6.1-2.2L12 2z" />
+                  </svg>
+                </template>
               </div>
-              <div class="pf-director-msg-content">
-                <p>{{ msg.content }}</p>
+              <div class="pf-chat-msg-bubble">
+                <span class="pf-chat-msg-text">{{ msg.content }}</span>
                 <div v-if="msg.role === 'director' && msg.patchCount" class="pf-director-msg-badge">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="10" height="10">
                     <polyline points="20 6 9 17 4 12" />
                   </svg>
                   已注入 {{ msg.patchCount }} 个轨道到时间轴
                 </div>
+                <span class="pf-chat-msg-time">{{ formatTime(msg.timestamp) }}</span>
               </div>
             </div>
 
-            <div v-if="isProcessing" class="pf-director-msg role-director">
-              <div class="pf-director-msg-avatar">AI</div>
-              <div class="pf-director-msg-content">
+            <div v-if="isProcessing" class="pf-chat-msg pf-chat-msg-assistant">
+              <div class="pf-chat-msg-avatar">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+                  <path d="M12 2l1.9 5.8L20 10l-6.1 2.2L12 18l-1.9-5.8L4 10l6.1-2.2L12 2z" />
+                </svg>
+              </div>
+              <div class="pf-chat-msg-bubble">
                 <div class="pf-director-typing">
                   <span></span><span></span><span></span>
                 </div>
@@ -312,14 +245,14 @@ function useQuickPrompt(text: string) {
 
           <!-- Input -->
           <div class="pf-director-input-area">
-            <input
+            <textarea
               v-model="inputText"
-              type="text"
-              placeholder="描述动画效果..."
-              class="pf-director-input"
+              class="pf-textarea"
+              placeholder="描述你想要生成的场景…"
+              rows="4"
               :disabled="isProcessing"
-              @keyup.enter="sendMessage"
-            />
+              @keydown="onKeydown"
+            ></textarea>
             <button
               class="pf-director-send"
               :disabled="!inputText.trim() || isProcessing"
@@ -338,9 +271,9 @@ function useQuickPrompt(text: string) {
               对话轮次: {{ Math.floor(displayMessages.length / 2) }}
             </span>
             <span class="pf-director-status-item">
-              参数轨道: {{ appStore.paramTracks.length }}
+              已生成图片: {{ assetStore.imageCount }}
             </span>
-            <span v-if="isProcessing" class="pf-director-status-item active">处理中...</span>
+            <span v-if="isProcessing" class="pf-director-status-item active">生成中...</span>
           </div>
         </div>
       </div>
@@ -420,13 +353,23 @@ function useQuickPrompt(text: string) {
 }
 
 /* ── Messages ── */
-.pf-director-messages {
+.pf-chat-messages {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 16px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
+}
+
+.pf-chat-messages::-webkit-scrollbar {
+  width: 6px;
+}
+
+.pf-chat-messages::-webkit-scrollbar-thumb {
+  background: var(--text-quaternary, #555);
+  border-radius: 3px;
 }
 
 .pf-director-welcome {
@@ -480,64 +423,96 @@ function useQuickPrompt(text: string) {
 }
 
 /* ── Message ── */
-.pf-director-msg {
+.pf-chat-msg {
   display: flex;
   gap: 8px;
-  max-width: 100%;
+  align-items: flex-start;
+  animation: chatMsgEnter 300ms var(--ease-out, cubic-bezier(0.22, 1, 0.36, 1));
 }
 
-.pf-director-msg.role-user {
+.pf-chat-msg-user {
   flex-direction: row-reverse;
 }
 
-.pf-director-msg-avatar {
+.pf-chat-msg-avatar {
   width: 28px;
   height: 28px;
-  border-radius: 50%;
+  border-radius: var(--radius-xs, 6px);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
-  font-weight: 700;
   flex-shrink: 0;
   background: var(--surface-soft, #2a2a2a);
   color: var(--text-secondary, #aaa);
 }
 
-.pf-director-msg.role-director .pf-director-msg-avatar {
-  background: color-mix(in srgb, var(--accent, #4a9eff) 20%, var(--surface-soft, #2a2a2a));
-  color: var(--accent, #4a9eff);
+.pf-chat-msg-user .pf-chat-msg-avatar {
+  background: var(--accent, #4a9eff);
+  color: #fff;
 }
 
-.pf-director-msg-content {
-  background: var(--surface-soft, #1e1e1e);
-  border-radius: 10px;
-  padding: 8px 12px;
+.pf-chat-msg-bubble {
   max-width: 80%;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm, 10px);
+  background: var(--surface-soft, #1e1e1e);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
-.pf-director-msg.role-user .pf-director-msg-content {
+.pf-chat-msg-user .pf-chat-msg-bubble {
   background: color-mix(in srgb, var(--accent, #4a9eff) 15%, var(--surface-soft, #1e1e1e));
 }
 
-.pf-director-msg-content p {
-  margin: 0;
+.pf-chat-msg-assistant .pf-chat-msg-bubble {
+  background: var(--surface-soft, #1e1e1e);
+  border: 1px solid var(--separator, #2a2a2a);
+}
+
+.pf-chat-msg-text {
   font-size: 12px;
   line-height: 1.5;
   color: var(--text-primary, #fff);
+  word-wrap: break-word;
+}
+
+.pf-chat-msg-user .pf-chat-msg-text {
+  color: var(--text-primary, #fff);
+}
+
+.pf-chat-msg-time {
+  font-size: 9px;
+  color: var(--text-tertiary, #666);
+  align-self: flex-end;
+}
+
+.pf-chat-msg-user .pf-chat-msg-time {
+  color: var(--text-tertiary, #666);
 }
 
 .pf-director-msg-badge {
   display: flex;
   align-items: center;
   gap: 4px;
-  margin-top: 6px;
+  margin-top: 2px;
   padding: 3px 8px;
   background: color-mix(in srgb, #22c55e 15%, transparent);
   border-radius: 4px;
   font-size: 10px;
   font-weight: 600;
   color: #22c55e;
+}
+
+@keyframes chatMsgEnter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* ── Typing indicator ── */
@@ -582,32 +557,42 @@ function useQuickPrompt(text: string) {
 /* ── Input ── */
 .pf-director-input-area {
   display: flex;
+  align-items: flex-end;
   gap: 8px;
   padding: 12px 16px;
   border-top: 1px solid var(--separator, #2a2a2a);
   flex-shrink: 0;
 }
 
-.pf-director-input {
+.pf-textarea {
   flex: 1;
-  height: 36px;
-  padding: 0 12px;
+  min-height: 80px;
+  max-height: 140px;
+  padding: 10px 12px;
   background: var(--surface-soft, #1e1e1e);
   border: 1px solid var(--separator, #2a2a2a);
   border-radius: 10px;
   color: var(--text-primary, #fff);
   font: inherit;
   font-size: 12px;
+  line-height: 1.5;
+  resize: none;
   outline: none;
-  transition: border-color 160ms ease;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
 }
 
-.pf-director-input:focus {
+.pf-textarea:focus {
   border-color: var(--accent, #4a9eff);
+  box-shadow: 0 0 0 3px rgba(74, 158, 255, 0.12);
 }
 
-.pf-director-input::placeholder {
+.pf-textarea::placeholder {
   color: var(--text-quaternary, #555);
+}
+
+.pf-textarea:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .pf-director-send {

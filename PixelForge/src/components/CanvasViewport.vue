@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, ref, watch, onUnmounted, nextTick } from 'vue';
-import { FPS } from '../data';
 import { useAssetStore } from '@/assets/assetStore';
 import { loadImages, loadVideo } from '@/assets/assetLoader';
 
@@ -33,8 +32,6 @@ const lastError = ref<string | null>(null);
 const videoRef = ref<HTMLVideoElement | null>(null);
 
 // ─── Computed ─────────────────────────────────────────
-const totalFrames = computed(() => Math.round(props.duration * FPS));
-const currentFrame = computed(() => Math.min(totalFrames.value - 1, Math.floor(props.currentTime * FPS)));
 const selectedAsset = computed(() => {
   if (!selectedAssetId.value) return null;
   return assetStore.getById(selectedAssetId.value) ?? null;
@@ -232,11 +229,6 @@ function formatDuration(seconds: number): string {
       @dragleave="onDragLeave"
       @drop="onDrop"
     >
-      <!-- 帧计数器(始终显示) -->
-      <div class="pf-canvas-frame-badge">
-        帧 {{ currentFrame }} / {{ totalFrames }}
-      </div>
-
       <!-- 资源类型标识(当选中资源时显示) -->
       <div v-if="selectedAsset" class="pf-canvas-type-badge">
         <span v-if="isVideo" class="type-tag type-video">视频</span>
@@ -393,27 +385,6 @@ function formatDuration(seconds: number): string {
 .pf-canvas-area.loading {
   pointer-events: none;
   opacity: 0.7;
-}
-
-/* ── 帧计数器(原有样式,内联覆盖) ────────────────── */
-.pf-canvas-area .pf-canvas-frame-badge {
-  position: absolute;
-  top: 12px;
-  left: 12px;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
-  background: var(--glass-bg);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border-radius: 6px;
-  border: 1px solid var(--separator);
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  font-variant-numeric: tabular-nums;
-  z-index: 10;
 }
 
 /* ── 资源类型标识 ────────────────────────────────── */

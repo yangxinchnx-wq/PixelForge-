@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { ref, nextTick, watch, computed } from 'vue';
 import { useAppStore } from '../stores/app';
+import { storeToRefs } from 'pinia';
 import PfSelect from './ui/PfSelect.vue';
 
 const store = useAppStore();
+const { modelConfigs, selectedModelId, selectedModelConfig } = storeToRefs(store);
 
 // ─── Chat Messages ────────────────────────────────────
 interface ChatMessage {
@@ -26,22 +28,39 @@ const inputText = ref('');
 const isGenerating = computed(() => store.isGenerating);
 const messagesRef = ref<HTMLElement | null>(null);
 
-// ─── Model Selection ───────────────────────────────────
-const models = [
-  { value: 'gpt-4o', label: 'GPT-4o' },
-  { value: 'gpt-4o-mini', label: 'GPT-4o mini' },
-  { value: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
-  { value: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo' },
-  { value: 'claude-3-5-sonnet', label: 'Claude 3.5 Sonnet' },
-  { value: 'claude-3-5-haiku', label: 'Claude 3.5 Haiku' },
-  { value: 'claude-3-opus', label: 'Claude 3 Opus' },
-];
-const selectedModel = ref(models[0].value);
+// ─── Model Selection（对接 store 的模型配置）────────────
+const modelOptions = computed(() =>
+  modelConfigs.value
+    .filter((m) => m.enabled)
+    .map((m) => ({ value: m.id, label: m.name }))
+);
+const selectedModel = computed({
+  get: () => selectedModelId.value ?? '',
+  set: (val: string) => store.setSelectedModel(val),
+});
+
+// ─── 以最长模型名称为准，计算下拉框最小宽度 ───────────────
+const modelSelectMinWidth = computed(() => {
+  if (typeof document === 'undefined') return 'auto';
+  const longestLabel = modelOptions.value.reduce(
+    (longest, m) => (m.label.length > longest.length ? m.label : longest),
+    '选择模型',
+  );
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return 'auto';
+  // 与 .pf-custom-select-sm 一致: 11px / system font
+  ctx.font = '11px -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif';
+  const textWidth = ctx.measureText(longestLabel).width;
+  // padding 8px(left) + 24px(right) + 4px buffer
+  return `${Math.ceil(textWidth) + 36}px`;
+});
 
 // ─── Send Message ─────────────────────────────────────
 async function sendMessage() {
   const text = inputText.value.trim();
   if (!text || isGenerating.value) return;
+  if (!selectedModelConfig.value) return; // 未配置模型时阻止发送
 
   // 添加用户消息
   messages.value.push({
@@ -74,6 +93,7 @@ async function sendMessage() {
 // ─── Generate ─────────────────────────────────────────
 function handleGenerate() {
   if (!store.livePromptText) return;
+  if (!selectedModelConfig.value) return; // 未配置模型时阻止生成
   store.handleGenerate();
 
   // 添加生成中的消息
@@ -137,10 +157,6 @@ watch(isGenerating, () => {
     <!-- Header -->
     <div class="pf-panel-header">
       <span class="pf-panel-title">AI 对话</span>
-      <div class="pf-chat-status">
-        <span class="pf-chat-status-dot" :class="{ active: isGenerating }" />
-        <span class="pf-chat-status-text">{{ isGenerating ? '生成中' : '就绪' }}</span>
-      </div>
     </div>
 
     <!-- Messages -->
@@ -193,23 +209,28 @@ watch(isGenerating, () => {
       />
       <div class="pf-chat-input-actions">
         <PfSelect
+          v-if="modelOptions.length > 0"
           v-model="selectedModel"
-          :options="models"
+          :options="modelOptions"
           size="small"
           :block="false"
           title="选择模型"
           class="pf-chat-model-select"
+          :style="{ minWidth: modelSelectMinWidth }"
+          menu-match-selector=".pf-chat-input-area"
+          menu-placement="top"
         />
+        <span v-else class="pf-chat-no-model" title="请在设置中添加模型">未配置模型</span>
         <button
           class="btn-primary pf-chat-send-btn"
-          :disabled="!inputText.trim() || isGenerating"
+          :disabled="!inputText.trim() || isGenerating || !selectedModelConfig"
           @click="sendMessage"
         >
           <span class="pf-chat-btn-text">发送</span>
         </button>
         <button
           class="btn-primary pf-chat-generate-btn"
-          :disabled="isGenerating"
+          :disabled="isGenerating || !selectedModelConfig"
           @click="handleGenerate"
         >
           <span class="pf-chat-btn-text">{{ isGenerating ? '生成中…' : '生成' }}</span>
@@ -224,38 +245,6 @@ watch(isGenerating, () => {
   height: 100%;
   display: flex;
   flex-direction: column;
-}
-
-/* ── Status indicator ── */
-.pf-chat-status {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-left: auto;
-}
-
-.pf-chat-status-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--text-quaternary);
-  transition: background 200ms ease;
-}
-
-.pf-chat-status-dot.active {
-  background: var(--toggle-solo);
-  animation: pulse 1.5s ease-in-out infinite;
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
-}
-
-.pf-chat-status-text {
-  font-size: 10px;
-  font-weight: 500;
-  color: var(--text-tertiary);
 }
 
 /* ── Messages ── */
@@ -458,8 +447,18 @@ watch(isGenerating, () => {
 
 .pf-chat-model-select {
   flex-shrink: 0;
-  max-width: 140px;
   height: 30px;
   font-size: 11px;
+}
+
+.pf-chat-no-model {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  height: 30px;
+  padding: 0 10px;
+  font-size: 11px;
+  color: var(--text-quaternary);
+  white-space: nowrap;
 }
 </style>

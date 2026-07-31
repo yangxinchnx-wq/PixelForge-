@@ -27,6 +27,20 @@ const filteredAssets = computed(() => {
   return assetStore.items.filter((a) => a.type === filterType.value || (filterType.value === 'image' && a.type === 'texture'));
 });
 
+// 当新资源加入（如 AI 生成完成）时，自动选中最新项
+watch(
+  () => assetStore.items.length,
+  (newLength, oldLength) => {
+    if (newLength > (oldLength ?? 0)) {
+      const latest = assetStore.items[assetStore.items.length - 1];
+      if (latest) {
+        selectedAssetId.value = latest.id;
+        emit('selectAsset', latest.id);
+      }
+    }
+  },
+);
+
 // ─── File Import ──────────────────────────────────────
 function triggerFileInput() {
   fileInputRef.value?.click();

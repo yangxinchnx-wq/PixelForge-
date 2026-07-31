@@ -5,10 +5,6 @@ import { unifiedStore, type UnifiedStoreStats } from '../storage';
 import { TOTAL_DURATION, FPS } from '../data';
 import { storeToRefs } from 'pinia';
 
-defineEmits<{
-  back: [];
-}>();
-
 const store = useAppStore();
 const { resolution, frameRate, currentTime, isPlaying, isGenerating } = storeToRefs(store);
 
@@ -194,16 +190,6 @@ onUnmounted(() => {
 
 <template>
   <div class="pf-page">
-    <div class="pf-page-header">
-      <button class="btn btn-icon" title="返回" @click="$emit('back')">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
-          <line x1="19" y1="12" x2="5" y2="12" />
-          <polyline points="12 19 5 12 12 5" />
-        </svg>
-      </button>
-      <span class="pf-page-title">性能</span>
-    </div>
-
     <div class="pf-perf-body">
       <!-- 左栏：实时资源监控 -->
       <div class="pf-perf-left">

@@ -15,10 +15,19 @@ const props = withDefaults(defineProps<{
   size?: 'normal' | 'small';
   title?: string;
   block?: boolean;
+  /** 下拉菜单宽度（px），不设置则跟随 select 宽度 */
+  menuWidth?: number;
+  /** 下拉菜单宽度匹配指定父元素的内容宽度（CSS 选择器，从 rootRef 向上查找） */
+  menuMatchSelector?: string;
+  /** 下拉菜单展开方向：'auto'（自动）| 'top'（始终向上）| 'bottom'（始终向下） */
+  menuPlacement?: 'auto' | 'top' | 'bottom';
 }>(), {
   size: 'normal',
   title: '',
   block: true,
+  menuWidth: undefined,
+  menuMatchSelector: undefined,
+  menuPlacement: 'auto',
 });
 
 const emit = defineEmits<{
@@ -57,19 +66,40 @@ function selectOption(value: string) {
   close();
 }
 
-/** 计算下拉菜单位置（贴在 select 下方） */
+/** 计算下拉菜单位置（根据 menuPlacement 决定上方或下方） */
 function positionMenu() {
   if (!rootRef.value) return;
   const rect = rootRef.value.getBoundingClientRect();
   const optionHeight = 36;
   const menuHeight = Math.min(props.options.length * optionHeight + 8, 300);
   const spaceBelow = window.innerHeight - rect.bottom;
-  const placeAbove = spaceBelow < menuHeight && rect.top > menuHeight;
+  const placeAbove =
+    props.menuPlacement === 'top'
+      ? true
+      : props.menuPlacement === 'bottom'
+        ? false
+        : spaceBelow < menuHeight && rect.top > menuHeight;
+
+  // 计算下拉菜单宽度：优先 menuMatchSelector > menuWidth > select 自身宽度
+  let menuWidthPx = rect.width;
+  if (props.menuMatchSelector && rootRef.value) {
+    const matchEl = rootRef.value.closest(props.menuMatchSelector);
+    if (matchEl) {
+      const matchRect = matchEl.getBoundingClientRect();
+      const matchStyle = getComputedStyle(matchEl);
+      const padX =
+        parseFloat(matchStyle.paddingLeft || '0') +
+        parseFloat(matchStyle.paddingRight || '0');
+      menuWidthPx = matchRect.width - padX;
+    }
+  } else if (props.menuWidth != null) {
+    menuWidthPx = props.menuWidth;
+  }
 
   menuStyle.value = {
     position: 'fixed',
     left: `${rect.left}px`,
-    width: `${rect.width}px`,
+    width: `${menuWidthPx}px`,
     ...(placeAbove
       ? { bottom: `${window.innerHeight - rect.top + 4}px` }
       : { top: `${rect.bottom + 4}px` }),

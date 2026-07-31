@@ -1,11 +1,10 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import { useAppStore } from '../stores/app';
 import type { Clip, Track } from '../types';
 import { TOTAL_DURATION, FPS, formatTimecode } from '../data';
 import { collectSnapTargets, snapOrDefault, DEFAULT_SNAP_THRESHOLD } from '../utils/snapEngine';
 import { resolveCollision, clampResizeLeft, clampResizeRight } from '../utils/collision';
-import { getSplicedGroup } from '../utils/clipUtils';
 import type { Command } from '../utils/commandHistory';
 import AudioMixerPanel from './AudioMixerPanel.vue';
 import DirectorPanel from './DirectorPanel.vue';
@@ -39,14 +38,15 @@ const showMixer = ref(false);
 const showDirector = ref(false);
 
 // ─── Snap indicator ──────────────────────────────────
-const snapIndicatorTime = ref<number | null>(null);
+const dragLineStart = ref<number | null>(null);
+const dragLineEnd = ref<number | null>(null);
 
 // ─── Drag snapshot (for undo/redo) ───────────────────
 let dragBeforeClips: Clip[] | null = null;
 
 type DragState =
   | { type: 'playhead' }
-  | { type: 'clip-move'; clipId: string; grabOffsetX: number; groupIds: Set<string> }
+  | { type: 'clip-move'; clipId: string; grabOffsetX: number; selectedIds: Set<string> }
   | { type: 'clip-resize-left'; clipId: string; originalStart: number; originalDuration: number }
   | { type: 'clip-resize-right'; clipId: string }
   | { type: 'ruler-seek' }
@@ -55,7 +55,17 @@ type DragState =
 const dragState = ref<DragState>(null);
 const tracksScrollRef = ref<HTMLElement | null>(null);
 const trackHeadersListRef = ref<HTMLElement | null>(null);
+const tracksScrollTop = ref(0);
 const zoomSliderRef = ref<HTMLElement | null>(null);
+
+// ─── Context menu ─────────────────────────────────────
+const contextMenuVisible = ref(false);
+const contextMenuX = ref(0);
+const contextMenuY = ref(0);
+const contextMenuRef = ref<HTMLElement | null>(null);
+
+// ─── Clipboard ────────────────────────────────────────
+let clipboard: Clip[] | null = null;
 
 // ─── Constants ────────────────────────────────────────
 const MIN_PPS = 8;
@@ -103,10 +113,12 @@ function handleKeyDown(e: KeyboardEvent) {
 
 onMounted(() => {
   window.addEventListener('keydown', handleKeyDown);
+  window.addEventListener('click', closeContextMenu);
 });
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeyDown);
+  window.removeEventListener('click', closeContextMenu);
 });
 
 // ─── Helper: set clips via store ─────────────────────
@@ -136,49 +148,36 @@ function handlePointerMove(e: PointerEvent) {
     let newStart = Math.max(0, timeFromX(x - ds.grabOffsetX));
     newStart = Math.min(newStart, TOTAL_DURATION - clip.duration);
 
-    // ── 吸附引擎（对组的左边缘和右边缘进行吸附） ──
-    const groupClips = clips.value.filter(c => ds.groupIds.has(c.id));
-    const groupMinStart = Math.min(...groupClips.map(c => c.start));
-    const groupMaxEnd = Math.max(...groupClips.map(c => c.start + c.duration));
-    const groupDuration = groupMaxEnd - groupMinStart;
-    const deltaFromOriginal = newStart - clip.start;
-
-    // 计算组的期望新位置
-    let groupNewStart = groupMinStart + deltaFromOriginal;
-    groupNewStart = Math.max(0, Math.min(groupNewStart, TOTAL_DURATION - groupDuration));
-
+    // ── 吸附引擎（对拖动片段的左边缘和右边缘进行吸附） ──
     const snapTargets = collectSnapTargets(
       clips.value,
       ds.clipId,
       props.currentTime,
     );
 
-    // 吸附组的左边缘和右边缘
-    const snappedStart = snapOrDefault(groupNewStart, snapTargets, SNAP_THRESHOLD);
-    const snappedEnd = snapOrDefault(groupNewStart + groupDuration, snapTargets, SNAP_THRESHOLD);
+    const clipEnd = newStart + clip.duration;
+    const snappedStart = snapOrDefault(newStart, snapTargets, SNAP_THRESHOLD);
+    const snappedEnd = snapOrDefault(clipEnd, snapTargets, SNAP_THRESHOLD);
 
-    if (snappedStart !== groupNewStart) {
-      groupNewStart = snappedStart;
-      snapIndicatorTime.value = snappedStart;
-    } else if (snappedEnd !== groupNewStart + groupDuration) {
-      groupNewStart = snappedEnd - groupDuration;
-      snapIndicatorTime.value = snappedEnd;
-    } else {
-      snapIndicatorTime.value = null;
+    if (snappedStart !== newStart) {
+      newStart = snappedStart;
+    } else if (snappedEnd !== clipEnd) {
+      newStart = snappedEnd - clip.duration;
     }
 
-    // ── 碰撞检测：整组作为一体进行避让 ──
-    // 排除组内所有 clip，检查组的新范围是否与其他 clip 重叠
-    const actualDelta = groupNewStart - groupMinStart;
-    const otherClips = clips.value.filter(c => !ds.groupIds.has(c.id));
-    const newGroupClips = groupClips.map(c => ({ ...c, start: c.start + actualDelta }));
+    // ── 计算位移量，应用到所有选中片段 ──
+    const delta = newStart - clip.start;
 
-    // 检查新位置是否与其他 clip 碰撞
+    // ── 碰撞检测：检查选中片段移动后是否与非选中片段碰撞 ──
+    const selectedClips = clips.value.filter(c => ds.selectedIds.has(c.id));
+    const otherClips = clips.value.filter(c => !ds.selectedIds.has(c.id));
+    const movedClips = selectedClips.map(c => ({ ...c, start: c.start + delta }));
+
     let hasOverlap = false;
-    for (const gc of newGroupClips) {
+    for (const mc of movedClips) {
       for (const oc of otherClips) {
-        if (oc.trackId !== gc.trackId) continue;
-        if (gc.start < oc.start + oc.duration && oc.start < gc.start + gc.duration) {
+        if (oc.trackId !== mc.trackId) continue;
+        if (mc.start < oc.start + oc.duration && oc.start < mc.start + mc.duration) {
           hasOverlap = true;
           break;
         }
@@ -189,23 +188,25 @@ function handlePointerMove(e: PointerEvent) {
     if (!hasOverlap) {
       updateClips(
         clips.value.map(c =>
-          ds.groupIds.has(c.id)
-            ? { ...c, start: c.start + actualDelta }
+          ds.selectedIds.has(c.id)
+            ? { ...c, start: c.start + delta }
             : c
         ),
       );
+      const minStart = Math.min(...movedClips.map(c => c.start));
+      const maxEnd = Math.max(...movedClips.map(c => c.start + c.duration));
+      dragLineStart.value = minStart;
+      dragLineEnd.value = maxEnd;
     } else {
       // 碰撞时只移动单个 clip（用 resolveCollision）
-      const beforeCollision = newStart;
       newStart = resolveCollision(clips.value, ds.clipId, newStart, TOTAL_DURATION);
-      if (newStart !== beforeCollision) {
-        snapIndicatorTime.value = null;
-      }
       updateClips(
         clips.value.map((c) =>
           c.id === ds.clipId ? { ...c, start: newStart } : c,
         ),
       );
+      dragLineStart.value = newStart;
+      dragLineEnd.value = newStart + clip.duration;
     }
     return;
   }
@@ -222,13 +223,10 @@ function handlePointerMove(e: PointerEvent) {
       props.currentTime,
     );
     newStart = snapOrDefault(newStart, snapTargets, SNAP_THRESHOLD);
-    snapIndicatorTime.value = newStart !== timeFromX(x) ? newStart : null;
 
     // ── 碰撞检测：不允许左边缘越过同轨道其他 Clip 的右边缘 ──
     const fixedEnd = ds.originalStart + ds.originalDuration;
     newStart = clampResizeLeft(clips.value, ds.clipId, newStart, fixedEnd);
-    // 钳制后重新检查吸附指示
-    snapIndicatorTime.value = newStart !== timeFromX(x) ? newStart : null;
 
     const newDuration = fixedEnd - newStart;
     if (newDuration < MIN_CLIP_DURATION) return;
@@ -237,6 +235,8 @@ function handlePointerMove(e: PointerEvent) {
         c.id === ds.clipId ? { ...c, start: newStart, duration: newDuration } : c,
       ),
     );
+    dragLineStart.value = newStart;
+    dragLineEnd.value = null;
     return;
   }
 
@@ -256,9 +256,6 @@ function handlePointerMove(e: PointerEvent) {
     const snappedEnd = snapOrDefault(clip.start + newDuration, snapTargets, SNAP_THRESHOLD);
     if (snappedEnd !== clip.start + newDuration) {
       newDuration = Math.max(MIN_CLIP_DURATION, snappedEnd - clip.start);
-      snapIndicatorTime.value = snappedEnd;
-    } else {
-      snapIndicatorTime.value = null;
     }
 
     // ── 碰撞检测：不允许右边缘侵入同轨道其他 Clip ──
@@ -270,6 +267,8 @@ function handlePointerMove(e: PointerEvent) {
         c.id === ds.clipId ? { ...c, duration: newDuration } : c,
       ),
     );
+    dragLineStart.value = null;
+    dragLineEnd.value = clip.start + newDuration;
     return;
   }
 }
@@ -305,7 +304,8 @@ function handlePointerUp() {
   }
 
   dragBeforeClips = null;
-  snapIndicatorTime.value = null;
+  dragLineStart.value = null;
+  dragLineEnd.value = null;
   dragState.value = null;
 }
 
@@ -350,8 +350,8 @@ function handleClipPointerDown(e: PointerEvent, clip: Clip) {
   e.preventDefault();
   e.stopPropagation();
 
-  // ── 多选支持 ──
-  if (e.ctrlKey || e.metaKey) {
+  // ── 多选支持（Shift 或 Ctrl/Cmd+点击逐个添加/取消） ──
+  if (e.shiftKey || e.ctrlKey || e.metaKey) {
     store.selectClip(clip.id, true);
   } else if (!selectedClipIds.value.has(clip.id)) {
     store.selectClip(clip.id, false);
@@ -377,11 +377,13 @@ function handleClipPointerDown(e: PointerEvent, clip: Clip) {
     dragState.value = { type: 'clip-resize-right', clipId: clip.id };
     return;
   }
-  // ── 计算拼接组（相邻 Clip 自动成组） ──
-  const groupIds = getSplicedGroup(clips.value, clip.id);
+
+  // ── 记录当前选中片段（拖动时整体移动） ──
+  const selectedIds = new Set(selectedClipIds.value);
+  if (selectedIds.size === 0) selectedIds.add(clip.id);
 
   dragBeforeClips = [...clips.value];
-  dragState.value = { type: 'clip-move', clipId: clip.id, grabOffsetX, groupIds };
+  dragState.value = { type: 'clip-move', clipId: clip.id, grabOffsetX, selectedIds };
 }
 
 // ─── Track toggle ─────────────────────────────────────
@@ -423,6 +425,7 @@ function handleZoomSliderPointerUp() {
 function handleTracksScroll() {
   const scrollEl = tracksScrollRef.value;
   const headersEl = trackHeadersListRef.value;
+  if (scrollEl) tracksScrollTop.value = scrollEl.scrollTop;
   if (!scrollEl || !headersEl) return;
   headersEl.scrollTop = scrollEl.scrollTop;
 }
@@ -565,11 +568,131 @@ function isDragging(clipId: string): boolean {
   );
 }
 
-/** 拖动时，该 clip 是否属于拖动组（用于显示整组轮廓） */
+/** 拖动时，该 clip 是否属于选中集（用于显示选中轮廓） */
 function isInDragGroup(clipId: string): boolean {
-  const ds = dragState.value;
-  if (!ds || ds.type !== 'clip-move') return false;
-  return ds.groupIds.has(clipId);
+  return selectedClipIds.value.has(clipId);
+}
+
+// ─── Context menu handlers ────────────────────────────
+function handleClipContextMenu(e: MouseEvent, clip: Clip) {
+  e.preventDefault();
+  e.stopPropagation();
+
+  // 如果右键的片段未被选中，则只选中它
+  if (!selectedClipIds.value.has(clip.id)) {
+    store.selectClip(clip.id, false);
+  }
+
+  // 先设为鼠标位置，渲染后再做边界修正
+  contextMenuX.value = e.clientX;
+  contextMenuY.value = e.clientY;
+  contextMenuVisible.value = true;
+
+  nextTick(() => {
+    const menuEl = contextMenuRef.value;
+    if (!menuEl) return;
+    const rect = menuEl.getBoundingClientRect();
+    const vw = window.innerWidth;
+    // 底部状态栏高度（28px）+ 安全边距
+    const statusbarH = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--statusbar-height')) || 28;
+    const vh = window.innerHeight - statusbarH - 8;
+
+    // 右边界溢出 → 向左偏移
+    if (contextMenuX.value + rect.width > vw - 8) {
+      contextMenuX.value = Math.max(8, vw - rect.width - 8);
+    }
+    // 始终向上展开：菜单底部贴在点击位置
+    contextMenuY.value = e.clientY - rect.height;
+    // 上边界溢出（空间不足） → 回退到向下展开，并防止底部溢出
+    if (contextMenuY.value < 8) {
+      contextMenuY.value = Math.min(e.clientY + 4, vh - rect.height);
+    }
+  });
+}
+
+function closeContextMenu() {
+  contextMenuVisible.value = false;
+}
+
+// ─── 删除选中片段（带 undo/redo） ──
+function contextMenuDelete() {
+  closeContextMenu();
+  store.deleteSelectedClips();
+}
+
+// ─── 合并选中片段（同轨道相邻/重叠的合并为一个） ──
+function contextMenuMerge() {
+  closeContextMenu();
+  const selected = clips.value.filter(c => selectedClipIds.value.has(c.id));
+  if (selected.length < 2) return;
+
+  // 按轨道分组
+  const byTrack = new Map<string, Clip[]>();
+  for (const c of selected) {
+    if (!byTrack.has(c.trackId)) byTrack.set(c.trackId, []);
+    byTrack.get(c.trackId)!.push(c);
+  }
+
+  const before = [...clips.value];
+  let after = [...clips.value];
+
+  for (const [, trackClips] of byTrack) {
+    trackClips.sort((a, b) => a.start - b.start);
+    const first = trackClips[0];
+    const last = trackClips[trackClips.length - 1];
+    const mergedClip: Clip = {
+      ...first,
+      start: first.start,
+      duration: (last.start + last.duration) - first.start,
+    };
+    // 用第一个 clip 的 ID 作为合并后的 ID
+    const idsToRemove = new Set(trackClips.map(c => c.id));
+    after = after
+      .filter(c => !idsToRemove.has(c.id) || c.id === first.id)
+      .map(c => c.id === first.id ? mergedClip : c);
+  }
+
+  const cmd: Command = {
+    label: '合并片段',
+    execute() { store.setClips([...after]); },
+    undo() { store.setClips([...before]); },
+  };
+  store.executeTimelineCommand(cmd);
+  // 选中合并后的第一个片段
+  const newFirstId = [...byTrack.values()][0][0].id;
+  store.selectClip(newFirstId, false);
+}
+
+// ─── 复制选中片段到剪贴板 ──
+function contextMenuCopy() {
+  closeContextMenu();
+  const selected = clips.value.filter(c => selectedClipIds.value.has(c.id));
+  if (selected.length === 0) return;
+  clipboard = selected.map(c => ({ ...c }));
+}
+
+// ─── 粘贴剪贴板片段（带 undo/redo） ──
+function contextMenuPaste() {
+  closeContextMenu();
+  if (!clipboard || clipboard.length === 0) return;
+
+  const before = [...clips.value];
+  const pastedClips: Clip[] = clipboard.map(c => ({
+    ...c,
+    id: `clip-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    start: c.start + 1,
+  }));
+  const after = [...clips.value, ...pastedClips];
+
+  const cmd: Command = {
+    label: '粘贴片段',
+    execute() { store.setClips([...after]); },
+    undo() { store.setClips([...before]); },
+  };
+  store.executeTimelineCommand(cmd);
+  // 选中新粘贴的片段
+  store.clearSelection();
+  pastedClips.forEach(c => store.selectClip(c.id, true));
 }
 
 const zoomPercent = computed(() => ((pps.value - MIN_PPS) / (MAX_PPS - MIN_PPS)) * 100);
@@ -580,15 +703,14 @@ const zoomPercent = computed(() => ((pps.value - MIN_PPS) / (MAX_PPS - MIN_PPS))
     <!-- ─── Toolbar ─── -->
     <div class="toolbar">
       <div class="toolbar-section">
-        <span class="toolbar-title">时间轴</span>
-      </div>
-
-      <div class="toolbar-divider" />
-
-      <div class="toolbar-section">
         <button class="btn btn-icon" title="跳到开头" @click="emit('seek', 0)">
           <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
             <path d="M6 6v12h2V6H6zm3.5 6l8.5 6V6l-8.5 6z" />
+          </svg>
+        </button>
+        <button class="btn btn-icon" title="上一帧" @click="emit('seek', Math.max(0, props.currentTime - 1 / FPS))">
+          <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+            <path d="M18 6v12l-8.5-6 8.5-6z" />
           </svg>
         </button>
         <button class="btn btn-primary" :title="isPlaying ? '暂停' : '播放'" @click="emit('togglePlay')">
@@ -597,6 +719,11 @@ const zoomPercent = computed(() => ((pps.value - MIN_PPS) / (MAX_PPS - MIN_PPS))
           </svg>
           <svg v-else viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
             <path d="M8 5v14l11-7z" />
+          </svg>
+        </button>
+        <button class="btn btn-icon" title="下一帧" @click="emit('seek', Math.min(TOTAL_DURATION, props.currentTime + 1 / FPS))">
+          <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+            <path d="M6 6v12l8.5-6L6 6z" />
           </svg>
         </button>
         <button class="btn btn-icon" title="跳到结尾" @click="emit('seek', TOTAL_DURATION)">
@@ -839,11 +966,12 @@ const zoomPercent = computed(() => ((pps.value - MIN_PPS) / (MAX_PPS - MIN_PPS))
                     :key="clip.id"
                     class="clip"
                     :class="{
-                      'clip-selected': isInDragGroup(clip.id),
+                      'clip-selected': selectedClipIds.has(clip.id) || isInDragGroup(clip.id),
                       'dragging': isDragging(clip.id)
                     }"
                     :style="{ left: clip.start * pps + 'px', width: clip.duration * pps + 'px' }"
                     @pointerdown="handleClipPointerDown($event, clip)"
+                    @contextmenu.prevent="handleClipContextMenu($event, clip)"
                   >
                     <div class="clip-handle clip-handle-left">
                       <div class="clip-handle-grip" />
@@ -886,17 +1014,22 @@ const zoomPercent = computed(() => ((pps.value - MIN_PPS) / (MAX_PPS - MIN_PPS))
                 </div>
               </div>
 
-              <!-- Snap indicator -->
+              <!-- Drag indicator lines -->
               <div
-                v-if="snapIndicatorTime !== null"
-                class="snap-indicator"
-                :style="{ left: snapIndicatorTime * pps + 'px' }"
+                v-if="dragLineStart !== null"
+                class="drag-line"
+                :style="{ left: dragLineStart * pps + 'px' }"
+              />
+              <div
+                v-if="dragLineEnd !== null"
+                class="drag-line"
+                :style="{ left: dragLineEnd * pps + 'px' }"
               />
 
               <!-- Playhead -->
               <div class="playhead" :style="{ left: currentTime * pps + 'px' }">
-                <div class="playhead-handle" @pointerdown="handlePlayheadPointerDown" />
-                <div class="playhead-line" />
+                <div class="playhead-handle" :style="{ top: tracksScrollTop + 'px' }" @pointerdown="handlePlayheadPointerDown" />
+                <div class="playhead-line" :style="{ top: tracksScrollTop + 14 + 'px' }" />
               </div>
             </div>
           </div>
@@ -910,4 +1043,47 @@ const zoomPercent = computed(() => ((pps.value - MIN_PPS) / (MAX_PPS - MIN_PPS))
 
   <!-- AI Director 面板 -->
   <DirectorPanel v-model:visible="showDirector" />
+
+  <!-- 片段右键上下文菜单 -->
+  <div
+    v-if="contextMenuVisible"
+    class="pf-clip-context-menu"
+    ref="contextMenuRef"
+    :style="{ left: contextMenuX + 'px', top: contextMenuY + 'px' }"
+    @click.stop
+    @contextmenu.prevent
+  >
+    <button class="ctx-menu-item" @click="contextMenuDelete">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+        <path d="M3 6h18" />
+        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+        <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+      </svg>
+      <span>删除</span>
+    </button>
+    <button class="ctx-menu-item" @click="contextMenuMerge">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M7 7l-4 4 4 4" />
+        <path d="M17 7l4 4-4 4" />
+        <path d="M3 11h6" />
+        <path d="M15 11h6" />
+        <path d="M10 4v16" />
+      </svg>
+      <span>合并</span>
+    </button>
+    <button class="ctx-menu-item" @click="contextMenuCopy">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+        <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+      </svg>
+      <span>复制</span>
+    </button>
+    <button class="ctx-menu-item" @click="contextMenuPaste">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+        <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+        <rect x="8" y="2" width="8" height="4" rx="1" ry="1" />
+      </svg>
+      <span>粘贴</span>
+    </button>
+  </div>
 </template>

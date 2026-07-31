@@ -2,7 +2,8 @@
 import { ref, watch, nextTick, computed, onMounted, onBeforeUnmount } from 'vue';
 import { modalEnter, modalLeave } from '../composables/useAnime';
 import PfSelect from './ui/PfSelect.vue';
-import type { ModelConfig, AccentColors } from '../stores/app';
+import type { ModelConfig, AccentColors, ModelMetadata } from '../stores/app';
+import { fetchModels, lookupModel, type DiscoveredModel, type ModelFetchError } from '../authoring/llm/modelDiscovery';
 
 const props = defineProps<{
   isOpen: boolean;
@@ -58,7 +59,7 @@ const providerDefaultBaseUrl: Record<string, string> = {
 
 function handleAddModel() {
   emit('addModel', {
-    name: '新模型',
+    name: '',
     provider: 'openai',
     modelId: '',
     apiKey: '',
@@ -77,7 +78,191 @@ function handleRemoveModel(id: string) {
 
 function handleProviderChange(id: string, provider: string) {
   const baseUrl = providerDefaultBaseUrl[provider] ?? '';
-  handleUpdateModel(id, { provider: provider as ModelConfig['provider'], baseUrl });
+  // 切换 provider 时清除已拉取的模型列表和元数据
+  modelListCache.value.delete(id);
+  modelFetchState.value.delete(id);
+  handleUpdateModel(id, { provider: provider as ModelConfig['provider'], baseUrl, metadata: undefined });
+}
+
+// ─── 模型拉取与元数据 ───────────────────────────────────
+
+/** 每个模型配置项的拉取状态 */
+interface FetchState {
+  loading: boolean;
+  error: string | null;
+}
+
+/** key = modelConfig.id, value = DiscoveredModel[] */
+const modelListCache = ref<Map<string, DiscoveredModel[]>>(new Map());
+
+/** key = modelConfig.id, value = FetchState */
+const modelFetchState = ref<Map<string, FetchState>>(new Map());
+
+/** 模型下拉搜索关键词 */
+const modelSearchQuery = ref<Map<string, string>>(new Map());
+
+/** 当前展开的模型下拉（同一时间只展开一个） */
+const openModelDropdown = ref<string | null>(null);
+
+/** 展开的模型卡片（默认全部折叠） */
+const expandedModelCards = ref<Set<string>>(new Set());
+
+/** 切换模型卡片展开/折叠 */
+function toggleModelCard(id: string): void {
+  if (expandedModelCards.value.has(id)) {
+    expandedModelCards.value.delete(id);
+  } else {
+    expandedModelCards.value.add(id);
+  }
+}
+
+/** 下拉框 fixed 定位样式 */
+const dropdownStyle = ref<Record<string, string>>({});
+
+/** 计算下拉框位置（贴在触发元素下方） */
+function positionDropdown() {
+  if (!openModelDropdown.value) return;
+  const id = openModelDropdown.value;
+  const el = document.querySelector(`[data-dropdown-trigger="${id}"]`) as HTMLElement | null;
+  if (!el) return;
+  const rect = el.getBoundingClientRect();
+  const dropdownMaxHeight = 320;
+  const spaceBelow = window.innerHeight - rect.bottom;
+  const placeAbove = spaceBelow < dropdownMaxHeight && rect.top > dropdownMaxHeight;
+  dropdownStyle.value = {
+    position: 'fixed',
+    left: `${rect.left}px`,
+    width: `${rect.width}px`,
+    ...(placeAbove
+      ? { bottom: `${window.innerHeight - rect.top + 4}px` }
+      : { top: `${rect.bottom + 4}px` }),
+    zIndex: '10001',
+  };
+}
+
+/** 下拉搜索过滤后的模型列表 */
+function filteredModels(modelId: string): DiscoveredModel[] {
+  const all = modelListCache.value.get(modelId) ?? [];
+  const query = (modelSearchQuery.value.get(modelId) ?? '').trim().toLowerCase();
+  if (!query) return all;
+  return all.filter(
+    (m) =>
+      m.id.toLowerCase().includes(query) ||
+      m.displayName.toLowerCase().includes(query),
+  );
+}
+
+/** 10 秒硬性截止时间，防止底层 fetch 卡住导致按钮一直空转 */
+const FETCH_DEADLINE_MS = 10_000;
+
+/** 拉取模型列表 */
+async function handleFetchModels(model: ModelConfig) {
+  if (!model.apiKey) {
+    modelFetchState.value.set(model.id, { loading: false, error: '请先填写 API Key' });
+    return;
+  }
+  if (!model.baseUrl) {
+    modelFetchState.value.set(model.id, { loading: false, error: '请先填写 Base URL' });
+    return;
+  }
+
+  // 检查缓存
+  const existing = modelListCache.value.get(model.id);
+  if (existing && existing.length > 0) {
+    // 已有缓存：切换展开/收起
+    openModelDropdown.value = openModelDropdown.value === model.id ? null : model.id;
+    return;
+  }
+
+  modelFetchState.value.set(model.id, { loading: true, error: null });
+
+  // 10 秒硬性截止计时器
+  const deadlineTimer = setTimeout(() => {
+    if (modelFetchState.value.get(model.id)?.loading) {
+      modelFetchState.value.set(model.id, {
+        loading: false,
+        error: '请求超时（10 秒），请检查网络连接、API Key 或 Base URL 是否正确',
+      });
+    }
+  }, FETCH_DEADLINE_MS);
+
+  try {
+    const models = await fetchModels({
+      provider: model.provider,
+      apiKey: model.apiKey,
+      baseUrl: model.baseUrl,
+    });
+    clearTimeout(deadlineTimer);
+    modelListCache.value.set(model.id, models);
+    modelFetchState.value.set(model.id, { loading: false, error: null });
+    openModelDropdown.value = model.id;
+  } catch (err) {
+    clearTimeout(deadlineTimer);
+    let msg: string;
+    if (err instanceof ModelFetchError) {
+      if (err.isRateLimited) {
+        msg = '请求被限流 (429)，请稍后重试';
+      } else if (err.statusCode === 401) {
+        msg = 'API Key 认证失败 (401)，请检查密钥是否正确';
+      } else if (err.statusCode === 404) {
+        msg = `接口地址不存在 (404)，请检查 Base URL 是否正确（当前: ${model.baseUrl}）`;
+      } else if (err.statusCode === 403) {
+        msg = '访问被拒绝 (403)，可能是 API Key 无权限或 IP 被限制';
+      } else if (err.statusCode === 0) {
+        msg = err.message;
+      } else {
+        msg = `${err.message}（HTTP ${err.statusCode}）`;
+      }
+    } else {
+      msg = `拉取失败: ${String(err)}`;
+    }
+    modelFetchState.value.set(model.id, { loading: false, error: msg });
+  }
+}
+
+/** 选择模型时同时写入元数据 */
+function handleSelectModel(model: ModelConfig, discovered: DiscoveredModel) {
+  const metadata: ModelMetadata = {
+    displayName: discovered.displayName,
+    contextWindow: discovered.contextWindow,
+    maxOutputTokens: discovered.maxOutputTokens,
+    supportsThinking: discovered.supportsThinking,
+    supportsVision: discovered.supportsVision,
+    supportsFunctionCalling: discovered.supportsFunctionCalling,
+    supportsImageGeneration: discovered.supportsImageGeneration,
+    supportsVideoGeneration: discovered.supportsVideoGeneration,
+    supportsAudioGeneration: discovered.supportsAudioGeneration,
+    rpmLimit: discovered.rpmLimit,
+    tpmLimit: discovered.tpmLimit,
+  };
+  handleUpdateModel(model.id, { modelId: discovered.id, metadata });
+  openModelDropdown.value = null;
+}
+
+/** 手动输入 modelId 时自动查静态元数据库 */
+function handleModelIdInput(model: ModelConfig, value: string) {
+  const meta = lookupModel(model.provider, value);
+  handleUpdateModel(model.id, {
+    modelId: value,
+    metadata: meta ? {
+      displayName: meta.displayName,
+      contextWindow: meta.contextWindow,
+      maxOutputTokens: meta.maxOutputTokens,
+      supportsThinking: meta.supportsThinking,
+      supportsVision: meta.supportsVision,
+      supportsFunctionCalling: meta.supportsFunctionCalling,
+      rpmLimit: meta.rpmLimit,
+      tpmLimit: meta.tpmLimit,
+    } : undefined,
+  });
+}
+
+/** 格式化 token 数为可读字符串 */
+function formatTokens(n: number): string {
+  if (!n) return '未知';
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`;
+  return String(n);
 }
 
 // ─── 保存间隔显示 ───────────────────────────────────────
@@ -90,14 +275,6 @@ const accentSections: { key: keyof AccentColors; label: string; desc: string }[]
   { key: 'video', label: '视频', desc: '视频工作台强调色' },
 ];
 
-/** hex -> rgba */
-function hexToRgba(hex: string, alpha: number): string {
-  const r = parseInt(hex.slice(1, 3), 16);
-  const g = parseInt(hex.slice(3, 5), 16);
-  const b = parseInt(hex.slice(5, 7), 16);
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}
-
 /** hex 加深 */
 function darkenHex(hex: string, amount: number): string {
   const r = Math.max(0, parseInt(hex.slice(1, 3), 16) - amount);
@@ -105,6 +282,17 @@ function darkenHex(hex: string, amount: number): string {
   const b = Math.max(0, parseInt(hex.slice(5, 7), 16) - amount);
   return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
 }
+
+/** 根据设置模块的自定义强调色生成 CSS 变量（用于 inline style） */
+const settingsAccentStyle = computed(() => {
+  const hex = props.accentColors.settings;
+  if (!hex) return undefined;
+  return {
+    '--accent': hex,
+    '--accent-hover': darkenHex(hex, 20),
+    '--accent-pressed': darkenHex(hex, 40),
+  };
+});
 
 // ─── 可拖拽缩放(四角) ─────────────────────────────────
 type ResizeCorner = 'tl' | 'tr' | 'bl' | 'br';
@@ -121,25 +309,6 @@ const modalX = ref(0);
 const modalY = ref(0);
 
 const modalStyle = ref<Record<string, string>>({});
-
-// 直接在 DOM 上设置 accent CSS 变量（绕过 Vue 响应式传播问题）
-watch(
-  () => props.accentColors.settings,
-  (hex) => {
-    const el = modalRef.value;
-    if (!el) return;
-    if (hex) {
-      el.style.setProperty('--pf-accent', hex);
-      el.style.setProperty('--pf-accent-soft', hexToRgba(hex, 0.14));
-      el.style.setProperty('--pf-accent-deep', darkenHex(hex, 30));
-    } else {
-      el.style.removeProperty('--pf-accent');
-      el.style.removeProperty('--pf-accent-soft');
-      el.style.removeProperty('--pf-accent-deep');
-    }
-  },
-  { immediate: true },
-);
 
 function getCursorForCorner(corner: ResizeCorner): string {
   return (corner === 'tl' || corner === 'br') ? 'nwse-resize' : 'nesw-resize';
@@ -229,8 +398,42 @@ function onWindowResize() {
   modalY.value = Math.max(0, Math.min(modalY.value, window.innerHeight - modalHeight.value));
 }
 
-onMounted(() => { window.addEventListener('resize', onWindowResize); });
-onBeforeUnmount(() => { window.removeEventListener('resize', onWindowResize); });
+/** 点击外部关闭模型下拉 */
+function onDocClick(e: MouseEvent) {
+  if (!openModelDropdown.value) return;
+  const target = e.target as HTMLElement;
+  if (target.closest('.pf-model-field')) return;
+  if (target.closest('.pf-model-dropdown-portal')) return;
+  openModelDropdown.value = null;
+}
+
+/** 滚动 / 缩放时关闭下拉 */
+function onScrollOrResize() {
+  if (openModelDropdown.value) openModelDropdown.value = null;
+}
+
+onMounted(() => {
+  window.addEventListener('resize', onWindowResize);
+  document.addEventListener('click', onDocClick, true);
+});
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', onWindowResize);
+  document.removeEventListener('click', onDocClick, true);
+  document.removeEventListener('scroll', onScrollOrResize, true);
+  window.removeEventListener('resize', onScrollOrResize);
+});
+
+watch(openModelDropdown, async (id) => {
+  if (id) {
+    await nextTick();
+    positionDropdown();
+    document.addEventListener('scroll', onScrollOrResize, true);
+    window.addEventListener('resize', onScrollOrResize);
+  } else {
+    document.removeEventListener('scroll', onScrollOrResize, true);
+    window.removeEventListener('resize', onScrollOrResize);
+  }
+});
 
 watch(
   () => props.isOpen,
@@ -254,7 +457,7 @@ watch(
 
 <template>
   <div v-if="internalVisible" ref="overlayRef" class="pf-modal-overlay" @click="emit('close')">
-    <div ref="modalRef" class="pf-modal pf-settings-modal" :style="modalStyle" @click.stop>
+    <div ref="modalRef" class="pf-modal pf-settings-modal" :style="[modalStyle, settingsAccentStyle]" @click.stop>
       <!-- 标题栏 -->
       <div class="pf-modal-header">
         <span class="pf-modal-title">设置</span>
@@ -346,10 +549,10 @@ watch(
                   <label class="pf-color-swatch" :class="{ active: !!accentColors[sec.key] }">
                     <input
                       type="color"
-                      :value="accentColors[sec.key] || '#ef855d'"
+                      :value="accentColors[sec.key] || '#0a84ff'"
                       @input="emit('setAccentColor', sec.key, ($event.target as HTMLInputElement).value)"
                     />
-                    <span class="pf-color-swatch-dot" :style="{ background: accentColors[sec.key] || 'var(--accent)' }" />
+                    <span class="pf-color-swatch-dot" :style="{ background: accentColors[sec.key] || '#0a84ff' }" />
                   </label>
                   <button
                     v-if="accentColors[sec.key]"
@@ -441,15 +644,11 @@ watch(
                 v-for="model in modelConfigs"
                 :key="model.id"
                 class="pf-model-card"
+                :class="{ collapsed: !expandedModelCards.has(model.id) }"
               >
-                <div class="pf-model-card-header">
+                <div class="pf-model-card-header" @click="toggleModelCard(model.id)">
                   <div class="pf-model-card-header-info">
-                    <input
-                      class="pf-model-name-input"
-                      :value="model.name"
-                      placeholder="模型名称"
-                      @input="handleUpdateModel(model.id, { name: ($event.target as HTMLInputElement).value })"
-                    />
+                    <span class="pf-model-display-name">{{ model.name || model.modelId || '未配置模型' }}</span>
                     <span class="pf-model-provider-tag">{{ providerOptions.find(p => p.value === model.provider)?.label ?? model.provider }}</span>
                   </div>
                   <div class="pf-model-card-actions">
@@ -457,24 +656,36 @@ watch(
                       class="pf-toggle-switch"
                       :class="{ on: model.enabled }"
                       :title="model.enabled ? '已启用' : '已禁用'"
-                      @click="handleUpdateModel(model.id, { enabled: !model.enabled })"
+                      @click.stop="handleUpdateModel(model.id, { enabled: !model.enabled })"
                     >
                       <span class="pf-toggle-knob" />
                     </button>
                     <button
                       class="btn btn-icon pf-model-delete-btn"
                       title="删除"
-                      @click="handleRemoveModel(model.id)"
+                      @click.stop="handleRemoveModel(model.id)"
                     >
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
                         <polyline points="3 6 5 6 21 6" />
                         <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
                       </svg>
                     </button>
+                    <svg class="pf-model-card-chevron" :class="{ expanded: expandedModelCards.has(model.id) }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                      <polyline points="6 9 12 15 18 9" />
+                    </svg>
                   </div>
                 </div>
 
-                <div class="pf-model-card-body">
+                <div v-if="expandedModelCards.has(model.id)" class="pf-model-card-body">
+                  <div class="pf-model-field">
+                    <label class="pf-model-field-label">自定义名称</label>
+                    <input
+                      class="pf-model-field-input"
+                      :value="model.name"
+                      placeholder="留空则使用模型 ID"
+                      @input="handleUpdateModel(model.id, { name: ($event.target as HTMLInputElement).value })"
+                    />
+                  </div>
                   <div class="pf-model-field">
                     <label class="pf-model-field-label">提供商</label>
                     <PfSelect
@@ -487,12 +698,78 @@ watch(
                   </div>
                   <div class="pf-model-field">
                     <label class="pf-model-field-label">模型 ID</label>
-                    <input
-                      class="pf-model-field-input"
-                      :value="model.modelId"
-                      placeholder="如 gpt-4o, claude-3-5-sonnet"
-                      @input="handleUpdateModel(model.id, { modelId: ($event.target as HTMLInputElement).value })"
-                    />
+                    <div class="pf-model-id-row" :data-dropdown-trigger="model.id">
+                      <input
+                        class="pf-model-field-input"
+                        :value="model.modelId"
+                        placeholder="如 gpt-4o, claude-3-5-sonnet"
+                        @input="handleModelIdInput(model, ($event.target as HTMLInputElement).value)"
+                      />
+                      <button
+                        class="pf-model-fetch-btn"
+                        :disabled="modelFetchState.get(model.id)?.loading"
+                        :title="
+                          modelFetchState.get(model.id)?.loading ? '正在拉取...' :
+                          modelListCache.get(model.id)?.length ? '已拉取，点击重新展开' :
+                          '从服务器拉取可用模型列表'
+                        "
+                        @click="handleFetchModels(model)"
+                      >
+                        <svg v-if="modelFetchState.get(model.id)?.loading" class="pf-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14">
+                          <path d="M21 12a9 9 0 1 1-6.219-8.56" stroke-linecap="round" />
+                        </svg>
+                        <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                          <path d="M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9c2.39 0 4.68.94 6.36 2.64L21 3" stroke-linecap="round" />
+                          <path d="M21 3v6h-6" stroke-linecap="round" />
+                        </svg>
+                      </button>
+                    </div>
+
+                    <!-- 错误提示 -->
+                    <div v-if="modelFetchState.get(model.id)?.error" class="pf-model-fetch-error">
+                      {{ modelFetchState.get(model.id)?.error }}
+                    </div>
+
+                    <!-- 模型下拉列表（Teleport 到 body 避免被弹窗裁剪） -->
+                    <Teleport v-if="openModelDropdown === model.id && modelListCache.get(model.id)" to="body">
+                      <div class="pf-model-dropdown pf-model-dropdown-portal" :style="dropdownStyle">
+                        <div class="pf-model-dropdown-search">
+                          <input
+                            type="text"
+                            class="pf-model-dropdown-search-input"
+                            placeholder="搜索模型..."
+                            :value="modelSearchQuery.get(model.id) ?? ''"
+                            @input="modelSearchQuery.set(model.id, ($event.target as HTMLInputElement).value)"
+                          />
+                        </div>
+                        <div class="pf-model-dropdown-list">
+                          <div
+                            v-for="m in filteredModels(model.id)"
+                            :key="m.id"
+                            class="pf-model-dropdown-item"
+                            :class="{ active: m.id === model.modelId }"
+                            @click="handleSelectModel(model, m)"
+                          >
+                            <div class="pf-model-dropdown-item-main">
+                              <span class="pf-model-dropdown-item-id">{{ m.id }}</span>
+                              <span class="pf-model-dropdown-item-name">{{ m.displayName }}</span>
+                            </div>
+                            <div class="pf-model-dropdown-item-badges">
+                              <span v-if="!m.fromApi" class="pf-model-badge pf-model-badge-info">本地</span>
+                              <span v-if="m.supportsImageGeneration" class="pf-model-badge pf-model-badge-image">生图</span>
+                              <span v-if="m.supportsVideoGeneration" class="pf-model-badge pf-model-badge-video">视频</span>
+                              <span v-if="m.supportsAudioGeneration" class="pf-model-badge pf-model-badge-audio">音乐</span>
+                              <span v-if="m.supportsThinking" class="pf-model-badge pf-model-badge-thinking">思考</span>
+                              <span v-if="m.supportsVision" class="pf-model-badge pf-model-badge-vision">视觉</span>
+                              <span class="pf-model-badge pf-model-badge-ctx">{{ formatTokens(m.contextWindow) }}</span>
+                            </div>
+                          </div>
+                          <div v-if="filteredModels(model.id).length === 0" class="pf-model-dropdown-empty">
+                            无匹配模型
+                          </div>
+                        </div>
+                      </div>
+                    </Teleport>
                   </div>
                   <div class="pf-model-field">
                     <label class="pf-model-field-label">API Key</label>
@@ -512,6 +789,44 @@ watch(
                       placeholder="https://api.example.com/v1"
                       @input="handleUpdateModel(model.id, { baseUrl: ($event.target as HTMLInputElement).value })"
                     />
+                  </div>
+                </div>
+
+                <!-- 模型元数据展示 -->
+                <div v-if="model.metadata" class="pf-model-meta">
+                  <div class="pf-model-meta-item">
+                    <span class="pf-model-meta-label">上下文窗口</span>
+                    <span class="pf-model-meta-value">{{ formatTokens(model.metadata.contextWindow) }}</span>
+                  </div>
+                  <div class="pf-model-meta-item">
+                    <span class="pf-model-meta-label">最大输出</span>
+                    <span class="pf-model-meta-value">{{ formatTokens(model.metadata.maxOutputTokens) }}</span>
+                  </div>
+                  <div class="pf-model-meta-item">
+                    <span class="pf-model-meta-label">思考能力</span>
+                    <span class="pf-model-meta-value" :class="{ 'pf-meta-yes': model.metadata.supportsThinking }">
+                      {{ model.metadata.supportsThinking ? '支持' : '不支持' }}
+                    </span>
+                  </div>
+                  <div class="pf-model-meta-item">
+                    <span class="pf-model-meta-label">视觉输入</span>
+                    <span class="pf-model-meta-value" :class="{ 'pf-meta-yes': model.metadata.supportsVision }">
+                      {{ model.metadata.supportsVision ? '支持' : '不支持' }}
+                    </span>
+                  </div>
+                  <div class="pf-model-meta-item">
+                    <span class="pf-model-meta-label">函数调用</span>
+                    <span class="pf-model-meta-value" :class="{ 'pf-meta-yes': model.metadata.supportsFunctionCalling }">
+                      {{ model.metadata.supportsFunctionCalling ? '支持' : '不支持' }}
+                    </span>
+                  </div>
+                  <div class="pf-model-meta-item">
+                    <span class="pf-model-meta-label">RPM 限流</span>
+                    <span class="pf-model-meta-value">{{ model.metadata.rpmLimit ?? '未知' }}</span>
+                  </div>
+                  <div class="pf-model-meta-item">
+                    <span class="pf-model-meta-label">TPM 限流</span>
+                    <span class="pf-model-meta-value">{{ model.metadata.tpmLimit ? formatTokens(model.metadata.tpmLimit) : '未知' }}</span>
                   </div>
                 </div>
               </div>
@@ -1102,9 +1417,10 @@ watch(
 }
 
 .pf-model-field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+display: flex;
+flex-direction: column;
+gap: 4px;
+position: relative;
 }
 
 .pf-model-field-label {
@@ -1185,6 +1501,248 @@ watch(
 
 .pf-model-add-btn:active {
   transform: scale(0.98);
+}
+
+/* ==========================================================
+   模型拉取 — 按钮行 + 下拉 + 元数据
+   ========================================================== */
+.pf-model-id-row {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+}
+
+.pf-model-id-row .pf-model-field-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.pf-model-fetch-btn {
+  height: 30px;
+  width: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-sm);
+  background: var(--track-bg);
+  color: var(--text-secondary);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: border-color 180ms var(--ease-out), color 180ms var(--ease-out), background 180ms var(--ease-out);
+}
+
+.pf-model-fetch-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(10, 132, 255, 0.06);
+}
+
+.pf-model-fetch-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.pf-spin {
+  animation: pf-spin 0.8s linear infinite;
+}
+
+@keyframes pf-spin {
+  to { transform: rotate(360deg); }
+}
+
+.pf-model-fetch-error {
+  margin-top: 6px;
+  padding: 6px 10px;
+  font-size: 11px;
+  color: #ff6b6b;
+  background: rgba(255, 59, 48, 0.08);
+  border: 1px solid rgba(255, 59, 48, 0.2);
+  border-radius: var(--radius-xs);
+  line-height: 1.5;
+  word-break: break-all;
+}
+
+/* ── 模型下拉列表（Teleport 到 body，使用 fixed 定位） ── */
+.pf-model-dropdown {
+  background: var(--base-bg);
+  border: 1px solid var(--separator-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2), 0 8px 32px rgba(0, 0, 0, 0.15);
+  overflow: hidden;
+  animation: pfModelDropdownEnter 160ms var(--ease-out);
+}
+
+@keyframes pfModelDropdownEnter {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.pf-model-dropdown-search {
+  padding: 6px;
+  border-bottom: 1px solid var(--separator);
+}
+
+.pf-model-dropdown-search-input {
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  background: var(--track-bg);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-xs);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 12px;
+  outline: none;
+}
+
+.pf-model-dropdown-search-input:focus {
+  border-color: var(--accent);
+}
+
+.pf-model-dropdown-list {
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.pf-model-dropdown-list::-webkit-scrollbar {
+  width: 5px;
+}
+
+.pf-model-dropdown-list::-webkit-scrollbar-thumb {
+  background: var(--text-quaternary);
+  border-radius: 999px;
+}
+
+.pf-model-dropdown-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.pf-model-dropdown-item:hover {
+  background: var(--track-bg-hover);
+}
+
+.pf-model-dropdown-item.active {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.pf-model-dropdown-item-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.pf-model-dropdown-item-id {
+  font-size: 12px;
+  font-weight: 500;
+  font-family: 'JetBrains Mono', 'SF Mono', monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pf-model-dropdown-item-name {
+  font-size: 10px;
+  opacity: 0.7;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pf-model-dropdown-item-badges {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.pf-model-badge {
+  font-size: 9px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: var(--radius-xs);
+  white-space: nowrap;
+}
+
+.pf-model-badge-info {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text-tertiary);
+}
+
+.pf-model-badge-thinking {
+  background: rgba(168, 85, 247, 0.15);
+  color: #a855f7;
+}
+
+.pf-model-badge-vision {
+  background: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+}
+
+.pf-model-badge-ctx {
+  background: rgba(10, 132, 255, 0.12);
+  color: var(--accent);
+}
+
+.pf-model-dropdown-item.active .pf-model-badge {
+  background: rgba(255, 255, 255, 0.2);
+  color: var(--accent-text);
+}
+
+.pf-model-dropdown-empty {
+  padding: 16px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+/* ── 模型元数据面板 ── */
+.pf-model-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--separator);
+  background: var(--track-bg);
+}
+
+.pf-model-meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pf-model-meta-label {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+.pf-model-meta-value {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  font-family: 'JetBrains Mono', 'SF Mono', monospace;
+}
+
+.pf-meta-yes {
+  color: #22c55e;
 }
 
 /* ==========================================================

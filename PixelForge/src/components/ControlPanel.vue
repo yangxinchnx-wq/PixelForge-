@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, onMounted, onUnmounted, computed } from 'vue';
 import type { ElementTag, TuningParams } from '../types';
+import { useAppStore } from '../stores/app';
+import { storeToRefs } from 'pinia';
 import PfSelect from './ui/PfSelect.vue';
 
 const props = defineProps<{
@@ -17,17 +19,19 @@ const emit = defineEmits<{
   generate: [];
 }>();
 
-// ─── 大模型选项 ───────────────────────────────────────
-const modelOptions = [
-  { value: 'gpt-4o', label: 'GPT-4o' },
-  { value: 'gpt-4o-mini', label: 'GPT-4o mini' },
-  { value: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
-  { value: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo' },
-  { value: 'claude-3-5-sonnet', label: 'Claude 3.5 Sonnet' },
-  { value: 'claude-3-5-haiku', label: 'Claude 3.5 Haiku' },
-  { value: 'claude-3-opus', label: 'Claude 3 Opus' },
-];
-const selectedModel = ref('gpt-4o-mini');
+const store = useAppStore();
+const { modelConfigs, selectedModelId } = storeToRefs(store);
+
+// ─── 大模型选项（对接设置页面的模型配置）───────────────
+const modelOptions = computed(() =>
+  modelConfigs.value
+    .filter((m) => m.enabled)
+    .map((m) => ({ value: m.id, label: m.name }))
+);
+const selectedModel = computed({
+  get: () => selectedModelId.value ?? '',
+  set: (val: string) => store.setSelectedModel(val),
+});
 
 const selects = [
   {
@@ -100,7 +104,8 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
 <template>
   <div class="pf-panel pf-panel-left">
     <div class="pf-panel-header">
-      <PfSelect v-model="selectedModel" :options="modelOptions" size="small" />
+      <PfSelect v-if="modelOptions.length > 0" v-model="selectedModel" :options="modelOptions" size="small" />
+      <span v-else class="pf-panel-no-model" title="请在设置中添加模型">未配置模型</span>
     </div>
 
     <div class="pf-panel-body">
@@ -171,7 +176,7 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
       <div class="pf-panel-section">
         <button
           class="btn-primary"
-          :disabled="isGenerating"
+          :disabled="isGenerating || modelOptions.length === 0"
           style="width: 100%; justify-content: center"
           @click="emit('generate')"
         >
@@ -181,3 +186,11 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
     </div>
   </div>
 </template>
+
+<style scoped>
+.pf-panel-no-model {
+  font-size: 12px;
+  color: var(--text-quaternary);
+  white-space: nowrap;
+}
+</style>

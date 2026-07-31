@@ -53,6 +53,7 @@ const {
   saveStatus,
   lastSavedTime,
   modelConfigs,
+  selectedModelId,
   accentColors,
   history,
   currentIndex,
@@ -122,10 +123,11 @@ onUnmounted(() => {
 
 // ─── Autosave ─────────────────────────────────────────
 watch(
-  [livePromptText, () => activeSnapshot.value.elements, () => activeSnapshot.value.tuningParams, treeData, resolution, frameRate, theme, autoSaveEnabled],
+  [livePromptText, () => activeSnapshot.value.elements, () => activeSnapshot.value.tuningParams, treeData, resolution, frameRate, theme, autoSaveEnabled, modelConfigs, selectedModelId, accentColors],
   () => {
     store.triggerAutosave();
-  }
+  },
+  { deep: true }
 );
 
 // ─── Page content ─────────────────────────────────────
@@ -449,18 +451,16 @@ watch([resolution, renderTargetBitrate], () => {
     <TopHeader
       :theme="theme"
       :is-generating="isGenerating"
-      :show-timeline="showTimeline"
       @toggle-theme="store.toggleTheme"
-      @toggle-timeline="store.toggleTimeline"
       @export="isExportOpen = true"
     />
 
     <div class="pf-main">
       <LeftRail
         :active-tab="activeLeftTab"
-        @update:active-tab="activeLeftTab = $event"
-        @settings-click="isSettingsOpen = true"
-      />
+@update:active-tab="activeLeftTab = $event"
+@settings-click="isSettingsOpen = true"
+/>
 
       <div class="pf-content" ref="contentRef">
         <!-- Main Workspace -->
@@ -533,15 +533,6 @@ watch([resolution, renderTargetBitrate], () => {
 
         <!-- Elements Page — Asset Genome -->
         <div v-else-if="activeLeftTab === 'elements'" class="pf-page">
-          <div class="pf-page-header">
-            <button class="btn btn-icon" title="返回" @click="goBackToInput">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
-                <line x1="19" y1="12" x2="5" y2="12" />
-                <polyline points="12 19 5 12 12 5" />
-              </svg>
-            </button>
-            <span class="pf-page-title">元素 · Asset Genome</span>
-          </div>
           <div class="pf-page-body" style="display: flex; min-height: 0; flex: 1;">
             <AssetGenomePanel style="flex: 1; min-height: 0;" />
           </div>
@@ -600,15 +591,6 @@ watch([resolution, renderTargetBitrate], () => {
 
         <!-- History Page -->
         <div v-else-if="activeLeftTab === 'history'" class="pf-page">
-          <div class="pf-page-header">
-            <button class="btn btn-icon" title="返回" @click="goBackToInput">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
-                <line x1="19" y1="12" x2="5" y2="12" />
-                <polyline points="12 19 5 12 12 5" />
-              </svg>
-            </button>
-            <span class="pf-page-title">历史</span>
-          </div>
           <div class="pf-page-body" style="display: flex; gap: 12px">
             <div class="pf-panel" style="flex: 1; min-height: 0">
               <div class="pf-panel-header">
@@ -663,7 +645,6 @@ watch([resolution, renderTargetBitrate], () => {
         <!-- Performance Page -->
         <PerformancePanel
           v-else-if="activeLeftTab === 'performance'"
-          @back="goBackToInput"
         />
 
         <!-- Render Page — WebCodecs 硬件加速导出界面 -->
@@ -881,6 +862,6 @@ watch([resolution, renderTargetBitrate], () => {
       :visible="showGraphEditor"
       @update:visible="showGraphEditor = $event"
       @apply-i-r="(_ir: any) => { showGraphEditor = false; }"
-    />
-  </div>
+ />
+</div>
 </template>

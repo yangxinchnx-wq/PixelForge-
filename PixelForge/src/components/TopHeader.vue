@@ -1,18 +1,33 @@
 <script setup lang="ts">
+import { getCurrentWindow } from '@tauri-apps/api/window';
+
 defineProps<{
   theme: string;
   isGenerating: boolean;
-  showTimeline: boolean;
 }>();
 
 const emit = defineEmits<{
   toggleTheme: [];
-  toggleTimeline: [];
 }>();
+
+// ─── 窗口控制（无边框窗口自定义标题栏按钮） ───
+const appWindow = getCurrentWindow();
+
+async function handleMinimize() {
+  await appWindow.minimize();
+}
+
+async function handleToggleMaximize() {
+  await appWindow.toggleMaximize();
+}
+
+async function handleClose() {
+  await appWindow.close();
+}
 </script>
 
 <template>
-  <div class="toolbar">
+  <div class="toolbar" data-tauri-drag-region>
     <div class="toolbar-section">
       <span class="toolbar-title">PixelForge</span>
     </div>
@@ -21,22 +36,6 @@ const emit = defineEmits<{
 
     <div class="toolbar-section">
       <button
-        class="toolbar-btn"
-        :class="{ active: showTimeline }"
-        :title="showTimeline ? '隐藏时间轴' : '显示时间轴'"
-        @click="emit('toggleTimeline')"
-      >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="2" y="6" width="20" height="12" rx="2" />
-          <line x1="2" y1="10" x2="22" y2="10" />
-          <line x1="7" y1="6" x2="7" y2="18" />
-          <line x1="12" y1="6" x2="12" y2="18" />
-          <line x1="17" y1="6" x2="17" y2="18" />
-        </svg>
-        <span class="toolbar-btn-label">时间轴</span>
-      </button>
-
-      <button
         class="theme-toggle"
         :title="theme === 'dark' ? '浅色模式' : '深色模式'"
         @click="emit('toggleTheme')"
@@ -44,18 +43,39 @@ const emit = defineEmits<{
         <PhSun v-if="theme === 'dark'" :size="16" weight="duotone" />
         <PhMoon v-else :size="16" weight="duotone" />
       </button>
+
+      <!-- 窗口控制按钮：最小化 / 最大化 / 关闭 -->
+      <div class="window-controls">
+        <button class="wc-btn" title="最小化" @click="handleMinimize">
+          <svg width="10" height="10" viewBox="0 0 10 10">
+            <path d="M0 5h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+          </svg>
+        </button>
+        <button class="wc-btn" title="最大化/还原" @click="handleToggleMaximize">
+          <svg width="10" height="10" viewBox="0 0 10 10">
+            <rect x="0.75" y="0.75" width="8.5" height="8.5" fill="none" stroke="currentColor" stroke-width="1.5" rx="1.5" />
+          </svg>
+        </button>
+        <button class="wc-btn wc-close" title="关闭" @click="handleClose">
+          <svg width="10" height="10" viewBox="0 0 10 10">
+            <path d="M0 0L10 10M10 0L0 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+          </svg>
+        </button>
+      </div>
     </div>
   </div>
 </template>
 
 <style scoped>
 .toolbar {
-  height: 48px;
+  height: var(--toolbar-height);
   display: flex;
   align-items: center;
   padding: 0 16px;
-  background: var(--surface, #1a1a1a);
-  border-bottom: 1px solid var(--separator, #2a2a2a);
+  /* 使用主题玻璃背景色，与全局 .toolbar 一致 */
+  background: var(--glass-bg);
+  border-top: none;
+  border-bottom: 1px solid var(--separator);
   flex-shrink: 0;
   gap: 8px;
 }
@@ -70,44 +90,11 @@ const emit = defineEmits<{
   font-size: 15px;
   font-weight: 700;
   letter-spacing: -0.02em;
-  color: var(--text-primary, #fff);
+  color: var(--text-primary);
 }
 
 .toolbar-spacer {
   flex: 1;
-}
-
-.toolbar-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 32px;
-  padding: 0 10px;
-  border: 1px solid var(--separator-strong, #3a3a3a);
-  background: transparent;
-  border-radius: 8px;
-  color: var(--text-secondary, #aaa);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 160ms ease;
-}
-
-.toolbar-btn:hover {
-  border-color: var(--text-quaternary, #555);
-  color: var(--text-primary, #fff);
-  background: var(--surface-hover, #252525);
-}
-
-.toolbar-btn.active {
-  border-color: var(--accent, #4a9eff);
-  color: var(--accent, #4a9eff);
-  background: color-mix(in srgb, var(--accent, #4a9eff) 12%, transparent);
-}
-
-.toolbar-btn-label {
-  white-space: nowrap;
 }
 
 .theme-toggle {
@@ -116,17 +103,48 @@ const emit = defineEmits<{
   justify-content: center;
   width: 32px;
   height: 32px;
-  border: 1px solid var(--separator-strong, #3a3a3a);
+  border: 1px solid var(--separator-strong);
   background: transparent;
   border-radius: 8px;
-  color: var(--text-secondary, #aaa);
+  color: var(--text-secondary);
   cursor: pointer;
   transition: all 160ms ease;
 }
 
 .theme-toggle:hover {
-  border-color: var(--text-quaternary, #555);
-  color: var(--text-primary, #fff);
-  background: var(--surface-hover, #252525);
+  border-color: var(--text-quaternary);
+  color: var(--text-primary);
+  background: var(--glass-bg-hover);
+}
+
+/* ─── 窗口控制按钮 ─── */
+.window-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 8px;
+}
+
+.wc-btn {
+  width: 30px;
+  height: 30px;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: all 160ms ease;
+}
+
+.wc-btn:hover {
+  background: var(--glass-bg-hover);
+  color: var(--text-primary);
+}
+
+.wc-btn.wc-close:hover {
+  background: #e85555;
+  color: #fff;
 }
 </style>

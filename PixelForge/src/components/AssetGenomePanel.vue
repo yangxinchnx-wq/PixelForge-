@@ -33,6 +33,7 @@ import {
 import {
   getDownstreamImpact,
   getUpstreamDependencies,
+  findCycles,
 } from '../editor/asset-genome/impactAnalysis';
 import {
   computeContentHash,
@@ -42,6 +43,7 @@ import {
   createLoadStatusTable,
   markLoading,
   markLoaded,
+  getLoadStatus,
   type LoadState,
 } from '../editor/asset-genome/lazyLoader';
 import {
@@ -100,7 +102,7 @@ const upstreamDeps = computed(() =>
     ? getUpstreamDependencies(refGraph.graph, selectedAssetId.value)
     : new Set<string>()
 );
-const cycles = computed(() => detectCycles(refGraph.graph));
+const cycles = computed(() => findCycles(refGraph.graph));
 
 // ─── 去重分析 ──────────────────────────────────────────
 const duplicates = computed(() => findDuplicates(registry.all));
@@ -110,7 +112,7 @@ const hasDuplicates = computed(() => duplicates.value.length > 0);
 const loadStatusTable = ref(createLoadStatusTable());
 
 function getAssetLoadState(assetId: string): LoadState {
-  return getLoadState(loadStatusTable.value, assetId) ?? 'unloaded';
+  return getLoadStatus(loadStatusTable.value, assetId)?.state ?? 'unloaded';
 }
 
 function simulateLoad(assetId: string) {
