@@ -885,7 +885,6 @@ watch(
                       :model-value="model.provider"
                       :options="providerOptions"
                       size="small"
-                      light-menu
                       class="pf-model-field-select"
                       @update:model-value="(v: string) => handleProviderChange(model.id, v)"
                     />
@@ -1080,22 +1079,6 @@ watch(
   height: 640px;
   max-width: 92vw;
   max-height: 88vh;
-  /* 纯白色磨砂玻璃：覆盖全局 --glass-bg */
-  background: rgba(255, 255, 255, 0.75);
-  /* 强制浅色模式变量，确保纯白背景上文字/边框/输入框等均可见 */
-  --text-primary: rgba(0, 0, 0, 0.92);
-  --text-secondary: rgba(0, 0, 0, 0.62);
-  --text-tertiary: rgba(0, 0, 0, 0.4);
-  --text-quaternary: rgba(0, 0, 0, 0.15);
-  --separator: rgba(0, 0, 0, 0.1);
-  --separator-strong: rgba(0, 0, 0, 0.16);
-  --glass-bg: rgba(255, 255, 255, 0.75);
-  --glass-bg-hover: rgba(255, 255, 255, 0.85);
-  --glass-bg-pressed: rgba(255, 255, 255, 0.65);
-  --glass-border: rgba(0, 0, 0, 0.12);
-  --glass-edge: rgba(0, 0, 0, 0.08);
-  --track-bg: rgba(0, 0, 0, 0.04);
-  --track-bg-hover: rgba(0, 0, 0, 0.06);
 }
 
 /* ==========================================================
@@ -1194,15 +1177,14 @@ watch(
   justify-content: space-between;
   gap: 16px;
   padding: 14px 16px;
-  /* 纯白色磨砂玻璃：覆盖 --glass-bg-hover，比弹窗底色略透明形成层次 */
-  background: rgba(255, 255, 255, 0.4);
-  border: 1px solid rgba(0, 0, 0, 0.1);
+  background: var(--glass-bg-hover);
+  border: 1px solid var(--separator);
   border-radius: var(--radius-md);
   transition: border-color 180ms var(--ease-out);
 }
 
 .pf-setting-card:hover {
-  border-color: rgba(0, 0, 0, 0.16);
+  border-color: var(--separator-strong);
 }
 
 .pf-setting-card-info {
@@ -1561,15 +1543,15 @@ watch(
 }
 
 .pf-model-card {
-  background: rgba(255, 255, 255, 0.4);
-  border: 1px solid rgba(0, 0, 0, 0.1);
+  background: var(--glass-bg-hover);
+  border: 1px solid var(--separator);
   border-radius: var(--radius-md);
   overflow: hidden;
   transition: border-color 180ms var(--ease-out);
 }
 
 .pf-model-card:hover {
-  border-color: rgba(0, 0, 0, 0.16);
+  border-color: var(--separator-strong);
 }
 
 .pf-model-card-header {
@@ -1827,21 +1809,12 @@ position: relative;
 
 /* ── 模型下拉列表（Teleport 到 body，使用 fixed 定位） ── */
 .pf-model-dropdown {
-  background: #ffffff;
-  border: 1px solid rgba(0, 0, 0, 0.16);
+  background: var(--base-bg);
+  border: 1px solid var(--separator-strong);
   border-radius: var(--radius-sm);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2), 0 8px 32px rgba(0, 0, 0, 0.15);
   overflow: hidden;
   animation: pfModelDropdownEnter 160ms var(--ease-out);
-  /* Teleport 到 body，需单独覆盖变量以匹配纯白弹窗风格 */
-  --text-primary: rgba(0, 0, 0, 0.92);
-  --text-secondary: rgba(0, 0, 0, 0.62);
-  --text-tertiary: rgba(0, 0, 0, 0.4);
-  --text-quaternary: rgba(0, 0, 0, 0.15);
-  --separator: rgba(0, 0, 0, 0.1);
-  --separator-strong: rgba(0, 0, 0, 0.16);
-  --track-bg: rgba(0, 0, 0, 0.04);
-  --track-bg-hover: rgba(0, 0, 0, 0.06);
 }
 
 @keyframes pfModelDropdownEnter {

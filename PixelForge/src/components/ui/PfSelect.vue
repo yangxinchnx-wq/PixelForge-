@@ -21,8 +21,6 @@ const props = withDefaults(defineProps<{
   menuMatchSelector?: string;
   /** 下拉菜单展开方向：'auto'（自动）| 'top'（始终向上）| 'bottom'（始终向下） */
   menuPlacement?: 'auto' | 'top' | 'bottom';
-  /** 下拉菜单使用浅色风格（用于白色背景弹窗内） */
-  lightMenu?: boolean;
 }>(), {
   size: 'normal',
   title: '',
@@ -30,7 +28,6 @@ const props = withDefaults(defineProps<{
   menuWidth: undefined,
   menuMatchSelector: undefined,
   menuPlacement: 'auto',
-  lightMenu: false,
 });
 
 const emit = defineEmits<{
@@ -179,7 +176,6 @@ watch(isOpen, (open) => {
         v-if="isOpen"
         ref="menuRef"
         class="pf-custom-select-menu"
-        :class="{ 'pf-custom-select-menu-light': lightMenu }"
         :style="menuStyle"
       >
         <div
@@ -289,20 +285,6 @@ watch(isOpen, (open) => {
   max-height: 300px;
   overflow-y: auto;
   animation: pfSelectMenuEnter 160ms var(--ease-out);
-}
-
-/* 浅色风格下拉菜单（用于白色背景弹窗内） */
-.pf-custom-select-menu-light {
-  background: #ffffff;
-  border-color: rgba(0, 0, 0, 0.16);
-  --text-primary: rgba(0, 0, 0, 0.92);
-  --text-secondary: rgba(0, 0, 0, 0.62);
-  --text-tertiary: rgba(0, 0, 0, 0.4);
-  --text-quaternary: rgba(0, 0, 0, 0.15);
-  --separator: rgba(0, 0, 0, 0.1);
-  --separator-strong: rgba(0, 0, 0, 0.16);
-  --track-bg: rgba(0, 0, 0, 0.04);
-  --track-bg-hover: rgba(0, 0, 0, 0.06);
 }
 
 @keyframes pfSelectMenuEnter {

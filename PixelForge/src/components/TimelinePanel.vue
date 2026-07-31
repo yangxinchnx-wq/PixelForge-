@@ -621,13 +621,13 @@ function showContextMenuAt(clientX: number, clientY: number) {
       x = bounds.left + 4;
     }
 
-    // 垂直：始终优先向上展开，菜单底部贴在点击位置
+    // 垂直：始终向上展开，菜单底部贴在点击位置，永远不回退到向下
     let y = clientY - rect.height;
-    // 上边界溢出（空间不足）→ 回退到向下展开
+    // 上边界：不超出轨道区域顶部
     if (y < bounds.top + 4) {
-      y = clientY + 4;
+      y = bounds.top + 4;
     }
-    // 底部不超出轨道区域
+    // 底部：不超出轨道区域底部（仅当菜单比区域还高时才上移贴底）
     if (y + rect.height > bounds.bottom - 4) {
       y = Math.max(bounds.top + 4, bounds.bottom - rect.height - 4);
     }
