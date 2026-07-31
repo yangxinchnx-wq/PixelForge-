@@ -1084,8 +1084,8 @@ watch(
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
   /* 磨砂玻璃卡片变量（浅色模式） */
   --card-bg: rgba(255, 255, 255, 0.5);
-  --card-border: rgba(255, 255, 255, 0.8);
-  --card-border-hover: rgba(255, 255, 255, 1);
+  --card-border: rgba(0, 0, 0, 0.1);
+  --card-border-hover: rgba(0, 0, 0, 0.16);
   --card-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
   --card-shadow-hover: 0 4px 12px rgba(0, 0, 0, 0.06);
   --card-inset: inset 0 1px 0 rgba(255, 255, 255, 0.6);
