@@ -15,10 +15,10 @@ interface Props {
   presets: Preset[]
   parseStatus?: 'idle' | 'parsing' | 'success' | 'error'
   parseMessage?: string | null
-  /** 快速生成状�?Step 22 promptParser 路径) */
+  /** 快速生成状态(Step 22 promptParser 路径) */
   quickParseStatus?: 'idle' | 'parsing' | 'success' | 'error'
   quickParseMessage?: string | null
-  /** 快速生成结果来�?'rule' / 'llm' / �? */
+  /** 快速生成结果来源('rule' / 'llm' / 空) */
   quickParseSource?: 'rule' | 'llm' | null
   /** 快速生成置信度(0-1) */
   quickParseConfidence?: number | null
@@ -29,11 +29,11 @@ defineProps<Props>()
 const emit = defineEmits<{
   'update:prompt': [value: string]
   parse: []
-  /** 触发快速生�?Step 22 promptParser 路径) */
+  /** 触发快速生成(Step 22 promptParser 路径) */
   quickParse: []
-  /** 触发需求澄�?Step 23 clarifier 路径:自由文本 �?CreativeRequirement) */
+  /** 触发需求澄清(Step 23 clarifier 路径:自由文本 → CreativeRequirement) */
   clarify: []
-  /** 打开节点图编辑器(Step 25:Requirement �?RenderGraph �?DAG 编辑 �?编译�?RenderIR) */
+  /** 打开节点图编辑器(Step 25:Requirement → RenderGraph → DAG 编辑 → 编译为 RenderIR) */
   openGraph: []
 }>()
 
@@ -41,7 +41,7 @@ function onInput(event: Event) {
   emit('update:prompt', (event.target as HTMLTextAreaElement).value)
 }
 
-/** �?0-1 置信度转成百分比展示 */
+/** 把 0-1 置信度转成百分比展示 */
 function formatConfidence(c: number | null | undefined): string {
   if (c === null || c === undefined) return '-'
   return `${Math.round(c * 100)}%`
@@ -58,7 +58,7 @@ function formatConfidence(c: number | null | undefined): string {
     <textarea
       class="prompt-area"
       :value="prompt"
-      placeholder="描述你想生成的画�?..&#10;支持:星空 / 漩涡 / 渐变 / 圆形 / 纯色 + 颜色(�?�?#hex/[r,g,b,a])"
+      placeholder="描述你想生成的画面...&#10;支持:星空 / 漩涡 / 渐变 / 圆形 / 纯色 + 颜色(红/蓝/#hex/[r,g,b,a])"
       @input="onInput"
     ></textarea>
 
@@ -69,33 +69,33 @@ function formatConfidence(c: number | null | undefined): string {
         @click="emit('parse')"
         :disabled="parseStatus === 'parsing'"
       >
-        {{ parseStatus === 'parsing' ? '解析�?..' : '确认并解�? }}
+        {{ parseStatus === 'parsing' ? '解析中...' : '确认并解析' }}
       </button>
       <button
         class="btn btn-ghost"
-        data-tip="关键词快速路�?命中即追�?Layer(rule 优先,LLM 兜底)"
+        data-tip="关键词快速路径:命中即追加 Layer(rule 优先,LLM 兜底)"
         @click="emit('quickParse')"
         :disabled="quickParseStatus === 'parsing' || !prompt.trim()"
       >
-        {{ quickParseStatus === 'parsing' ? '生成�?..' : '快速生�? }}
+        {{ quickParseStatus === 'parsing' ? '生成中...' : '快速生成' }}
       </button>
       <button
         class="btn btn-ghost"
-        data-tip="需求澄�?自由文本 �?意图分析 �?追问补全 �?CreativeRequirement"
+        data-tip="需求澄清:自由文本 → 意图分析 → 追问补全 → CreativeRequirement"
         @click="emit('clarify')"
         :disabled="!prompt.trim()"
       >
-        需求澄�?
+        需求澄清
       </button>
     </div>
 
     <button
       class="btn btn-block"
-      data-tip="节点图编�?Step 25):Requirement �?RenderGraph �?DAG 编辑 �?编译�?RenderIR"
+      data-tip="节点图编辑(Step 25):Requirement → RenderGraph → DAG 编辑 → 编译为 RenderIR"
       @click="emit('openGraph')"
       :disabled="!prompt.trim()"
     >
-      节点图编�?
+      节点图编辑
     </button>
 
     <div v-if="parseMessage" class="parse-status" :class="parseStatus">
@@ -105,7 +105,7 @@ function formatConfidence(c: number | null | undefined): string {
     <div v-if="quickParseMessage" class="parse-status" :class="quickParseStatus">
       <span class="status-source" v-if="quickParseSource">{{ quickParseSource.toUpperCase() }}</span>
       <span class="status-confidence" v-if="quickParseConfidence !== null && quickParseConfidence !== undefined">
-        置信�?{{ formatConfidence(quickParseConfidence) }}
+        置信度 {{ formatConfidence(quickParseConfidence) }}
       </span>
       <span>{{ quickParseMessage }}</span>
     </div>
@@ -113,7 +113,7 @@ function formatConfidence(c: number | null | undefined): string {
     <div class="sub-card">
       <div class="group-label">
         LLM 解析结果
-        <span class="pill accent">{{ llmResults.length }} �?/span>
+        <span class="pill accent">{{ llmResults.length }} 项</span>
       </div>
       <div v-for="item in llmResults" :key="item.name" class="llm-item">
         <span class="llm-item-name">
@@ -153,52 +153,52 @@ function formatConfidence(c: number | null | undefined): string {
   align-items: baseline;
   justify-content: space-between;
 }
-.panel-title sub { font-size: 11px; font-weight: 400; color: var(--text-tertiary); }
+.panel-title sub { font-size: 11px; font-weight: 400; color: var(--pf-ink-muted); }
 
 .prompt-area {
   width: 100%;
   min-height: 130px;
   padding: 12px 14px;
-  border-radius: var(--radius-md);
-  background: var(--glass-bg-hover);
-  border: 1px solid var(--separator);
+  border-radius: var(--pf-r-md);
+  background: var(--pf-surface-soft);
+  border: 1px solid var(--pf-line);
   font: inherit;
   font-size: 13px;
   line-height: 1.6;
-  color: var(--text-primary);
+  color: var(--pf-ink);
   resize: vertical;
   transition: all 160ms ease;
 }
-.prompt-area:focus { outline: none; border-color: var(--accent); background: var(--glass-bg); }
-.prompt-area::placeholder { color: var(--text-quaternary); }
+.prompt-area:focus { outline: none; border-color: var(--pf-accent); background: var(--pf-surface); }
+.prompt-area::placeholder { color: var(--pf-ink-faint); }
 
 .btn {
   height: 36px;
   padding: 0 16px;
   border-radius: 999px;
-  background: var(--glass-bg-hover);
-  border: 1px solid var(--separator);
+  background: var(--pf-surface-soft);
+  border: 1px solid var(--pf-line);
   font: inherit;
   font-size: 13px;
   font-weight: 500;
-  color: var(--text-primary);
+  color: var(--pf-ink);
   cursor: pointer;
   transition: all 180ms cubic-bezier(0.22, 1, 0.36, 1);
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
 }
-.btn:hover { border-color: var(--separator-strong); transform: translateY(-1px); }
+.btn:hover { border-color: var(--pf-line-strong); transform: translateY(-1px); }
 .btn:active { transform: translateY(0) scale(0.98); }
-.btn-accent { background: var(--accent); color: #fff; border-color: var(--accent); }
-.btn-accent:hover { background: var(--accent-pressed); border-color: var(--accent-pressed); }
+.btn-accent { background: var(--pf-accent); color: #fff; border-color: var(--pf-accent); }
+.btn-accent:hover { background: var(--pf-accent-deep); border-color: var(--pf-accent-deep); }
 .btn-ghost {
   background: transparent;
-  color: var(--text-secondary);
-  border-color: var(--separator);
+  color: var(--pf-ink-soft);
+  border-color: var(--pf-line);
 }
 .btn-ghost:hover {
-  background: var(--glass-bg-hover);
-  color: var(--text-primary);
-  border-color: var(--separator-strong);
+  background: var(--pf-surface-soft);
+  color: var(--pf-ink);
+  border-color: var(--pf-line-strong);
 }
 .btn-block { width: 100%; }
 
@@ -213,7 +213,7 @@ function formatConfidence(c: number | null | undefined): string {
 
 .parse-status {
   padding: 8px 12px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--pf-r-sm);
   font-size: 12px;
   line-height: 1.5;
   display: flex;
@@ -221,9 +221,9 @@ function formatConfidence(c: number | null | undefined): string {
   gap: 8px;
   flex-wrap: wrap;
 }
-.parse-status.success { background: rgba(74, 122, 62, 0.08); color: var(--toggle-lock); border: 1px solid rgba(74, 122, 62, 0.2); }
-.parse-status.error { background: rgba(212, 75, 75, 0.08); color: var(--toggle-mute); border: 1px solid rgba(212, 75, 75, 0.2); }
-.parse-status.parsing { background: rgba(10, 132, 255, 0.12); color: var(--accent); border: 1px solid rgba(184, 92, 46, 0.2); }
+.parse-status.success { background: rgba(74, 122, 62, 0.08); color: var(--pf-success); border: 1px solid rgba(74, 122, 62, 0.2); }
+.parse-status.error { background: rgba(212, 75, 75, 0.08); color: var(--pf-danger); border: 1px solid rgba(212, 75, 75, 0.2); }
+.parse-status.parsing { background: var(--pf-accent-soft); color: var(--pf-accent); border: 1px solid rgba(184, 92, 46, 0.2); }
 
 .status-source {
   font-family: 'JetBrains Mono', monospace;
@@ -241,9 +241,9 @@ function formatConfidence(c: number | null | undefined): string {
 }
 
 .sub-card {
-  background: var(--glass-bg-hover);
-  border: 1px solid var(--separator);
-  border-radius: var(--radius-md);
+  background: var(--pf-surface-soft);
+  border: 1px solid var(--pf-line);
+  border-radius: var(--pf-r-md);
   padding: 14px;
   display: flex;
   flex-direction: column;
@@ -252,7 +252,7 @@ function formatConfidence(c: number | null | undefined): string {
 .group-label {
   font-size: 10.5px;
   font-weight: 600;
-  color: var(--text-quaternary);
+  color: var(--pf-ink-faint);
   text-transform: uppercase;
   letter-spacing: 0.12em;
   display: flex;
@@ -267,29 +267,29 @@ function formatConfidence(c: number | null | undefined): string {
   font-size: 11px;
   font-weight: 500;
 }
-.pill.accent { background: rgba(10, 132, 255, 0.12); color: var(--accent); }
+.pill.accent { background: var(--pf-accent-soft); color: var(--pf-accent); }
 
 .llm-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 9px 12px;
-  border-radius: var(--radius-sm);
-  background: var(--glass-bg);
+  border-radius: var(--pf-r-sm);
+  background: var(--pf-surface);
   font-size: 12.5px;
   transition: all 160ms ease;
   cursor: pointer;
 }
-.llm-item:hover { background: var(--track-bg); }
-.llm-item-name { display: flex; align-items: center; gap: 8px; color: var(--text-primary); font-weight: 500; }
-.llm-item-dot { width: 6px; height: 6px; border-radius: 999px; background: var(--accent); }
+.llm-item:hover { background: var(--pf-surface-sunk); }
+.llm-item-name { display: flex; align-items: center; gap: 8px; color: var(--pf-ink); font-weight: 500; }
+.llm-item-dot { width: 6px; height: 6px; border-radius: 999px; background: var(--pf-accent); }
 .llm-item-tag {
   font-family: 'JetBrains Mono', monospace;
   font-size: 10.5px;
-  color: var(--accent);
+  color: var(--pf-accent);
   padding: 2px 8px;
   border-radius: 5px;
-  background: rgba(10, 132, 255, 0.12);
+  background: var(--pf-accent-soft);
   font-weight: 500;
 }
 
@@ -301,8 +301,8 @@ function formatConfidence(c: number | null | undefined): string {
   left: 50%;
   transform: translateX(-50%) scale(0.95);
   padding: 5px 10px;
-  background: var(--text-primary);
-  color: var(--base-bg);
+  background: var(--pf-ink);
+  color: var(--pf-paper);
   font-size: 11px;
   border-radius: 7px;
   white-space: nowrap;

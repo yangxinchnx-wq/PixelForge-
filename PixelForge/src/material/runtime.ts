@@ -3,16 +3,20 @@
  *
  * 职责:
  * - 接收 CompileResult(wgsl + bindings)
+ * - 编译前做 WGSL 语法预校验（拦截明显语法错误）
  * - 创建 GPUShaderModule
  * - 创建 GPURenderPipeline(完整渲染管线)
  * - 通过 ShaderCache 避免重复编译
+ * - 监听 GPU device.lost 事件，设备丢失时自动清空缓存
  * - 提供 createBindGroup 把用户上传的纹理绑定到 pipeline
  *
  * 数据流(spec §13):
  *   compileMaterialGraph(graph) → CompileResult
  *     ↓
+ *   validateWGSL(wgsl)  ← 新增：语法预校验
+ *     ↓ (通过)
  *   materialRuntime.compilePipeline(result)
- *     ↓ (检查 shaderCache)
+ *     ↓ (检查 shaderCache + 检查 device 是否 lost)
  *   GPUShaderModule + GPURenderPipeline
  *     ↓
  *   renderPass 使用 pipeline
@@ -27,6 +31,7 @@
 
 import type { CompileResult, MaterialBinding } from './types'
 import { shaderCache } from './shaderCache'
+import { validateWGSL } from './wgslValidator'
 
 /**
  * Material Runtime 编译结果。
@@ -53,6 +58,8 @@ export interface MaterialRuntimeOptions {
   format?: GPUTextureFormat
   /** 是否启用 shader cache(默认 true) */
   enableCache?: boolean
+  /** 是否启用 WGSL 语法预校验(默认 true) */
+  enableValidation?: boolean
 }
 
 /**
@@ -67,17 +74,43 @@ export class MaterialRuntime {
   private device: GPUDevice
   private format: GPUTextureFormat
   private enableCache: boolean
+  private enableValidation: boolean
+  /** GPU 设备是否已丢失 */
+  private deviceLost = false
+  /** device.lost 的 Promise（用于监听设备丢失） */
+  private deviceLostPromise: Promise<GPUDeviceLostInfo> | null = null
 
   constructor(options: MaterialRuntimeOptions) {
     this.device = options.device
     this.format = options.format ?? navigator.gpu.getPreferredCanvasFormat()
     this.enableCache = options.enableCache ?? true
+    this.enableValidation = options.enableValidation ?? true
+
+    // 监听设备丢失（RuntimeDeviceHandle 没有 .lost 属性时跳过）
+    const lostPromise = (this.device as { lost?: Promise<GPUDeviceLostInfo> }).lost
+    if (lostPromise) {
+      this.deviceLostPromise = lostPromise.then((info: GPUDeviceLostInfo) => {
+        this.deviceLost = true
+        // 设备丢失时清空所有缓存的 GPU 资源（它们已失效）
+        shaderCache.clear()
+        console.error(`[MaterialRuntime] GPU 设备丢失: ${info.reason} — ${info.message}`)
+      }) as Promise<GPUDeviceLostInfo>
+      // 防止 unhandled rejection
+      this.deviceLostPromise!.catch(() => {})
+    }
+  }
+
+  /** 设备是否已丢失 */
+  get isDeviceLost(): boolean {
+    return this.deviceLost
   }
 
   /**
    * 编译 Material Graph 的 WGSL 为 GPU Pipeline。
    *
    * 流程:
+   *   0. 检查 GPU 设备是否丢失
+   *   0.5 WGSL 语法预校验（拦截明显语法错误）
    *   1. 检查 shaderCache(hash 命中 → 直接返回)
    *   2. 创建 GPUShaderModule
    *   3. 创建 GPURenderPipeline
@@ -85,12 +118,37 @@ export class MaterialRuntime {
    *
    * @param result CompileResult(由 compiler.compileMaterialGraph 生成)
    * @returns MaterialPipelineResult
+   * @throws 如果设备已丢失 / WGSL 校验失败 / GPU 编译失败
    */
   async compilePipeline(result: CompileResult): Promise<MaterialPipelineResult> {
+    // —— 0. 检查设备状态 ——
+    if (this.deviceLost) {
+      throw new Error('GPU 设备已丢失，无法编译 pipeline。请重新初始化 WebGPU 设备。')
+    }
+
+    // —— 0.5 WGSL 语法预校验 ——
+    if (this.enableValidation) {
+      const validation = validateWGSL(result.wgsl, result.entryPoint)
+      if (!validation.valid) {
+        const errorMessages = validation.errors.map(
+          (e) => `  [${e.rule}] 行 ${e.line}:${e.column} — ${e.message}` +
+            (e.snippet ? `\n    ${e.snippet}` : ''),
+        )
+        throw new Error(
+          `WGSL 语法校验失败 (${validation.errors.length} 个错误):\n${errorMessages.join('\n')}`,
+        )
+      }
+    }
+
     // —— 1. 检查缓存 ——
     if (this.enableCache) {
       const cached = shaderCache.get(result.hash)
       if (cached?.module && cached.pipeline) {
+        // 缓存命中，但设备可能已丢失——再次检查
+        if (this.deviceLost) {
+          shaderCache.clear()
+          throw new Error('GPU 设备已丢失，缓存的 pipeline 已失效。')
+        }
         shaderCache.recordHit()
         return {
           module: cached.module,
@@ -103,9 +161,10 @@ export class MaterialRuntime {
     }
 
     // —— 2. 创建 GPUShaderModule ——
+    const fullWgsl = withVertexShader(result.wgsl)
     const module = this.device.createShaderModule({
       label: `material_${result.hash}`,
-      code: result.wgsl,
+      code: fullWgsl,
     })
 
     // —— 3. 创建 GPURenderPipeline ——
@@ -115,8 +174,6 @@ export class MaterialRuntime {
       vertex: {
         module,
         entryPoint: 'vs_main',
-        // 简化:用内置 vertex shader(由 webgpu 提供 fullscreen quad)
-        // 实际项目需要单独的 vertex shader 或用 @builtin(vertex_index) 技巧
         buffers: [],
       },
       fragment: {
@@ -245,6 +302,7 @@ export class MaterialRuntime {
    */
   dispose(): void {
     shaderCache.clear()
+    this.deviceLostPromise = null
   }
 }
 

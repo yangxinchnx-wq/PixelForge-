@@ -43,8 +43,64 @@ export class MaskPass {
 `;
       }
       case 'path': {
-        // 路径 Mask 需要更复杂的实现（SDF 或 stencil buffer）
-        return `// path mask: not implemented`;
+        // 路径 Mask：解析 SVG path 的 M/L 命令提取多边形顶点
+        // 生成 WGSL 多边形包含检测代码（奇偶规则）
+        // 对于复杂路径（含曲线），回退到边界框裁剪
+        if (!mask.data || mask.data.trim() === '') {
+          return '' // 无路径数据 → 不裁剪
+        }
+
+        // 提取所有坐标点（M/L/C 等命令的数字）
+        const coords: number[] = []
+        const tokens = mask.data.match(/[-+]?\d*\.?\d+/g)
+        if (tokens) {
+          for (const t of tokens) {
+            const n = parseFloat(t)
+            if (!Number.isNaN(n)) coords.push(n)
+          }
+        }
+
+        if (coords.length < 4) {
+          // 点太少，无法形成多边形 → 回退到无裁剪
+          return ''
+        }
+
+        // 提取顶点对 (x, y)
+        const points: [number, number][] = []
+        for (let i = 0; i + 1 < coords.length; i += 2) {
+          points.push([coords[i], coords[i + 1]])
+        }
+
+        if (points.length < 3) {
+          // 少于 3 个点 → 退化为边界框
+          const xs = points.map((p) => p[0])
+          const ys = points.map((p) => p[1])
+          const minX = Math.min(...xs)
+          const maxX = Math.max(...xs)
+          const minY = Math.min(...ys)
+          const maxY = Math.max(...ys)
+          return `
+  if (uv.x < ${minX.toFixed(4)} || uv.x > ${maxX.toFixed(4)} ||
+      uv.y < ${minY.toFixed(4)} || uv.y > ${maxY.toFixed(4)}) { discard; }
+`
+        }
+
+        // 生成 WGSL 多边形包含检测（ray casting 奇偶规则）
+        let code = '  var inside: bool = false;\n'
+        const n = points.length
+        for (let i = 0, j = n - 1; i < n; j = i++) {
+          const xi = points[i][0]
+          const yi = points[i][1]
+          const xj = points[j][0]
+          const yj = points[j][1]
+          code += `  if ((${yi.toFixed(4)} > uv.y) != (${yj.toFixed(4)} > uv.y)) {\n`
+          code += `    let xIntersect = (${xj.toFixed(4)} - ${xi.toFixed(4)}) * (uv.y - ${yi.toFixed(4)}) / (${yj.toFixed(4)} - ${yi.toFixed(4)}) + ${xi.toFixed(4)};\n`
+          code += `    if (uv.x < xIntersect) { inside = !inside; }\n`
+          code += `  }\n`
+        }
+        code += '  if (!inside) { discard; }\n'
+
+        return code
       }
       default:
         return '';

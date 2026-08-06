@@ -2214,6 +2214,7 @@ name = "pixelforge"
 version = "0.1.0"
 dependencies = [
  "directories",
+ "raw-window-handle",
  "redb",
  "serde",
  "serde_json",

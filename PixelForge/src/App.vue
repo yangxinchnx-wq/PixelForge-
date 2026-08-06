@@ -3,6 +3,8 @@ import { watch, onMounted, onUnmounted, ref, nextTick, computed, reactive, defin
 import { storeToRefs } from 'pinia';
 import { useAppStore } from './stores/app';
 import { useRuntimeStore } from './stores/runtime';
+import { useMaterialAssetStore } from './material/materialAssetStore';
+import { disposeMaterialRenderBridge } from './material/materialRenderBridge';
 import { useErrorStore } from './stores/errorStore';
 import type { RenderIR } from './compiler/ir/renderIR';
 import type { IRTreeNode } from './types';
@@ -35,7 +37,7 @@ import {
 
 // ─── 异步加载重型组件（按需加载，不阻塞初始渲染）──────────
 const GraphEditor = defineAsyncComponent(() => import('./components/editor/graph/GraphEditor.vue'));
-const AssetGenomePanel = defineAsyncComponent(() => import('./components/AssetGenomePanel.vue'));
+const MaterialManagerPanel = defineAsyncComponent(() => import('./components/MaterialManagerPanel.vue'));
 const ExportModal = defineAsyncComponent(() => import('./components/ExportModal.vue'));
 const SettingsModal = defineAsyncComponent(() => import('./components/SettingsModal.vue'));
 
@@ -66,6 +68,26 @@ const {
   canUndo,
   canRedo,
 } = storeToRefs(store);
+
+// ─── 其他 Pinia stores（必须在 watcher 之前初始化） ──────
+const runtimeStore = useRuntimeStore();
+const materialAssetStore = useMaterialAssetStore();
+const errorStore = useErrorStore();
+
+// ─── WebGPU 画布 ──────────────────────────────────────
+const gpuCanvasRef = ref<HTMLCanvasElement | null>(null);
+const gpuCanvasInitialized = ref(false);
+
+async function ensureGpuCanvasInitialized() {
+  if (gpuCanvasInitialized.value || !gpuCanvasRef.value) return;
+  gpuCanvasInitialized.value = true;
+  try {
+    await runtimeStore.initialize(gpuCanvasRef.value);
+    console.log('[App] WebGPU 运行时初始化成功');
+  } catch (e) {
+    console.error('[App] WebGPU 运行时初始化失败:', e);
+  }
+}
 
 // ─── 项目实际时长（基于 clips 计算，无 clips 时为 0） ──
 const projectDuration = computed(() => {
@@ -119,12 +141,18 @@ onMounted(() => {
   void store.loadFromUnifiedStore();
   // 检测当前设备的硬件编码能力
   void detectHardwareSupport();
+  // 初始化材质资产管理
+  materialAssetStore.init();
+  // 初始化 WebGPU 运行时（等 DOM 渲染完成后拿 canvas ref）
+  nextTick(() => { void ensureGpuCanvasInitialized(); });
 });
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeyDown);
   document.removeEventListener('click', onTuningDocClick);
   store.stopPlayback();
+  // 销毁材质渲染桥接器（释放 GPU 纹理缓存）
+  disposeMaterialRenderBridge();
 });
 
 // ─── Autosave ─────────────────────────────────────────
@@ -144,6 +172,20 @@ watch(
     store.triggerAutosave();
   },
   { deep: true },
+);
+
+// ─── Material Asset Store ↔ GPU Device 同步 ─────────────
+// 当 runtime store 的 GPU 设备初始化完成后，注入到材质 store 以启用 WebGPU 预览
+watch(
+  () => runtimeStore.runtime,
+  (rt) => {
+    if (rt?.gpu?.device) {
+      materialAssetStore.setGpuDevice(rt.gpu.device as unknown as GPUDevice);
+    } else {
+      materialAssetStore.setGpuDevice(null);
+    }
+  },
+  { immediate: true },
 );
 
 // ─── Page content ─────────────────────────────────────
@@ -234,8 +276,6 @@ watch(activeLeftTab, async () => {
 
 // ─── 可视化编程引擎（Graph Editor 浮层）──────────────────
 const showGraphEditor = ref(false);
-const runtimeStore = useRuntimeStore();
-const errorStore = useErrorStore();
 
 /** Opcode → 中文名称映射（用于 IR 树展示） */
 const OPCODE_LABELS: Record<number, string> = {
@@ -601,7 +641,20 @@ watch([resolution, renderTargetBitrate], () => {
             <AIChatPanel />
 
             <!-- 中间：画布 -->
-            <div class="pf-image-center">
+            <div class="pf-image-center" style="position: relative;">
+              <canvas
+                ref="gpuCanvasRef"
+                class="pf-gpu-canvas"
+                :style="{
+                  position: 'absolute',
+                  top: 0, left: 0, width: '100%', height: '100%',
+                  display: 'block',
+                  opacity: runtimeStore.status === 'ready' ? 1 : 0,
+                  transition: 'opacity 0.2s ease',
+                  zIndex: 2,
+                  pointerEvents: runtimeStore.status === 'ready' ? 'auto' : 'none',
+                }"
+              />
               <CanvasViewport
                 :current-time="currentTime"
                 :duration="TOTAL_DURATION"
@@ -625,11 +678,9 @@ watch([resolution, renderTargetBitrate], () => {
           <WorkflowPanel @step-click="handleWorkflowStepClick" />
         </div>
 
-        <!-- Elements Page — Asset Genome -->
+        <!-- Elements Page — Material Manager -->
         <div v-show="activeLeftTab === 'elements'" class="pf-page">
-          <div class="pf-page-body" style="display: flex; min-height: 0; flex: 1;">
-            <AssetGenomePanel style="flex: 1; min-height: 0;" />
-          </div>
+          <MaterialManagerPanel style="flex: 1; min-height: 0;" />
         </div>
 
         <!-- Effects Page -->

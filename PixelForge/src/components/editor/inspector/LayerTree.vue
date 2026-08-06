@@ -15,7 +15,7 @@ const emit = defineEmits<{
   toggleVisible: [layerId: string]
 }>()
 
-/** �?layer.id 转成更友好的显示�?*/
+/** 把 layer.id 转成更友好的显示名 */
 function displayName(layer: Layer): string {
   return layer.id
     .replace(/^layer_/, '')
@@ -25,8 +25,8 @@ function displayName(layer: Layer): string {
 
 /** layer 状态指示器颜色 */
 function statusColor(layer: Layer): string {
-  if (!layer.visible) return 'var(--text-quaternary)'
-  return 'var(--accent)'
+  if (!layer.visible) return 'var(--pf-ink-faint)'
+  return 'var(--pf-accent)'
 }
 
 const layerCount = computed(() => props.layers.length)
@@ -67,9 +67,9 @@ const layerCount = computed(() => props.layers.length)
 
 <style scoped>
 .layer-tree {
-  background: var(--glass-bg);
-  border: 1px solid var(--separator);
-  border-radius: var(--radius-lg);
+  background: var(--pf-surface);
+  border: 1px solid var(--pf-line);
+  border-radius: var(--pf-r-lg);
   padding: 10px 8px;
   display: flex;
   flex-direction: column;
@@ -81,19 +81,19 @@ const layerCount = computed(() => props.layers.length)
   align-items: center;
   justify-content: space-between;
   padding: 0 6px 4px;
-  border-bottom: 1px solid var(--separator);
+  border-bottom: 1px solid var(--pf-line);
 }
 .tree-title {
   font-size: 10.5px;
   font-weight: 600;
-  color: var(--text-quaternary);
+  color: var(--pf-ink-faint);
   text-transform: uppercase;
   letter-spacing: 0.12em;
 }
 .tree-count {
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
-  color: var(--text-tertiary);
+  color: var(--pf-ink-muted);
   font-weight: 600;
 }
 .tree-list {
@@ -104,7 +104,7 @@ const layerCount = computed(() => props.layers.length)
   overflow-y: auto;
 }
 .tree-list::-webkit-scrollbar { width: 4px; }
-.tree-list::-webkit-scrollbar-thumb { background: var(--separator-strong); border-radius: 999px; }
+.tree-list::-webkit-scrollbar-thumb { background: var(--pf-line-strong); border-radius: 999px; }
 
 .tree-node {
   display: grid;
@@ -112,16 +112,16 @@ const layerCount = computed(() => props.layers.length)
   align-items: center;
   gap: 8px;
   padding: 6px 8px;
-  border-radius: var(--radius-xs);
+  border-radius: var(--pf-r-xs);
   cursor: pointer;
   transition: background 160ms ease;
 }
-.tree-node:hover { background: var(--glass-bg-hover); }
+.tree-node:hover { background: var(--pf-surface-soft); }
 .tree-node.active {
-  background: rgba(10, 132, 255, 0.12);
-  box-shadow: inset 2px 0 0 var(--accent);
+  background: var(--pf-accent-soft);
+  box-shadow: inset 2px 0 0 var(--pf-accent);
 }
-.tree-node.hidden .node-name { color: var(--text-quaternary); }
+.tree-node.hidden .node-name { color: var(--pf-ink-faint); }
 
 .visibility-btn {
   width: 20px;
@@ -134,7 +134,7 @@ const layerCount = computed(() => props.layers.length)
   cursor: pointer;
   transition: background 160ms ease;
 }
-.visibility-btn:hover { background: var(--track-bg); }
+.visibility-btn:hover { background: var(--pf-surface-sunk); }
 .visibility-dot {
   width: 8px;
   height: 8px;
@@ -151,7 +151,7 @@ const layerCount = computed(() => props.layers.length)
 .node-name {
   font-size: 12px;
   font-weight: 500;
-  color: var(--text-primary);
+  color: var(--pf-ink);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -159,16 +159,16 @@ const layerCount = computed(() => props.layers.length)
 .node-opcode {
   font-family: 'JetBrains Mono', monospace;
   font-size: 9.5px;
-  color: var(--text-tertiary);
+  color: var(--pf-ink-muted);
   letter-spacing: 0.02em;
 }
 
 .node-blend {
   font-family: 'JetBrains Mono', monospace;
   font-size: 9.5px;
-  color: var(--text-tertiary);
+  color: var(--pf-ink-muted);
   padding: 1px 6px;
-  background: var(--glass-bg-hover);
+  background: var(--pf-surface-soft);
   border-radius: 999px;
 }
 
@@ -180,8 +180,8 @@ const layerCount = computed(() => props.layers.length)
   left: 50%;
   transform: translateX(-50%) scale(0.95);
   padding: 5px 10px;
-  background: var(--text-primary);
-  color: var(--base-bg);
+  background: var(--pf-ink);
+  color: var(--pf-paper);
   font-size: 11px;
   border-radius: 7px;
   white-space: nowrap;

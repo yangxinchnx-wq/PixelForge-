@@ -2,18 +2,18 @@
  * Input Router(Step 30.4)— 实时输入信号路由中心。
  *
  * 职责:
- * - 管理所有输入信号(audio / midi / camera / sensor / ai)
+ * - 管理所有输入信号(sensor / ai)
  * - 提供 setSignal / getSignal / getAllSignals API
  * - 自动标记超时信号为 inactive
  * - 支持订阅(signal 变化时通知订阅者)
  *
  * 设计:
- * - 与具体输入源解耦(audio / midi / camera 模块只负责写入信号)
+ * - 与具体输入源解耦(sensor 模块只负责写入信号)
  * - 不直接驱动动画(由 inputDriver 消费信号)
  * - 单例模式(inputRouter),全局唯一
  *
  * 数据流:
- *   AudioAnalyzer / MidiInput / CameraInput
+ *   SensorInput / AI events
  *     ↓ setSignal(id, value)
  *   InputRouter.signals(Map)
  *     ↓ getSignal(id)
@@ -45,8 +45,8 @@ export type SignalSubscriber = (signal: Signal) => void
  *
  * 用法:
  *   import { inputRouter } from '@/input/inputRouter'
- *   inputRouter.setSignal('audio.bass', 0.8, 'AUDIO')
- *   const bass = inputRouter.getSignal('audio.bass')
+ *   inputRouter.setSignal('mouse.x', 0.5, 'SENSOR')
+ *   const x = inputRouter.getSignal('mouse.x')
  */
 export class InputRouter {
   /** 信号表(id → Signal) */
@@ -256,7 +256,7 @@ export class InputRouter {
 /**
  * 全局 InputRouter 单例。
  *
- * 所有输入源(audio / midi / camera)写入同一个实例,
+ * 所有输入源(sensor)写入同一个实例,
  * 所有消费者(inputDriver / binding)读取同一个实例。
  */
 export const inputRouter = new InputRouter()

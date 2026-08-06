@@ -201,12 +201,16 @@ export function serializeRegionParams(node: GraphNode): Float32Array {
       ])
     }
     case 'IMAGE_TEXTURE': {
-      // IMAGE_TEXTURE 需要从 textureCache 获取外部纹理, 暂用占位色
-      // 完整实现需要 ctx 中注入 textureCache
-      const color = readColorVector(node.params.color, [0.5, 0.5, 0.5, 1])
+      // IMAGE_TEXTURE 的 aux 数据与 regionCompiler 的 createImageTextureAuxData 对齐
+      // 格式: [uvScaleX, uvScaleY, uvOffsetX, uvOffsetY, tintR, tintG, tintB, tintA]
+      const uvScaleX = readNumber(node.params.uvScaleX ?? node.params.scale, 1)
+      const uvScaleY = readNumber(node.params.uvScaleY, uvScaleX)
+      const uvOffsetX = readNumber(node.params.uvOffsetX, 0)
+      const uvOffsetY = readNumber(node.params.uvOffsetY, 0)
+      const tint = readColorVector(node.params.tint ?? node.params.color, [1, 1, 1, 1])
       return new Float32Array([
-        color[0], color[1], color[2], color[3],
-        0, 0, 0, 0,
+        uvScaleX, uvScaleY, uvOffsetX, uvOffsetY,
+        tint[0], tint[1], tint[2], tint[3],
       ])
     }
     default: {

@@ -3,13 +3,11 @@
  *
  * 职责:
  * - 统一驱动 Timeline 播放 + Input 系统 + GPU 渲染
- * - 管理 FeatureExtractor[](audio / camera 特征提取)
- * - 管理 InputDriver[](signal → node 参数绑定)
+ * - 管理 InputDriver[](signal -> node 参数绑定)
  * - 每帧执行链:
- *     1. Timeline 步进(若 isPlaying)→ applyFrameToRuntime → 触发 GPU 重渲染
- *     2. FeatureExtractor.update(now)→ 写入 InputRouter signals
- *     3. InputDriver.update(graphStore, materialStore, runtimeStore)→ 应用 ParamPatch
- *     4. 定期清理 inactive signals
+ *     1. Timeline 步进(若 isPlaying)-> applyFrameToRuntime -> 触发 GPU 重渲染
+ *     2. InputDriver.update(graphStore, materialStore, runtimeStore)-> 应用 ParamPatch
+ *     3. 定期清理 inactive signals
  *
  * 与 editor/timeline/player.ts 的区别:
  * - player: 只驱动 Timeline(frame-based),不处理实时输入
@@ -18,11 +16,10 @@
  * 设计:
  * - 不依赖 Vue 组件生命周期(可在测试中实例化)
  * - 使用 startFrameLoop(纯 rAF 调度器)作为底层
- * - 即使 Timeline 暂停,只要注册了 FeatureExtractor/InputDriver,循环仍运行
+ * - 即使 Timeline 暂停,只要注册了 InputDriver,循环仍运行
  *
  * 用法:
  *   const engine = createEngine({ timelineStore, runtimeStore, graphStore, materialStore })
- *   engine.registerFeatureExtractor(audioExtractor)
  *   engine.registerInputDriver(inputDriver)
  *   engine.start()
  *   // 播放 Timeline:
@@ -35,7 +32,6 @@ import type { useRuntimeStore } from '@/stores/runtime'
 import type { useGraphStore } from '@/graph/graphStore'
 import type { useMaterialGraphStore } from '@/material/materialGraph'
 import { startFrameLoop, type FrameLoopControl } from '@/utils/frameLoop'
-import { FeatureExtractor } from '@/input/audio/featureExtractor'
 import { inputRouter } from '@/input/inputRouter'
 
 // ============================================================================
@@ -78,14 +74,69 @@ type ApplyFrameToRuntime = (
 ) => void
 
 /**
- * applyFrameToRuntime 存根（替代已删除的 @/editor/timeline/player）。
+ * applyFrameToRuntime 实现 — 把 timeline tracks 在当前帧的插值结果应用到 runtime store。
+ *
+ * 遍历所有 tracks，对每个 track:
+ *   1. 用 evaluateTrack 在当前帧插值出参数值
+ *   2. 调用 runtimeStore.applyValuePatch 写入 IR，触发 GPU 重渲染
+ *
+ * 这实现了「Timeline 播放 → 参数变化 → 实时渲染」的完整链路。
  */
-const stubApplyFrameToRuntime: ApplyFrameToRuntime = (tracks, currentFrame, runtimeStore) => {
-  // 存根实现：原实现在 @/editor/timeline/player.ts 中已删除
-  // 如需恢复，可使用 @/utils/keyframe 中的 evaluateTrack 重新实现
-  void tracks
-  void currentFrame
-  void runtimeStore
+const realApplyFrameToRuntime: ApplyFrameToRuntime = (tracks, currentFrame, runtimeStore) => {
+  // currentFrame 是帧号，keyframe.time 是秒
+  // 帧→秒转换：假设标准 60fps（精确转换需要从 timelineStore 获取 fps，
+  // 但 ApplyFrameToRuntime 签名不含 fps，这里用近似值）
+  const currentTime = currentFrame / 60
+
+  for (const track of tracks) {
+    if (!track.keyframes || track.keyframes.length === 0) continue
+
+    const value = evaluateTrackAtTime(track, currentTime)
+    if (value === null) continue
+
+    // ParameterTrack.parameter 对应 ValuePatch 的 paramKey
+    runtimeStore.applyValuePatch(track.layerId, track.parameter, value, { skipHistory: true })
+  }
+}
+
+/**
+ * 在指定时间（秒）对 track 进行插值。
+ *
+ * 支持的插值模式:
+ * - step / hold: 阶跃（取前一个 keyframe 的值）
+ * - linear: 线性插值
+ * - ease / bezier: 简化为线性（未来可加缓动曲线）
+ */
+function evaluateTrackAtTime(
+  track: import('@/types').ParameterTrack,
+  time: number,
+): number | null {
+  const keyframes = track.keyframes
+  if (!keyframes || keyframes.length === 0) return null
+
+  // 在第一个 keyframe 之前 → 取第一个值
+  if (time <= keyframes[0].time) return keyframes[0].value
+
+  // 在最后一个 keyframe 之后 → 取最后一个值
+  const last = keyframes[keyframes.length - 1]
+  if (time >= last.time) return last.value
+
+  // 在两个 keyframe 之间 → 插值
+  for (let i = 0; i < keyframes.length - 1; i++) {
+    const k1 = keyframes[i]
+    const k2 = keyframes[i + 1]
+    if (time >= k1.time && time <= k2.time) {
+      const interp = k2.interpolation ?? 'linear'
+      if (interp === 'step' || interp === 'hold') {
+        return k1.value
+      }
+      // linear / ease / bezier 简化为线性
+      const t = (time - k1.time) / (k2.time - k1.time)
+      return k1.value + (k2.value - k1.value) * t
+    }
+  }
+
+  return null
 }
 
 type TimelineStore = TimelineStoreLike
@@ -121,8 +172,6 @@ export interface EngineMetrics {
   frameCount: number
   /** 当前 InputRouter 中的信号数量 */
   activeSignals: number
-  /** 已注册的 FeatureExtractor 数量 */
-  activeFeatureExtractors: number
   /** 已注册的 InputDriver 数量 */
   activeInputDrivers: number
   /** 上一帧 InputDriver 应用的 patch 数量 */
@@ -144,11 +193,7 @@ export interface PixelForgeEngine {
   /** 获取运行指标 */
   getMetrics: () => EngineMetrics
 
-  /** 注册 FeatureExtractor(音频 / 摄像头特征提取器) */
-  registerFeatureExtractor: (extractor: FeatureExtractor) => void
-  /** 注销 FeatureExtractor */
-  unregisterFeatureExtractor: (extractor: FeatureExtractor) => void
-  /** 注册 InputDriver(signal → node 参数绑定) */
+  /** 注册 InputDriver(signal -> node 参数绑定) */
   registerInputDriver: (driver: InputDriver) => void
   /** 注销 InputDriver */
   unregisterInputDriver: (driver: InputDriver) => void
@@ -188,9 +233,8 @@ const PRUNE_INTERVAL_FRAMES = 60
 export function createEngine(deps: EngineDeps): PixelForgeEngine {
   const { timelineStore, runtimeStore, graphStore, materialStore } = deps
   const loop = deps.loop ?? false
-  const applyFrameToRuntime = deps.applyFrameToRuntime ?? stubApplyFrameToRuntime
+  const applyFrameToRuntime = deps.applyFrameToRuntime ?? realApplyFrameToRuntime
 
-  const featureExtractors: FeatureExtractor[] = []
   const inputDrivers: InputDriver[] = []
 
   let frameCount = 0
@@ -254,17 +298,7 @@ export function createEngine(deps: EngineDeps): PixelForgeEngine {
       }
     }
 
-    // —— 2. FeatureExtractor 更新(audio/camera → InputRouter signals) ——
-    // 即使 Timeline 暂停,只要注册了 extractor 就继续运行
-    for (const fx of featureExtractors) {
-      try {
-        fx.update(now)
-      } catch (e) {
-        console.error('[Engine] FeatureExtractor error:', e)
-      }
-    }
-
-    // —— 3. InputDriver 更新(signals → graph/material/runtime patches) ——
+    // —— 2. InputDriver 更新(signals -> graph/material/runtime patches) ——
     // 'runtime' 目标的 patch 会通过 runtimeStore.applyValuePatch 触发 GPU 重渲染
     for (const driver of inputDrivers) {
       try {
@@ -274,7 +308,7 @@ export function createEngine(deps: EngineDeps): PixelForgeEngine {
       }
     }
 
-    // —— 4. 定期清理 inactive signals ——
+    // —— 3. 定期清理 inactive signals ——
     if (frameCount > 0 && frameCount % PRUNE_INTERVAL_FRAMES === 0) {
       inputRouter.pruneInactive(true)
     }
@@ -282,6 +316,7 @@ export function createEngine(deps: EngineDeps): PixelForgeEngine {
     patchesLastFrame = patchesThisFrame
     timelineSteppedLastFrame = stepped
     frameCount++
+    void now
   }
 
   const frameLoop: FrameLoopControl = startFrameLoop(frameCallback, {
@@ -301,21 +336,10 @@ export function createEngine(deps: EngineDeps): PixelForgeEngine {
       fps: frameLoop.getFps(),
       frameCount,
       activeSignals: inputRouter.size,
-      activeFeatureExtractors: featureExtractors.length,
       activeInputDrivers: inputDrivers.length,
       patchesLastFrame,
       timelineSteppedLastFrame,
     }),
-
-    registerFeatureExtractor: (extractor) => {
-      if (!featureExtractors.includes(extractor)) {
-        featureExtractors.push(extractor)
-      }
-    },
-    unregisterFeatureExtractor: (extractor) => {
-      const idx = featureExtractors.indexOf(extractor)
-      if (idx >= 0) featureExtractors.splice(idx, 1)
-    },
 
     registerInputDriver: (driver) => {
       if (!inputDrivers.includes(driver)) {
@@ -354,7 +378,6 @@ export function createEngine(deps: EngineDeps): PixelForgeEngine {
 
     dispose: () => {
       frameLoop.stop()
-      featureExtractors.length = 0
       inputDrivers.length = 0
       frameCount = 0
       patchesLastFrame = 0
@@ -374,7 +397,6 @@ export function createEngine(deps: EngineDeps): PixelForgeEngine {
  * 便捷方法:driver 自动绑定到全局 inputRouter 单例。
  *
  * @param engine   目标 engine
- * @param options  createInputDriver 的参数(可选)
  * @returns 创建的 InputDriver
  */
 export function attachInputDriver(

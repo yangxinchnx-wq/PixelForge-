@@ -30,6 +30,7 @@ export interface RuntimeGpuAdapterInfo {
 export interface RuntimeDeviceQueueHandle {
   submit: GPUQueue['submit']
   writeBuffer: GPUQueue['writeBuffer']
+  writeTexture: GPUQueue['writeTexture']
   /** 等待所有已提交的 GPU 命令完成（用于像素回读前的同步） */
   onSubmittedWorkDone: GPUQueue['onSubmittedWorkDone']
 }
@@ -76,7 +77,6 @@ export interface PresentPipelineResources {
   pipeline: GPURenderPipeline
   bindGroup: GPUBindGroup
   sampler: GPUSampler
-  uniformBuffer: GPUBuffer
 }
 
 export interface CompileContextSnapshot {

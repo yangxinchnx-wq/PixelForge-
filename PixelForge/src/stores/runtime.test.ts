@@ -234,7 +234,7 @@ describe('运行时状态回放', () => {
     const evaluatorResult = vi.mocked(createRegionEvaluator).mock.results[0]
     expect(evaluatorResult).toBeTruthy()
     // @ts-ignore - 访问 mock 对象的 render 方法
-    expect(evaluatorResult?.value?.render).toHaveBeenCalledWith(record.artifact)
+    expect(evaluatorResult?.value?.render).toHaveBeenCalledWith(record.artifact, undefined)
     expect(renderPresentPass).toHaveBeenCalled()
   })
 

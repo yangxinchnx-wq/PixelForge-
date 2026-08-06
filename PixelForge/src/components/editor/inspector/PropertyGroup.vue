@@ -5,7 +5,7 @@ import PropertyControl from './PropertyControl.vue'
 
 interface Props {
   group: InspectorGroup
-  /** 该组涉及的属性值映�? { [property.key]: value } */
+  /** 该组涉及的属性值映射: { [property.key]: value } */
   values: Record<string, unknown>
 }
 
@@ -49,18 +49,18 @@ function onChange(p: PropertySchema, value: number | number[] | string | boolean
   align-items: baseline;
   justify-content: space-between;
   padding: 0 4px 4px;
-  border-bottom: 1px solid var(--separator);
+  border-bottom: 1px solid var(--pf-line);
 }
 .group-name {
   font-size: 10.5px;
   font-weight: 600;
-  color: var(--text-quaternary);
+  color: var(--pf-ink-faint);
   text-transform: uppercase;
   letter-spacing: 0.12em;
 }
 .group-subtitle {
   font-size: 10px;
-  color: var(--text-tertiary);
+  color: var(--pf-ink-muted);
 }
 .group-body {
   display: flex;

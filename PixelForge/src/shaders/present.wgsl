@@ -1,10 +1,5 @@
-struct PresentUniforms {
-  canvasSize: vec2f,
-}
-
-@group(0) @binding(0) var<uniform> uniforms: PresentUniforms;
-@group(0) @binding(1) var srcTex: texture_2d<f32>;
-@group(0) @binding(2) var nearestSampler: sampler;
+@group(0) @binding(0) var srcTex: texture_2d<f32>;
+@group(0) @binding(1) var nearestSampler: sampler;
 
 struct VertexOutput {
   @builtin(position) position: vec4f,

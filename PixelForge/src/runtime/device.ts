@@ -64,6 +64,7 @@ export async function initRuntime(options: RuntimeInitOptions): Promise<RuntimeI
     queue: {
       submit: nativeDevice.queue.submit.bind(nativeDevice.queue),
       writeBuffer: nativeDevice.queue.writeBuffer.bind(nativeDevice.queue),
+      writeTexture: nativeDevice.queue.writeTexture.bind(nativeDevice.queue),
       onSubmittedWorkDone: nativeDevice.queue.onSubmittedWorkDone.bind(nativeDevice.queue),
     },
     createTexture: nativeDevice.createTexture.bind(nativeDevice),

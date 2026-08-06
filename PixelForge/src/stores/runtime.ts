@@ -27,6 +27,7 @@ import {
 } from '@/compiler/preview/previewPyramid'
 import { createRenderVerificationSnapshot, renderPresentPass } from '@/runtime/encoder'
 import { initRuntime } from '@/runtime/device'
+import { RenderGraphAdapter } from '@/runtime/renderGraph'
 import {
   computeUploadDiffByComparison,
   fullUploadDiff,
@@ -38,6 +39,9 @@ import { calculateMemoryMetrics, createProfiler, ZERO_METRICS } from '@/runtime/
 import type { PerformanceMetrics, Profiler } from '@/runtime/profiler'
 import type { ReplayErrorInfo, RuntimeErrorInfo, RuntimeFrameRecord } from '@/runtime/types'
 import { classifyError, createReplayError as createStructuredReplayError } from '@/shared/errors'
+import { getMaterialRenderBridge } from '@/material/materialRenderBridge'
+import type { MaterialTextureBinding } from '@/compiler/region/evaluator'
+import { useMaterialAssetStore } from '@/material/materialAssetStore'
 import { IndexedDBFrameRepository } from '@/services/frame/indexedDbRepository'
 import { InMemoryFrameRepository } from '@/services/frame/repository'
 import { UnifiedFrameRepository } from '@/services/frame/unifiedFrameRepository'
@@ -150,6 +154,27 @@ function createRuntimeStore(frameRepository: FrameRepository) {
 
     /** 编译缓存命中标记（供性能面板展示） */
     const lastCompileCacheHit = ref(false)
+
+    /**
+     * RenderGraph 适配器(Step 40.5 接入)。
+     * 默认禁用,保持原 evaluator + renderPresentPass 路径。
+     * 启用后通过 RenderGraph 编排两 Pass(SceneDispatch + PresentToCanvas)。
+     * 通过 useRenderGraph ref 切换。
+     */
+    const useRenderGraph = ref(false)
+    let renderGraphAdapter: RenderGraphAdapter | null = null
+    function getRenderGraphAdapter(canvasWidth: number, canvasHeight: number): RenderGraphAdapter {
+      if (!renderGraphAdapter) {
+        renderGraphAdapter = new RenderGraphAdapter({
+          enabled: true,
+          canvasWidth,
+          canvasHeight,
+        })
+      } else {
+        renderGraphAdapter.setCanvasSize(canvasWidth, canvasHeight)
+      }
+      return renderGraphAdapter
+    }
 
     const isReady = computed(() => status.value === 'ready')
 
@@ -468,9 +493,55 @@ function createRuntimeStore(frameRepository: FrameRepository) {
         return
       }
 
-      // 竞态控制：每次渲染递增 token
-      const token = ++renderToken
-      isCompiling.value = true
+// —— Material 预渲染：扫描 materialId 层，预渲染为离屏纹理 ——
+// material-backed 层在 regionCompiler 中被视为 IMAGE_TEXTURE，
+// 但其纹理来源是 MaterialRenderBridge 渲染的 GPUTexture。
+// 这里在 regionEvaluator 执行前预渲染所有材质纹理，
+// 并将纹理视图收集起来传给 evaluator 的 bind group。
+// slot 分配与 regionCompiler 一致：按 materialId 在 visible layers 中的首次出现顺序。
+const materialLayers = currentIr.value.layers.filter((l) => l.visible && l.materialId)
+let materialTextureBindings: MaterialTextureBinding[] = []
+if (materialLayers.length > 0 && runtimeResult.gpu?.device) {
+  console.log('[runtime] 发现材质层:', materialLayers.length, '个，开始预渲染')
+  const bridge = getMaterialRenderBridge()
+  bridge.setDevice(
+    runtimeResult.gpu.device as unknown as GPUDevice,
+    runtimeResult.output.format ?? undefined,
+  )
+  const materialAssetStore = useMaterialAssetStore()
+  // slot 分配：与 regionCompiler 的 materialSlotMap 逻辑一致
+  const slotMap = new Map<string, number>() // materialId → slot
+  for (const layer of materialLayers) {
+    const mid = layer.materialId!
+    if (!slotMap.has(mid)) {
+      if (slotMap.size >= 4) break // 最多 4 个材质纹理
+      slotMap.set(mid, slotMap.size)
+    }
+    const slot = slotMap.get(mid)!
+    const asset = materialAssetStore.getMaterial(mid)
+    if (!asset) {
+      console.warn('[runtime] 未找到材质资产:', mid)
+      continue
+    }
+    const result = await bridge.renderMaterial(asset, {
+      width: runtimeResult.gpu.canvasSize.width,
+      height: runtimeResult.gpu.canvasSize.height,
+    })
+    if (result) {
+      console.log('[runtime] 材质预渲染成功:', mid, 'slot:', slot, 'cached:', result.cached)
+      materialTextureBindings.push({ slot, view: result.view })
+    } else {
+      console.warn('[runtime] 材质预渲染失败:', mid)
+    }
+  }
+  console.log('[runtime] 材质纹理绑定数:', materialTextureBindings.length)
+} else if (materialLayers.length > 0) {
+  console.warn('[runtime] 有材质层但 GPU 设备未就绪，跳过材质预渲染')
+}
+
+// 竞态控制：每次渲染递增 token
+const token = ++renderToken
+isCompiling.value = true
 
       const profiler = createProfiler()
       if (lastPatchMs > 0) {
@@ -527,7 +598,7 @@ function createRuntimeStore(frameRepository: FrameRepository) {
         compileContext,
       })
 
-      executeArtifactRender(runtimeResult, compileContext, artifact, profiler)
+      executeArtifactRender(runtimeResult, compileContext, artifact, profiler, materialTextureBindings)
 
       profiler.setMemory(calculateMemoryMetrics(artifact, runtimeResult.gpu.canvasSize))
       const metrics = profiler.finalize()
@@ -684,6 +755,11 @@ function createRuntimeStore(frameRepository: FrameRepository) {
       lastUploadDiff.value = null
       isCompiling.value = false
       isProgressiveRendering.value = false
+      // Step 40.5:销毁 RenderGraph 适配器
+      if (renderGraphAdapter) {
+        renderGraphAdapter.destroy()
+        renderGraphAdapter = null
+      }
     }
 
     function replayFrame(frame: number) {
@@ -796,14 +872,36 @@ function createRuntimeStore(frameRepository: FrameRepository) {
       compileContext: CompileContext,
       artifact: RegionCompileArtifact,
       profiler?: Profiler,
+      materialTextures?: MaterialTextureBinding[],
     ) {
       const evaluator = createRegionEvaluator(runtimeResult.gpu.device, compileContext, runtimeResult.output)
 
       const dispatchStart = performance.now()
-      evaluator.render(artifact)
-      const dispatchEnd = performance.now()
 
-      renderPresentPass(runtimeResult.gpu.device, runtimeResult.gpu.context, runtimeResult.present)
+      // Step 40.5 接入:可选 RenderGraph 路径
+      if (useRenderGraph.value) {
+        const adapter = getRenderGraphAdapter(
+          runtimeResult.gpu.canvasSize.width,
+          runtimeResult.gpu.canvasSize.height,
+        )
+        adapter.render(
+          evaluator,
+          artifact,
+          runtimeResult.gpu.device,
+          runtimeResult.gpu.context,
+          runtimeResult.present,
+          runtimeResult.output.texture,
+          nextFrameNumber.value,
+          (device, ctx, present) => renderPresentPass(device, ctx, present),
+        )
+      } else {
+        // 原路径:直接调用,不经过 RenderGraph
+        // 传递材质纹理绑定给 evaluator，使 compute shader 能采样材质纹理
+        evaluator.render(artifact, materialTextures)
+        renderPresentPass(runtimeResult.gpu.device, runtimeResult.gpu.context, runtimeResult.present)
+      }
+
+      const dispatchEnd = performance.now()
       const presentEnd = performance.now()
 
       if (profiler) {
@@ -918,6 +1016,15 @@ function createRuntimeStore(frameRepository: FrameRepository) {
       compileCacheStats,
       uploadDiffSummary,
       progressiveRenderPlan,
+      // Step 40.5 RenderGraph 接入
+      useRenderGraph,
+      renderGraphAdapterStats: () =>
+        renderGraphAdapter
+          ? {
+              texture: renderGraphAdapter.texturePoolStats,
+              buffer: renderGraphAdapter.bufferPoolStats,
+            }
+          : null,
       initialize,
       setScenario,
       setRenderIR,

@@ -2,11 +2,10 @@
 import { computed } from 'vue'
 
 import type { PropertySchema } from '@/editor/inspector/inspectorTypes'
-import PfSelect from '@/components/ui/PfSelect.vue'
 
 interface Props {
   property: PropertySchema
-  /** 当前�?标量 / 数组 / 字符�?/ 布尔) */
+  /** 当前值(标量 / 数组 / 字符串 / 布尔) */
   value: number | number[] | string | boolean | undefined
 }
 
@@ -16,10 +15,10 @@ const emit = defineEmits<{
   change: [value: number | number[] | string | boolean]
 }>()
 
-/** 是否为数组类�?color / 多分量向�? */
+/** 是否为数组类型(color / 多分量向量) */
 const isArray = computed(() => Array.isArray(props.value))
 
-/** 数组�?hex 颜色字符�?用于 color input) */
+/** 数组转 hex 颜色字符串(用于 color input) */
 function arrayToHex(arr: number[]): string {
   const r = Math.round(Math.max(0, Math.min(1, arr[0] ?? 0)) * 255)
   const g = Math.round(Math.max(0, Math.min(1, arr[1] ?? 0)) * 255)
@@ -50,9 +49,11 @@ function onNumber(event: Event) {
   emit('change', Number((event.target as HTMLInputElement).value))
 }
 
-function onSelect(value: string) {
+function onSelect(event: Event) {
+  const target = event.target as HTMLSelectElement
+  const raw = target.value
   // 数字字符串自动转 number
-  const parsed = /^\d+$/.test(value) ? Number(value) : value
+  const parsed = /^\d+$/.test(raw) ? Number(raw) : raw
   emit('change', parsed)
 }
 
@@ -128,13 +129,17 @@ const scalarDisplay = computed(() => {
     </div>
 
     <!-- select -->
-    <PfSelect
+    <select
       v-else-if="property.type === 'select'"
-      :model-value="String(value ?? '')"
-      :options="(property.options ?? []).map((o) => ({ value: String(o.value), label: o.label }))"
+      class="ctrl-select"
+      :value="String(value ?? '')"
       :disabled="property.readonly"
-      @update:model-value="onSelect"
-    />
+      @change="onSelect"
+    >
+      <option v-for="opt in property.options" :key="String(opt.value)" :value="String(opt.value)">
+        {{ opt.label }}
+      </option>
+    </select>
 
     <!-- toggle -->
     <label v-else-if="property.type === 'toggle'" class="ctrl-toggle">
@@ -157,11 +162,11 @@ const scalarDisplay = computed(() => {
   flex-direction: column;
   gap: 6px;
   padding: 8px 10px;
-  background: var(--glass-bg-hover);
-  border-radius: var(--radius-sm);
+  background: var(--pf-surface-soft);
+  border-radius: var(--pf-r-sm);
   transition: background 160ms ease;
 }
-.property:hover { background: var(--track-bg); }
+.property:hover { background: var(--pf-surface-sunk); }
 .property.readonly { opacity: 0.7; }
 .property.readonly .ctrl-slider,
 .property.readonly .ctrl-number,
@@ -177,12 +182,12 @@ const scalarDisplay = computed(() => {
 }
 .prop-name {
   font-size: 11.5px;
-  color: var(--text-secondary);
+  color: var(--pf-ink-soft);
   font-weight: 500;
 }
 .prop-value {
   font-size: 11px;
-  color: var(--text-primary);
+  color: var(--pf-ink);
   font-weight: 600;
 }
 .mono { font-family: 'JetBrains Mono', monospace; }
@@ -193,7 +198,7 @@ const scalarDisplay = computed(() => {
   appearance: none;
   width: 100%;
   height: 4px;
-  background: var(--track-bg);
+  background: var(--pf-surface-sunk);
   border-radius: 999px;
   outline: none;
   cursor: pointer;
@@ -204,8 +209,8 @@ const scalarDisplay = computed(() => {
   width: 16px;
   height: 16px;
   border-radius: 999px;
-  background: var(--accent);
-  border: 2px solid var(--glass-bg);
+  background: var(--pf-accent);
+  border: 2px solid var(--pf-surface);
   cursor: pointer;
   box-shadow: 0 2px 6px rgba(184, 92, 46, 0.4);
   transition: transform 160ms ease;
@@ -216,8 +221,8 @@ const scalarDisplay = computed(() => {
   width: 16px;
   height: 16px;
   border-radius: 999px;
-  background: var(--accent);
-  border: 2px solid var(--glass-bg);
+  background: var(--pf-accent);
+  border: 2px solid var(--pf-surface);
   cursor: pointer;
 }
 
@@ -226,17 +231,17 @@ const scalarDisplay = computed(() => {
   width: 100%;
   height: 28px;
   padding: 0 8px;
-  border: 1px solid var(--separator);
-  border-radius: var(--radius-xs);
-  background: var(--glass-bg);
+  border: 1px solid var(--pf-line);
+  border-radius: var(--pf-r-xs);
+  background: var(--pf-surface);
   font: inherit;
   font-family: 'JetBrains Mono', monospace;
   font-size: 12px;
-  color: var(--text-primary);
+  color: var(--pf-ink);
   outline: none;
   transition: border-color 160ms ease;
 }
-.ctrl-number:focus { border-color: var(--accent); }
+.ctrl-number:focus { border-color: var(--pf-accent); }
 .ctrl-number::-webkit-inner-spin-button { opacity: 0.4; }
 
 /* color */
@@ -249,8 +254,8 @@ const scalarDisplay = computed(() => {
   width: 32px;
   height: 28px;
   padding: 0;
-  border: 1px solid var(--separator);
-  border-radius: var(--radius-xs);
+  border: 1px solid var(--pf-line);
+  border-radius: var(--pf-r-xs);
   background: transparent;
   cursor: pointer;
 }
@@ -258,14 +263,27 @@ const scalarDisplay = computed(() => {
 .ctrl-color::-webkit-color-swatch { border: 0; border-radius: 3px; }
 .color-hex {
   font-size: 11px;
-  color: var(--text-tertiary);
+  color: var(--pf-ink-muted);
   text-transform: uppercase;
 }
 
-/* select �?使用全局 .pf-select, 补充 width:100% */
+/* select */
 .ctrl-select {
   width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--pf-line);
+  border-radius: var(--pf-r-xs);
+  background: var(--pf-surface);
+  font: inherit;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px;
+  color: var(--pf-ink);
+  cursor: pointer;
+  outline: none;
+  transition: border-color 160ms ease;
 }
+.ctrl-select:focus { border-color: var(--pf-accent); }
 .ctrl-select:disabled { cursor: not-allowed; opacity: 0.7; }
 
 /* toggle (iOS 风格) */
@@ -280,7 +298,7 @@ const scalarDisplay = computed(() => {
   width: 36px;
   height: 20px;
   border-radius: 999px;
-  background: var(--track-bg);
+  background: var(--pf-surface-sunk);
   position: relative;
   transition: background 180ms cubic-bezier(0.22, 1, 0.36, 1);
 }
@@ -291,12 +309,12 @@ const scalarDisplay = computed(() => {
   width: 16px;
   height: 16px;
   border-radius: 999px;
-  background: var(--glass-bg);
+  background: var(--pf-surface);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
   transition: left 180ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 .ctrl-toggle input:checked + .toggle-track {
-  background: var(--accent);
+  background: var(--pf-accent);
 }
 .ctrl-toggle input:checked + .toggle-track .toggle-thumb {
   left: 18px;

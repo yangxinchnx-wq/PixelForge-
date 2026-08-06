@@ -65,7 +65,6 @@ import {
 } from './gpuResourceManager'
 import { createScheduledEngine } from './engineScheduled'
 import { resetInputRouterForTesting } from '@/input/inputRouter'
-import { FeatureExtractor } from '@/input/audio/featureExtractor'
 import { useRuntimeStore } from '@/stores/runtime'
 import { useGraphStore } from '@/graph/graphStore'
 import { useMaterialGraphStore } from '@/material/materialGraph'
@@ -157,26 +156,8 @@ function makeMockHandle(destroySpy?: ReturnType<typeof vi.fn>): GpuResourceHandl
 }
 
 // ============================================================================
-// 辅助:Mock FeatureExtractor / InputDriver(参考 engine.test.ts)
+// 辅助:Mock InputDriver(参考 engine.test.ts)
 // ============================================================================
-
-function makeMockFeatureExtractor(): FeatureExtractor & {
-  update: ReturnType<typeof vi.fn>
-  reset: ReturnType<typeof vi.fn>
-} {
-  return {
-    update: vi.fn(() => ({
-      volume: 0.5, bass: 0.4, mid: 0.3, high: 0.2, beat: false, bpm: 0,
-    })),
-    reset: vi.fn(),
-    getLastFeatures: vi.fn(),
-    setOptions: vi.fn(),
-    getBeatDetector: vi.fn(),
-  } as unknown as FeatureExtractor & {
-    update: ReturnType<typeof vi.fn>
-    reset: ReturnType<typeof vi.fn>
-  }
-}
 
 function makeMockInputDriver(): InputDriver & {
   update: ReturnType<typeof vi.fn>
@@ -885,7 +866,6 @@ describe('SE: ScheduledEngine 集成', () => {
     expect(typeof engine.stop).toBe('function')
     expect(typeof engine.isRunning).toBe('function')
     expect(typeof engine.getMetrics).toBe('function')
-    expect(typeof engine.registerFeatureExtractor).toBe('function')
     expect(typeof engine.registerInputDriver).toBe('function')
     expect(typeof engine.play).toBe('function')
     expect(typeof engine.pause).toBe('function')
@@ -900,7 +880,6 @@ describe('SE: ScheduledEngine 集成', () => {
   it('SE2: 初始 metrics 正确', () => {
     const engine = makeScheduledEngine()
     const m = engine.getMetrics()
-    expect(m.activeFeatureExtractors).toBe(0)
     expect(m.activeInputDrivers).toBe(0)
     expect(m.patchesLastFrame).toBe(0)
     expect(m.timelineSteppedLastFrame).toBe(false)
@@ -915,37 +894,14 @@ describe('SE: ScheduledEngine 集成', () => {
     expect(engine.getMetrics().scheduler.frameCount).toBe(2)
   })
 
-  it('SE4: registerFeatureExtractor 后 metrics 递增', () => {
-    const engine = makeScheduledEngine()
-    const fx = makeMockFeatureExtractor()
-    engine.registerFeatureExtractor(fx)
-    expect(engine.getMetrics().activeFeatureExtractors).toBe(1)
-  })
-
-  it('SE5: unregisterFeatureExtractor 后 metrics 递减', () => {
-    const engine = makeScheduledEngine()
-    const fx = makeMockFeatureExtractor()
-    engine.registerFeatureExtractor(fx)
-    engine.unregisterFeatureExtractor(fx)
-    expect(engine.getMetrics().activeFeatureExtractors).toBe(0)
-  })
-
-  it('SE6: registerInputDriver 后 metrics 递增', () => {
+  it('SE4: registerInputDriver 后 metrics 递增', () => {
     const engine = makeScheduledEngine()
     const driver = makeMockInputDriver()
     engine.registerInputDriver(driver)
     expect(engine.getMetrics().activeInputDrivers).toBe(1)
   })
 
-  it('SE7: stepOnce 触发 extractor.update', () => {
-    const engine = makeScheduledEngine()
-    const fx = makeMockFeatureExtractor()
-    engine.registerFeatureExtractor(fx)
-    engine.stepOnce(0.016, 1234)
-    expect(fx.update).toHaveBeenCalledWith(1234)
-  })
-
-  it('SE8: stepOnce 触发 driver.update', () => {
+  it('SE5: stepOnce 触发 driver.update', () => {
     const engine = makeScheduledEngine()
     const driver = makeMockInputDriver()
     engine.registerInputDriver(driver)
@@ -1035,19 +991,7 @@ describe('SE: ScheduledEngine 集成', () => {
     expect(ctx).toHaveProperty('resources')
   })
 
-  it('SE20: extractor 异常被捕获不中断', () => {
-    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const engine = makeScheduledEngine()
-    const badFx = {
-      update: () => { throw new Error('fx boom') },
-      reset: vi.fn(),
-    } as unknown as FeatureExtractor
-    engine.registerFeatureExtractor(badFx)
-    expect(() => engine.stepOnce(0.016, 1000)).not.toThrow()
-    errSpy.mockRestore()
-  })
-
-  it('SE21: driver 异常被捕获不中断', () => {
+  it('SE18: driver 异常被捕获不中断', () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const engine = makeScheduledEngine()
     const badDriver = {
@@ -1060,20 +1004,17 @@ describe('SE: ScheduledEngine 集成', () => {
     errSpy.mockRestore()
   })
 
-  it('SE22: dispose 清理资源', () => {
+  it('SE19: dispose 清理资源', () => {
     const engine = makeScheduledEngine({ device: mockDevice.device })
-    const fx = makeMockFeatureExtractor()
     const driver = makeMockInputDriver()
-    engine.registerFeatureExtractor(fx)
     engine.registerInputDriver(driver)
     engine.enqueueTask('low', () => false)
     engine.dispose()
-    expect(engine.getMetrics().activeFeatureExtractors).toBe(0)
     expect(engine.getMetrics().activeInputDrivers).toBe(0)
     expect(engine.getPendingTaskCount()).toBe(0)
   })
 
-  it('SE23: dispose 后 GpuResourceManager 资源全释放', () => {
+  it('SE20: dispose 后 GpuResourceManager 资源全释放', () => {
     const engine = makeScheduledEngine({ device: mockDevice.device })
     const mgr = engine.getGpuResourceManager()!
     mgr.register('res1', 'buffer', makeMockHandle(), 256)
@@ -1081,7 +1022,7 @@ describe('SE: ScheduledEngine 集成', () => {
     expect(mgr.getLiveCount()).toBe(0)
   })
 
-  it('SE24: 合并 metrics 包含 scheduler + gpu', () => {
+  it('SE21: 合并 metrics 包含 scheduler + gpu', () => {
     const engine = makeScheduledEngine({ device: mockDevice.device })
     engine.stepOnce(0.016, 1000)
     const m = engine.getMetrics()
@@ -1091,7 +1032,7 @@ describe('SE: ScheduledEngine 集成', () => {
     expect(m.gpu?.frameCount).toBe(1) // gpu-render phase 执行了 endFrame
   })
 
-  it('SE25: patchesLastFrame 反映 InputDriver 返回值', () => {
+  it('SE22: patchesLastFrame 反映 InputDriver 返回值', () => {
     const engine = makeScheduledEngine()
     const driver = makeMockInputDriver()
     ;(driver.update as ReturnType<typeof vi.fn>).mockReturnValue(3)

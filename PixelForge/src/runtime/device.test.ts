@@ -52,11 +52,12 @@ describe('运行时初始化', () => {
 
   function setupValidNavigator() {
     const requestDevice = vi.fn(async () => ({
-      queue: {
-        submit: vi.fn(),
-        writeBuffer: vi.fn(),
-        onSubmittedWorkDone: vi.fn(),
-      },
+queue: {
+submit: vi.fn(),
+writeBuffer: vi.fn(),
+writeTexture: vi.fn(),
+onSubmittedWorkDone: vi.fn(),
+},
       createTexture: vi.fn(),
       createBuffer: vi.fn(),
       createShaderModule: vi.fn(),
@@ -127,11 +128,12 @@ describe('运行时初始化', () => {
 
   it('无法创建画布上下文时应返回结构化错误', async () => {
     const requestDevice = vi.fn(async () => ({
-      queue: {
-        submit: vi.fn(),
-        writeBuffer: vi.fn(),
-        onSubmittedWorkDone: vi.fn(),
-      },
+queue: {
+submit: vi.fn(),
+writeBuffer: vi.fn(),
+writeTexture: vi.fn(),
+onSubmittedWorkDone: vi.fn(),
+},
       createTexture: vi.fn(),
       createBuffer: vi.fn(),
       createShaderModule: vi.fn(),
@@ -205,11 +207,12 @@ describe('运行时初始化', () => {
 
   it('画布宽高异常时应回退到最小合法尺寸', async () => {
     const requestDevice = vi.fn(async () => ({
-      queue: {
-        submit: vi.fn(),
-        writeBuffer: vi.fn(),
-        onSubmittedWorkDone: vi.fn(),
-      },
+queue: {
+submit: vi.fn(),
+writeBuffer: vi.fn(),
+writeTexture: vi.fn(),
+onSubmittedWorkDone: vi.fn(),
+},
       createTexture: vi.fn(),
       createBuffer: vi.fn(),
       createShaderModule: vi.fn(),

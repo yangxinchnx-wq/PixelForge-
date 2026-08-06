@@ -108,6 +108,13 @@ export interface Layer {
   paramOwnership: ParamOwnership;   // metadata：Record<string, ParameterOwner>
   visible: boolean;                  // structural-patch：切换 = StructuralPatch
   blendMode?: BlendMode;              // static：Phase B 已支持（normal/multiply/screen/overlay/add/subtract）
+  /**
+   * 关联的材质资产 ID（可选）。
+   * 当设置此字段时，该图层使用 MaterialRenderBridge 预渲染的纹理
+   * 作为像素来源，opcode 被视为 IMAGE_TEXTURE。
+   * 未设置时走正常的 opcode 求值路径。
+   */
+  materialId?: string;
 }
 
 // ============================================================================

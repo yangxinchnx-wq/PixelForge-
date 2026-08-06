@@ -29,10 +29,10 @@ export interface RectangleMask {
   height: number;
 }
 
-/** 路径 Mask 参数（预留）。 */
+/** 路径 Mask 参数。 */
 export interface PathMask {
   type: 'path';
-  /** SVG 路径数据（后续解析为 GPU 可用格式） */
+  /** SVG 路径数据（支持 M/L 命令，C 命令的坐标点也会被提取） */
   data: string;
 }
 

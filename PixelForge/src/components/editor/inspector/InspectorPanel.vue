@@ -11,8 +11,8 @@ import PropertyGroup from './PropertyGroup.vue'
 
 const runtime = useRuntimeStore()
 
-// 用户�?UI 上选中�?layer id(本地状�?不污�?store)
-// 优先用本地选中;store �?currentLayerId 变化时跟�?如切换场�?回放�?
+// 用户在 UI 上选中的 layer id(本地状态,不污染 store)
+// 优先用本地选中;store 的 currentLayerId 变化时跟随(如切换场景/回放帧)
 const userSelectedLayerId = ref<string | null>(null)
 
 watch(
@@ -33,24 +33,24 @@ const selectedLayer = computed<Layer | null>(() => {
   return layers[0] ?? null
 })
 
-/** 当前选中 layer 的属性分�?schema(�?opcode 派发) */
+/** 当前选中 layer 的属性分组 schema(按 opcode 派发) */
 const groups = computed(() => {
   const layer = selectedLayer.value
   if (!layer) return []
-  // Opcode 是数�?enum,用反向映射取出字符串�?�?'SOLID_COLOR')
+  // Opcode 是数字 enum,用反向映射取出字符串名(如 'SOLID_COLOR')
   const opcodeName = Opcode[layer.opcode] ?? 'UNKNOWN'
   return getGroupsForOpcode(opcodeName)
 })
 
 /**
- * �?layer 转成 PropertyGroup 需要的 values 映射�?
+ * 把 layer 转成 PropertyGroup 需要的 values 映射。
  *
  * 特殊 key 处理:
- * - __opcode__    �?layer.opcode(字符�?只读)
- * - __blendMode__ �?layer.blendMode(字符�?
- * - __visible__   �?layer.visible(布尔)
+ * - __opcode__    → layer.opcode(字符串,只读)
+ * - __blendMode__ → layer.blendMode(字符串)
+ * - __visible__   → layer.visible(布尔)
  *
- * 其他 key 直接�?layer.params 取�?
+ * 其他 key 直接从 layer.params 取。
  */
 const groupValues = computed<Record<string, unknown>>(() => {
   const layer = selectedLayer.value
@@ -63,12 +63,12 @@ const groupValues = computed<Record<string, unknown>>(() => {
 })
 
 /**
- * 属性变�?�?路由到对应的 runtime patch 入口�?
+ * 属性变更 → 路由到对应的 runtime patch 入口。
  *
- * - __blendMode__ �?StructuralPatch(field='blendMode')
- * - __visible__   �?StructuralPatch(field='visible')
+ * - __blendMode__ → StructuralPatch(field='blendMode')
+ * - __visible__   → StructuralPatch(field='visible')
  * - __opcode__ 只读,忽略
- * - 其他�?applyValuePatch
+ * - 其他走 applyValuePatch
  */
 function onPropertyChange(key: string, value: number | number[] | string | boolean) {
   const layer = selectedLayer.value
@@ -105,7 +105,7 @@ function onToggleVisible(layerId: string) {
   <div class="inspector">
     <div class="inspector-head">
       <span class="head-title">Inspector</span>
-      <span class="head-sub">属性面�?/span>
+      <span class="head-sub">属性面板</span>
     </div>
 
     <LayerTree
@@ -130,7 +130,7 @@ function onToggleVisible(layerId: string) {
       <span>未选中图层</span>
     </div>
 
-    <!-- 属性分�?-->
+    <!-- 属性分组 -->
     <div class="group-list">
       <PropertyGroup
         v-for="g in groups"
@@ -141,16 +141,16 @@ function onToggleVisible(layerId: string) {
       />
     </div>
 
-    <!-- 最�?Patch -->
+    <!-- 最近 Patch -->
     <div class="patch-result">
-      <div class="sub-label">最�?Patch</div>
+      <div class="sub-label">最近 Patch</div>
       <div class="info-row">
         <span class="info-label">patchId</span>
-        <strong class="mono">{{ runtime.lastPatchId ?? '�? }}</strong>
+        <strong class="mono">{{ runtime.lastPatchId ?? '无' }}</strong>
       </div>
       <div class="info-row">
         <span class="info-label">摘要</span>
-        <strong class="mono">{{ runtime.lastPatchSummary ?? '�? }}</strong>
+        <strong class="mono">{{ runtime.lastPatchSummary ?? '无' }}</strong>
       </div>
     </div>
   </div>
@@ -158,9 +158,9 @@ function onToggleVisible(layerId: string) {
 
 <style scoped>
 .inspector {
-  background: var(--glass-bg);
-  border: 1px solid var(--separator);
-  border-radius: var(--radius-lg);
+  background: var(--pf-surface);
+  border: 1px solid var(--pf-line);
+  border-radius: var(--pf-r-xl);
   padding: 12px;
   display: flex;
   flex-direction: column;
@@ -172,7 +172,7 @@ function onToggleVisible(layerId: string) {
 .inspector::-webkit-scrollbar { width: 6px; }
 .inspector::-webkit-scrollbar-track { background: transparent; }
 .inspector::-webkit-scrollbar-thumb {
-  background: var(--separator-strong);
+  background: var(--pf-line-strong);
   border-radius: 999px;
 }
 
@@ -186,17 +186,17 @@ function onToggleVisible(layerId: string) {
 .head-title {
   font-size: 13px;
   font-weight: 600;
-  color: var(--text-primary);
+  color: var(--pf-ink);
 }
 .head-sub {
   font-size: 10.5px;
-  color: var(--text-tertiary);
+  color: var(--pf-ink-muted);
 }
 
 .layer-info {
-  background: var(--glass-bg-hover);
-  border: 1px solid var(--separator);
-  border-radius: var(--radius-md);
+  background: var(--pf-surface-soft);
+  border: 1px solid var(--pf-line);
+  border-radius: var(--pf-r-md);
   padding: 8px 12px;
   display: flex;
   flex-direction: column;
@@ -209,18 +209,18 @@ function onToggleVisible(layerId: string) {
   align-items: baseline;
   font-size: 11.5px;
 }
-.info-label { color: var(--text-tertiary); }
-.info-row strong { font-size: 11.5px; color: var(--text-primary); font-weight: 600; }
+.info-label { color: var(--pf-ink-muted); }
+.info-row strong { font-size: 11.5px; color: var(--pf-ink); font-weight: 600; }
 .mono { font-family: 'JetBrains Mono', monospace; }
-.mono.accent { color: var(--accent); }
+.mono.accent { color: var(--pf-accent); }
 
 .empty-state {
   padding: 24px 12px;
   text-align: center;
   font-size: 12px;
-  color: var(--text-quaternary);
-  background: var(--glass-bg-hover);
-  border-radius: var(--radius-md);
+  color: var(--pf-ink-faint);
+  background: var(--pf-surface-soft);
+  border-radius: var(--pf-r-md);
 }
 
 .group-list {
@@ -230,9 +230,9 @@ function onToggleVisible(layerId: string) {
 }
 
 .patch-result {
-  background: var(--glass-bg-hover);
-  border: 1px solid var(--separator);
-  border-radius: var(--radius-md);
+  background: var(--pf-surface-soft);
+  border: 1px solid var(--pf-line);
+  border-radius: var(--pf-r-md);
   padding: 8px 12px;
   display: flex;
   flex-direction: column;
@@ -242,10 +242,10 @@ function onToggleVisible(layerId: string) {
 .sub-label {
   font-size: 10px;
   font-weight: 600;
-  color: var(--text-quaternary);
+  color: var(--pf-ink-faint);
   text-transform: uppercase;
   letter-spacing: 0.1em;
   padding-bottom: 4px;
-  border-bottom: 1px solid var(--separator);
+  border-bottom: 1px solid var(--pf-line);
 }
 </style>

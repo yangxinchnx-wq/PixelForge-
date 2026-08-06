@@ -12,8 +12,8 @@
  * - 完整 metrics(每 phase 耗时 / over-budget / task 统计)
  *
  * 单帧执行链(与 engine.ts 对齐):
- *   Phase 1 (timeline):  step Timeline + applyFrameToRuntime(→ 触发 GPU 重渲染)
- *   Phase 2 (input):     FeatureExtractor.update + InputDriver.update
+ *   Phase 1 (timeline):  step Timeline + applyFrameToRuntime(-> 触发 GPU 重渲染)
+ *   Phase 2 (input):     InputDriver.update
  *   Phase 3 (gpu-render): GPU 资源 endFrame(销毁 released 资源)+ 可选 syncFrame
  *   Phase 4 (background): prune inactive signals + 后台任务队列
  *   Phase 5 (idle):      无操作(记录剩余时间)
@@ -32,7 +32,6 @@
 import type { useRuntimeStore } from '@/stores/runtime'
 import type { useGraphStore } from '@/graph/graphStore'
 import type { useMaterialGraphStore } from '@/material/materialGraph'
-import { FeatureExtractor } from '@/input/audio/featureExtractor'
 import { inputRouter } from '@/input/inputRouter'
 import type { RuntimeDeviceHandle } from './types'
 import {
@@ -79,11 +78,39 @@ type ApplyFrameToRuntime = (
   runtimeStore: RuntimeStore,
 ) => void
 
-/** applyFrameToRuntime 存根 */
-const stubApplyFrameToRuntime: ApplyFrameToRuntime = (tracks, currentFrame, runtimeStore) => {
-  void tracks
-  void currentFrame
-  void runtimeStore
+/** applyFrameToRuntime 实现 — 同 engine.ts 中的实现 */
+const realApplyFrameToRuntime: ApplyFrameToRuntime = (tracks, currentFrame, runtimeStore) => {
+  const currentTime = currentFrame / 60
+  for (const track of tracks) {
+    if (!track.keyframes || track.keyframes.length === 0) continue
+    const keyframes = track.keyframes
+    let value: number | null = null
+    if (currentTime <= keyframes[0].time) {
+      value = keyframes[0].value
+    } else {
+      const last = keyframes[keyframes.length - 1]
+      if (currentTime >= last.time) {
+        value = last.value
+      } else {
+        for (let i = 0; i < keyframes.length - 1; i++) {
+          const k1 = keyframes[i]
+          const k2 = keyframes[i + 1]
+          if (currentTime >= k1.time && currentTime <= k2.time) {
+            const interp = k2.interpolation ?? 'linear'
+            if (interp === 'step' || interp === 'hold') {
+              value = k1.value
+            } else {
+              const t = (currentTime - k1.time) / (k2.time - k1.time)
+              value = k1.value + (k2.value - k1.value) * t
+            }
+            break
+          }
+        }
+      }
+    }
+    if (value === null) continue
+    runtimeStore.applyValuePatch(track.layerId, track.parameter, value, { skipHistory: true })
+  }
 }
 
 type TimelineStore = TimelineStoreLike
@@ -125,8 +152,6 @@ export interface ScheduledEngineMetrics {
   gpu: GpuResourceMetrics | null
   /** 当前 InputRouter 中的信号数量 */
   activeSignals: number
-  /** 已注册的 FeatureExtractor 数量 */
-  activeFeatureExtractors: number
   /** 已注册的 InputDriver 数量 */
   activeInputDrivers: number
   /** 上一帧 InputDriver 应用的 patch 数量 */
@@ -150,10 +175,6 @@ export interface ScheduledEngine {
   getMetrics: () => ScheduledEngineMetrics
 
   // —— 注册表 ——
-  /** 注册 FeatureExtractor */
-  registerFeatureExtractor: (extractor: FeatureExtractor) => void
-  /** 注销 FeatureExtractor */
-  unregisterFeatureExtractor: (extractor: FeatureExtractor) => void
   /** 注册 InputDriver */
   registerInputDriver: (driver: InputDriver) => void
   /** 注销 InputDriver */
@@ -210,9 +231,8 @@ const PRUNE_INTERVAL_FRAMES = 60
 export function createScheduledEngine(deps: ScheduledEngineDeps): ScheduledEngine {
   const { timelineStore, runtimeStore, graphStore, materialStore } = deps
   const loop = deps.loop ?? false
-  const applyFrameToRuntime = deps.applyFrameToRuntime ?? stubApplyFrameToRuntime
+  const applyFrameToRuntime = deps.applyFrameToRuntime ?? realApplyFrameToRuntime
 
-  const featureExtractors: FeatureExtractor[] = []
   const inputDrivers: InputDriver[] = []
 
   let patchesLastFrame = 0
@@ -278,22 +298,13 @@ export function createScheduledEngine(deps: ScheduledEngineDeps): ScheduledEngin
   }
 
   // --------------------------------------------------------------------------
-  // 3.2 Phase 2: input — FeatureExtractor + InputDriver
+  // 3.2 Phase 2: input — InputDriver
   // --------------------------------------------------------------------------
 
   let internalFrameCount = 0
 
-  scheduler.setPhaseCallback('input', (_dt, now) => {
+  scheduler.setPhaseCallback('input', (_dt, _now) => {
     let patchesThisFrame = 0
-
-    // FeatureExtractor 更新
-    for (const fx of featureExtractors) {
-      try {
-        fx.update(now)
-      } catch (e) {
-        console.error('[ScheduledEngine] FeatureExtractor error:', e)
-      }
-    }
 
     // InputDriver 更新
     for (const driver of inputDrivers) {
@@ -356,21 +367,10 @@ export function createScheduledEngine(deps: ScheduledEngineDeps): ScheduledEngin
       scheduler: scheduler.getMetrics(),
       gpu: gpuManager ? gpuManager.getMetrics() : null,
       activeSignals: inputRouter.size,
-      activeFeatureExtractors: featureExtractors.length,
       activeInputDrivers: inputDrivers.length,
       patchesLastFrame,
       timelineSteppedLastFrame,
     }),
-
-    registerFeatureExtractor: (extractor) => {
-      if (!featureExtractors.includes(extractor)) {
-        featureExtractors.push(extractor)
-      }
-    },
-    unregisterFeatureExtractor: (extractor) => {
-      const idx = featureExtractors.indexOf(extractor)
-      if (idx >= 0) featureExtractors.splice(idx, 1)
-    },
 
     registerInputDriver: (driver) => {
       if (!inputDrivers.includes(driver)) {
@@ -420,7 +420,6 @@ export function createScheduledEngine(deps: ScheduledEngineDeps): ScheduledEngin
       if (gpuManager) {
         gpuManager.releaseAll()
       }
-      featureExtractors.length = 0
       inputDrivers.length = 0
       patchesLastFrame = 0
       timelineSteppedLastFrame = false

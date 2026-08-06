@@ -32,10 +32,10 @@ const project = useProjectStore()
 
 const statusInfo = computed(() => {
   switch (props.status) {
-    case 'ready':        return { label: '就绪',     color: 'var(--toggle-lock)' }
-    case 'initializing': return { label: '初始化中', color: 'var(--toggle-solo)' }
-    case 'error':        return { label: '错误',     color: 'var(--toggle-mute)' }
-    default:             return { label: '空闲',     color: 'var(--text-tertiary)' }
+    case 'ready':        return { label: '就绪',     color: 'var(--pf-success)' }
+    case 'initializing': return { label: '初始化中', color: 'var(--pf-warning)' }
+    case 'error':        return { label: '错误',     color: 'var(--pf-danger)' }
+    default:             return { label: '空闲',     color: 'var(--pf-ink-muted)' }
   }
 })
 
@@ -52,7 +52,7 @@ const redoTip = computed(() =>
 
 const projectTitle = computed(() => {
   if (!project.hasProject) return 'PixelForge <sub>语义视频生成</sub>'
-  const dirty = project.dirty ? ' �? : ''
+  const dirty = project.dirty ? ' •' : ''
   return `${project.projectName}${dirty} <sub>PixelForge</sub>`
 })
 
@@ -60,7 +60,7 @@ const saveTip = computed(() =>
   project.dirty ? '保存项目(有未保存修改)' : '保存项目',
 )
 
-// —�?窗口控制（无边框窗口自定义标题栏按钮）—�?
+// —— 窗口控制（无边框窗口自定义标题栏按钮）——
 const appWindow = getCurrentWindow()
 
 async function handleMinimize() {
@@ -95,28 +95,28 @@ async function handleClose() {
         :data-tip="undoTip"
         :disabled="!history.canUndo"
         @click="emit('undo')"
-      >�?/button>
+      >↶</button>
       <button
         class="tp-btn history-btn"
         :class="{ disabled: !history.canRedo }"
         :data-tip="redoTip"
         :disabled="!history.canRedo"
         @click="emit('redo')"
-      >�?/button>
+      >↷</button>
 
       <span class="divider"></span>
 
-      <button class="tp-btn" data-tip="跳到开�?(Home)" @click="emit('jumpStart')">�?/button>
-      <button class="tp-btn" data-tip="上一�?(�?" @click="emit('stepBackward')">�?/button>
-      <button class="tp-btn play" data-tip="播放 (Space)" @click="emit('play')">�?/button>
-      <button class="tp-btn" data-tip="下一�?(�?" @click="emit('stepForward')">�?/button>
-      <button class="tp-btn" data-tip="跳到结尾 (End)" @click="emit('jumpEnd')">�?/button>
+      <button class="tp-btn" data-tip="跳到开头 (Home)" @click="emit('jumpStart')">⏮</button>
+      <button class="tp-btn" data-tip="上一帧 (←)" @click="emit('stepBackward')">‹</button>
+      <button class="tp-btn play" data-tip="播放 (Space)" @click="emit('play')">▶</button>
+      <button class="tp-btn" data-tip="下一帧 (→)" @click="emit('stepForward')">›</button>
+      <button class="tp-btn" data-tip="跳到结尾 (End)" @click="emit('jumpEnd')">⏭</button>
     </div>
 
     <div class="topbar-right">
       <span class="chip"><strong>1920</strong> × <strong>1080</strong></span>
       <span class="chip"><strong>60</strong> FPS</span>
-      <span class="chip">�?<strong>{{ currentFrame }}</strong> / {{ totalFrames }}</span>
+      <span class="chip">帧 <strong>{{ currentFrame }}</strong> / {{ totalFrames }}</span>
       <span class="chip">
         <span class="dot" :style="{ background: statusInfo.color }"></span>
         {{ statusInfo.label }}
@@ -140,7 +140,7 @@ async function handleClose() {
 .topbar {
   background: #151719;
   border: none;
-  border-bottom: 1px solid var(--separator);
+  border-bottom: 1px solid var(--pf-line);
   border-radius: 0;
   padding: 0 14px;
   display: flex;
@@ -149,10 +149,10 @@ async function handleClose() {
   gap: 16px;
   height: 52px;
   flex-shrink: 0;
-  /* Tauri 无边框窗口拖拽区�?*/
+  /* Tauri 无边框窗口拖拽区域 */
 }
 
-/* 空白区域可拖拽移动窗口（按钮和交互元素需排除�?*/
+/* 空白区域可拖拽移动窗口（按钮和交互元素需排除） */
 .topbar-left,
 .topbar-left .brand,
 .topbar-left .title,
@@ -170,7 +170,7 @@ async function handleClose() {
 .brand {
   width: 32px; height: 32px;
   border-radius: 10px;
-  background: var(--text-primary);
+  background: var(--pf-ink);
   position: relative;
   flex-shrink: 0;
 }
@@ -181,10 +181,10 @@ async function handleClose() {
   transform: translate(-50%, -50%);
   width: 11px; height: 11px;
   border-radius: 3px;
-  background: var(--accent);
+  background: var(--pf-accent);
 }
 .title { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
-.title sub { font-size: 10.5px; font-weight: 400; color: var(--text-tertiary); margin-left: 6px; }
+.title sub { font-size: 10.5px; font-weight: 400; color: var(--pf-ink-muted); margin-left: 6px; }
 
 .project-actions {
   display: flex;
@@ -195,32 +195,32 @@ async function handleClose() {
 .pa-btn {
   height: 28px;
   padding: 0 10px;
-  border: 1px solid var(--separator);
-  background: var(--glass-bg);
-  border-radius: var(--radius-xs);
+  border: 1px solid var(--pf-line);
+  background: var(--pf-surface);
+  border-radius: var(--pf-r-xs);
   font: inherit;
   font-size: 12px;
-  color: var(--text-secondary);
+  color: var(--pf-ink-soft);
   cursor: pointer;
   transition: all 160ms ease;
 }
 .pa-btn:hover {
-  border-color: var(--separator-strong);
-  color: var(--text-primary);
+  border-color: var(--pf-line-strong);
+  color: var(--pf-ink);
 }
 .pa-btn.primary {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--pf-accent);
+  border-color: var(--pf-accent);
   color: #fff;
 }
 .pa-btn.primary:hover {
-  background: var(--accent-pressed);
-  border-color: var(--accent-pressed);
+  background: var(--pf-accent-deep);
+  border-color: var(--pf-accent-deep);
 }
 
 .topbar-center {
   display: flex; align-items: center; gap: 4px;
-  background: var(--glass-bg-hover);
+  background: var(--pf-surface-soft);
   padding: 4px;
   border-radius: 999px;
 }
@@ -230,15 +230,15 @@ async function handleClose() {
   background: transparent;
   border-radius: 999px;
   display: grid; place-items: center;
-  color: var(--text-secondary);
+  color: var(--pf-ink-soft);
   font-size: 13px;
   cursor: pointer;
   transition: all 160ms ease;
 }
-.tp-btn:hover { background: var(--glass-bg); color: var(--text-primary); }
+.tp-btn:hover { background: var(--pf-surface); color: var(--pf-ink); }
 .tp-btn.play {
-  background: var(--text-primary);
-  color: var(--base-bg);
+  background: var(--pf-ink);
+  color: var(--pf-paper);
   width: 36px; height: 36px;
   margin: 0 4px;
   font-size: 11px;
@@ -256,7 +256,7 @@ async function handleClose() {
 .divider {
   width: 1px;
   height: 18px;
-  background: var(--separator-strong);
+  background: var(--pf-line-strong);
   margin: 0 6px;
   flex-shrink: 0;
 }
@@ -266,15 +266,15 @@ async function handleClose() {
   height: 30px;
   padding: 0 12px;
   border-radius: 999px;
-  background: var(--glass-bg-hover);
-  border: 1px solid var(--separator);
+  background: var(--pf-surface-soft);
+  border: 1px solid var(--pf-line);
   font-size: 12px;
   font-weight: 500;
-  color: var(--text-secondary);
+  color: var(--pf-ink-soft);
   display: inline-flex; align-items: center; gap: 6px;
   font-family: 'JetBrains Mono', monospace;
 }
-.chip strong { color: var(--text-primary); font-weight: 600; }
+.chip strong { color: var(--pf-ink); font-weight: 600; }
 .chip .dot { width: 6px; height: 6px; border-radius: 999px; }
 
 [data-tip] { position: relative; }
@@ -285,8 +285,8 @@ async function handleClose() {
   left: 50%;
   transform: translateX(-50%) scale(0.95);
   padding: 5px 10px;
-  background: var(--text-primary);
-  color: var(--base-bg);
+  background: var(--pf-ink);
+  color: var(--pf-paper);
   font-size: 11px;
   border-radius: 7px;
   white-space: nowrap;
@@ -313,13 +313,13 @@ async function handleClose() {
   border-radius: 8px;
   display: grid;
   place-items: center;
-  color: var(--text-tertiary);
+  color: var(--pf-ink-muted);
   cursor: pointer;
   transition: all 160ms ease;
 }
 .wc-btn:hover {
-  background: var(--glass-bg-hover);
-  color: var(--text-primary);
+  background: var(--pf-surface-soft);
+  color: var(--pf-ink);
 }
 .wc-btn.wc-close:hover {
   background: #e85555;

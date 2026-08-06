@@ -35,11 +35,19 @@ struct Uniforms {
 @group(0) @binding(3) var<storage, read> descriptorBuffer: array<u32>;
 @group(0) @binding(4) var<storage, read> regionBuffer: array<vec4f>;
 
+// 材质纹理绑定（material-backed 层通过 MaterialRenderBridge 预渲染）
+// 最多支持 4 个材质纹理，通过 packedMeta 高 16 位的 texIndex 选择
+@group(0) @binding(5) var matTex0: texture_2d<f32>;
+@group(0) @binding(6) var matTex1: texture_2d<f32>;
+@group(0) @binding(7) var matTex2: texture_2d<f32>;
+@group(0) @binding(8) var matTex3: texture_2d<f32>;
+
 // Opcode 枚举常量
 const OP_SOLID_COLOR: u32 = 0u;
 const OP_LINEAR_GRADIENT: u32 = 1u;
 const OP_NOISE: u32 = 2u;
 const OP_CIRCLE_SHAPE: u32 = 4u;
+const OP_IMAGE_TEXTURE: u32 = 5u;
 
 // 混合模式常量（Layer.blendMode）
 const BLEND_NORMAL: u32 = 0u;
@@ -51,8 +59,25 @@ const BLEND_SUBTRACT: u32 = 5u;
 
 const NO_REGION: u32 = 0xFFFFu;
 
+// 材质纹理采样函数
+fn sample_material_texture(texIndex: u32, coords: vec2f) -> vec4f {
+    let texSize = textureDimensions(matTex0);
+    let pixelCoords = vec2u(
+        u32(clamp(coords.x * f32(texSize.x), 0.0, f32(texSize.x - 1u))),
+        u32(clamp(coords.y * f32(texSize.y), 0.0, f32(texSize.y - 1u)))
+    );
+
+    switch (texIndex) {
+        case 0u: { return textureLoad(matTex0, pixelCoords, 0u); }
+        case 1u: { return textureLoad(matTex1, pixelCoords, 0u); }
+        case 2u: { return textureLoad(matTex2, pixelCoords, 0u); }
+        case 3u: { return textureLoad(matTex3, pixelCoords, 0u); }
+        default: { return vec4f(0.0, 0.0, 0.0, 1.0); }
+    }
+}
+
 // 单 layer 求值核心
-fn evaluate_opcode(opcode: u32, auxIndex: u32, coords: vec2f) -> vec4f {
+fn evaluate_opcode(opcode: u32, auxIndex: u32, coords: vec2f, texIndex: u32) -> vec4f {
     switch (opcode) {
         case OP_SOLID_COLOR: {
             return auxBuffer[auxIndex];
@@ -83,6 +108,15 @@ fn evaluate_opcode(opcode: u32, auxIndex: u32, coords: vec2f) -> vec4f {
             }
             return background;
         }
+        case OP_IMAGE_TEXTURE: {
+            // aux: [uvScaleX, uvScaleY, uvOffsetX, uvOffsetY, tintR, tintG, tintB, tintA]
+            let uvScale = auxBuffer[auxIndex].xy;
+            let uvOffset = auxBuffer[auxIndex].zw;
+            let tint = auxBuffer[auxIndex + 1u];
+            let uv = coords * uvScale + uvOffset;
+            let texColor = sample_material_texture(texIndex, uv);
+            return texColor * tint;
+        }
         default: {
             return vec4f(0.0, 0.0, 0.0, 1.0);
         }
@@ -108,7 +142,7 @@ fn blend_colors(dst: vec4f, src: vec4f, mode: u32) -> vec4f {
             let overlay = mix(
                 2.0 * dst.rgb * src.rgb,
                 1.0 - 2.0 * (1.0 - dst.rgb) * (1.0 - src.rgb),
-                step(0.5, dst.rgb)
+                step(vec3f(0.5), dst.rgb)
             );
             return vec4f(mix(dst.rgb, overlay, alpha), mix(dst.a, 1.0, alpha));
         }
@@ -155,12 +189,17 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 
     // 从底到顶遍历所有可见图层
     for (var i = 0u; i < layerCount; i++) {
-        let packedDesc = descriptorBuffer[2u * i];
+        let descIdx = 2u * i;
+        // 越界保护：descriptorBuffer 长度不足时停止
+        if (descIdx + 1u >= arrayLength(&descriptorBuffer)) {
+            break;
+        }
+        let packedDesc = descriptorBuffer[descIdx];
         let opcode = (packedDesc >> 24u) & 0xFFu;
         let blendMode = (packedDesc >> 16u) & 0xFFu;
         let auxIndex = packedDesc & 0xFFFFu;
 
-        let packedMeta = descriptorBuffer[2u * i + 1u];
+        let packedMeta = descriptorBuffer[descIdx + 1u];
         let regionIndex = packedMeta & 0xFFFFu;
 
         // 区域边界检测
@@ -168,7 +207,10 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             continue;
         }
 
-        let layerColor = evaluate_opcode(opcode, auxIndex, coords);
+        // 从 packedMeta 高 16 位提取材质纹理索引（0-3，非材质层为 0）
+        let texIndex = (packedMeta >> 16u) & 0xFFu;
+
+        let layerColor = evaluate_opcode(opcode, auxIndex, coords, texIndex);
         accumulatedColor = blend_colors(accumulatedColor, layerColor, blendMode);
     }
 

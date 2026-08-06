@@ -42,6 +42,7 @@ import type {
 } from './types'
 import { WGSLBuilder, castPortType } from './wgslBuilder'
 import { getShaderNode } from './shaderRegistry'
+import { detectFusionChains, type FusionChain } from './optimizer'
 
 // ============================================================================
 // 1. 拓扑排序(与 graph/runtime/scheduler.ts 类似,但独立实现避免循环依赖)
@@ -143,6 +144,16 @@ function findIncomingEdge(graph: MaterialGraph, nodeId: string, portId: string):
 /**
  * 把 MaterialGraph 编译为 WGSL fragment shader。
  *
+ * 优化: 如果图中存在连续的 FILTER 链(vec4→vec4)，编译器会:
+ *   1. 检测所有可融合链(detectFusionChains)
+ *   2. 对链中的非首节点，不生成独立的 let 语句
+ *   3. 而是记录链中每个节点的 WGSL 表达式，最终内联为嵌套调用
+ *   4. 只有链的首节点生成正常 let 语句（绑定到上游变量）
+ *
+ * 效果:
+ *   未优化: Noise → Blur → ColorCorrect → 3 个 let 语句 + 3 次中间变量赋值
+ *   优化后: 1 个 let 语句，内部为 pf_color_correct(pf_blur(pf_noise(uv)))
+ *
  * @param graph Material Graph
  * @returns CompileResult(wgsl / bindings / entryPoint / hash)
  * @throws 如果 graph 无效(无 OUTPUT 节点 / 有环 / 节点定义缺失)
@@ -174,10 +185,37 @@ export function compileMaterialGraph(graph: MaterialGraph): CompileResult {
   // —— 实际编译的节点总数(含 OUTPUT,用于摘要统计) ——
   let compiledNodeCount = 0
 
+  // —— 优化: 检测可融合的 FILTER 链 ——
+  const fusionChains = detectFusionChains(graph)
+  // 构建节点 → 所属链的映射
+  const nodeToChain = new Map<string, FusionChain>()
+  // 链首节点 → 链中后续节点的内联表达式累积器
+  // chainInlineExpr: 链首节点 ID → 当前累积的内联表达式
+  const chainInlineExpr = new Map<string, string>()
+  for (const chain of fusionChains) {
+    for (let i = 0; i < chain.nodes.length; i++) {
+      nodeToChain.set(chain.nodes[i].id, chain)
+    }
+  }
+  // 记录哪些节点已被内联处理（跳过正常编译）
+  const inlinedNodes = new Set<string>()
+
   // —— 按拓扑序遍历节点,调用每个节点的 generateWGSL ——
   for (const nodeId of order) {
     const node = graph.nodes.find((n) => n.id === nodeId)
     if (!node) continue
+
+    // 优化: 如果节点在融合链中且不是链首，跳过正常编译
+    // （已在链首节点的融合处理中计数和内联）
+    const chain = nodeToChain.get(nodeId)
+    if (chain && chain.nodes[0].id !== nodeId) {
+      // 已在 inlinedNodes 中标记的节点不重复计数
+      if (!inlinedNodes.has(nodeId)) {
+        inlinedNodes.add(nodeId)
+        compiledNodeCount++
+      }
+      continue
+    }
 
     const def = getShaderNode(node.templateKey)
     if (!def) {
@@ -252,6 +290,103 @@ export function compileMaterialGraph(graph: MaterialGraph): CompileResult {
         { kind: 'texture', group: 0, binding: bindingIdx, name: texName, sourceNodeId: nodeId },
         { kind: 'sampler', group: 0, binding: bindingIdx + 1, name: samplerName, sourceNodeId: nodeId },
       )
+    }
+
+    // 如果是融合链的首节点，使用专用 builder 捕获表达式
+    if (chain && chain.nodes[0].id === nodeId && chain.nodes.length >= 2) {
+      // 为链首节点创建独立 builder，捕获生成的代码
+      const fusedBuilder = new WGSLBuilder()
+      const fusedCtx: CompileContext = {
+        ...ctx,
+        builder: fusedBuilder,
+      }
+
+      // TEXTURE 节点仍需注册 binding（用 fusedCtx）
+      if (node.type === 'TEXTURE') {
+        // 已在上方处理 binding 注册（使用 bindingDecls）
+      }
+
+      def.generateWGSL(fusedCtx)
+
+      // 提取链首节点生成的 let 语句中的表达式
+      const fusedCode = fusedBuilder.build()
+      // 解析生成的代码，提取赋值表达式
+      // 格式: let varName: type = expr;
+      const match = fusedCode.match(/let\s+(\w+):\s*\S+\s*=\s*(.+);/s)
+      if (match) {
+        chainInlineExpr.set(nodeId, match[2].trim())
+      }
+
+      // 融合后的 let 语句使用链【尾】节点的输出变量名
+      // （下游节点引用的是链尾节点的输出变量，不是链首的）
+      builder.addLine(`// [Fused chain start] ${chain.nodes.map((n) => n.name).join(' → ')}`)
+      const lastChainNode = chain.nodes[chain.nodes.length - 1]
+      const lastOut = lastChainNode.outputs[0]
+      const lastVar = varMap.get(`${lastChainNode.id}:${lastOut?.id}`)
+      if (lastVar && chainInlineExpr.has(nodeId)) {
+        // 累积链中后续节点的表达式
+        let inlineExpr = chainInlineExpr.get(nodeId)!
+
+        // 遍历链中后续节点，逐步内联
+        for (let ci = 1; ci < chain.nodes.length; ci++) {
+          const chainNode = chain.nodes[ci]
+          const chainDef = getShaderNode(chainNode.templateKey)
+          if (!chainDef) break
+
+          // 为后续节点创建上下文，输入用当前累积的内联表达式
+          const chainInputVars = new Map<string, string>()
+          // FILTER 节点只有一个 vec4 输入，用上游的内联表达式
+          const chainInPort = chainNode.inputs[0]
+          if (chainInPort) {
+            // 检查上游是否就是链中前一个节点
+            const chainEdge = findIncomingEdge(graph, chainNode.id, chainInPort.id)
+            if (chainEdge && chainEdge.from === chain.nodes[ci - 1].id) {
+              chainInputVars.set(chainInPort.id, inlineExpr)
+            } else {
+              chainInputVars.set(chainInPort.id, WGSLBuilder.zeroLiteral(chainInPort.type))
+            }
+          }
+
+          const chainOutputVars = new Map<string, string>()
+          const chainOutPort = chainNode.outputs[0]
+          if (chainOutPort) {
+            const v = varMap.get(`${chainNode.id}:${chainOutPort.id}`)
+            if (v) chainOutputVars.set(chainOutPort.id, v)
+          }
+
+          const chainBuilder = new WGSLBuilder()
+          const chainCtx: CompileContext = {
+            nodeId: chainNode.id,
+            node: chainNode,
+            inputVarNames: chainInputVars,
+            outputVarNames: chainOutputVars,
+            resolution: graph.canvas,
+            bindings: bindingDecls,
+            helperFunctions,
+            builder: chainBuilder,
+          }
+
+          chainDef.generateWGSL(chainCtx)
+          const chainCode = chainBuilder.build()
+          const chainMatch = chainCode.match(/let\s+\w+:\s*\S+\s*=\s*(.+);/s)
+          if (chainMatch) {
+            inlineExpr = chainMatch[1].trim()
+            chainInlineExpr.set(nodeId, inlineExpr)
+          }
+          inlinedNodes.add(chainNode.id)
+          compiledNodeCount++
+        }
+
+        // 最终生成一个 let 语句，用内联表达式，变量名用链尾节点的
+        builder.addLine(`let ${lastVar}: ${WGSLBuilder.typeDecl(lastOut.type)} = ${inlineExpr};`)
+        builder.addLine(`// [Fused chain end]`)
+        builder.addEmptyLine()
+        // 更新 nodeVarMap：链尾节点的输出变量映射
+        nodeVarMap.set(lastChainNode.id, lastVar)
+        // helper functions 仍由 fusedCtx 累积
+        continue
+      }
+      // 如果解析失败，回退到正常编译
     }
 
     def.generateWGSL(ctx)

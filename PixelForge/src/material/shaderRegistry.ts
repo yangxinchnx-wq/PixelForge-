@@ -216,9 +216,9 @@ const FBM_NODE: ShaderNodeDefinition = {
     )
     ctx.helperFunctions.add(
       `fn pf_fbm(p: vec2<f32>) -> f32 {
-        let total: f32 = 0.0;
-        let amp: f32 = 0.5;
-        let freq: f32 = 1.0;
+        var total: f32 = 0.0;
+        var amp: f32 = 0.5;
+        var freq: f32 = 1.0;
         for (var i: i32 = 0; i < ${octaves}; i = i + 1) {
           total = total + amp * pf_hash(p * freq);
           freq = freq * ${lacunarity.toFixed(1)};

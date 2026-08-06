@@ -3,6 +3,7 @@
   "productName": "PixelForge",
   "identifier": "com.pixelforge.app",
   "build": {
+    "beforeDevCommand": "npm run dev",
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173"
   },
@@ -18,7 +19,7 @@
         "fullscreen": false,
         "decorations": false,
         "transparent": false,
-        "maximizable": false
+        "maximizable": true
       }
     ]
   },

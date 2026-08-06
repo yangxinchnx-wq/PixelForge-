@@ -42,6 +42,22 @@ const ctx = self as unknown as DedicatedWorkerGlobalScope
 /** 子目录句柄缓存，避免每次都遍历根目录 */
 const dirHandleCache = new Map<string, FileSystemDirectoryHandle>()
 
+/** Per-file 互斥锁：同一文件同一时间只允许一个 access handle */
+const fileLocks = new Map<string, Promise<void>>()
+
+/**
+ * 对同一个文件（namespace/filename）的操作串行化。
+ * 解决 OPFS 规范限制：同一文件不能同时有多个 open access handle。
+ */
+function withFileLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const prev = fileLocks.get(key) ?? Promise.resolve()
+  const next = prev.then(() => fn(), () => fn())
+  // 保持链不断，即使中间步骤失败后续请求也能继续
+  const chained = next.then(() => undefined, () => undefined)
+  fileLocks.set(key, chained)
+  return next
+}
+
 async function getNamespaceDir(
   root: FileSystemDirectoryHandle,
   namespace: string
@@ -54,6 +70,19 @@ async function getNamespaceDir(
 }
 
 async function handleRequest(req: OpfsRequest): Promise<OpfsResponse> {
+  const { id, op, namespace, filename } = req
+
+  // list 和 clear 是目录级操作，不需要 per-file 锁
+  if (op === 'list' || op === 'clear') {
+    return handleDirOp(req)
+  }
+
+  // read / write / delete / exists 需要 per-file 锁
+  const fileKey = `${namespace}/${filename}`
+  return withFileLock(fileKey, () => handleFileOp(req))
+}
+
+async function handleFileOp(req: OpfsRequest): Promise<OpfsResponse> {
   const { id, op, namespace, filename } = req
   try {
     const root = await navigator.storage.getDirectory()
@@ -121,6 +150,21 @@ async function handleRequest(req: OpfsRequest): Promise<OpfsResponse> {
         }
       }
 
+      default:
+        return { id, ok: false, error: `未知 op: ${op}` }
+    }
+  } catch (e) {
+    return { id, ok: false, error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+async function handleDirOp(req: OpfsRequest): Promise<OpfsResponse> {
+  const { id, op, namespace } = req
+  try {
+    const root = await navigator.storage.getDirectory()
+    const dir = await getNamespaceDir(root, namespace)
+
+    switch (op) {
       case 'list': {
         const files: string[] = []
         const prefix = req.prefix ?? ''

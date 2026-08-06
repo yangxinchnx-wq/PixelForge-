@@ -94,6 +94,8 @@ export function compileRenderIRToRegionArtifact(ir: RenderIR): RegionCompileArti
   // 编译每个图层
   const layerEntries: LayerCompileEntry[] = []
   let auxOffset = 0
+  // 为 material-backed 层分配纹理 slot（0-3，按 materialId 去重）
+  const materialSlotMap = new Map<string, number>()
 
   for (let i = 0; i < visibleLayers.length; i++) {
     const layer = visibleLayers[i]
@@ -118,8 +120,23 @@ export function compileRenderIRToRegionArtifact(ir: RenderIR): RegionCompileArti
       }
     }
 
+    // 为 material-backed 层分配纹理 slot
+    let matTexIndex = 0
+    if (layer.materialId) {
+      const existing = materialSlotMap.get(layer.materialId)
+      if (existing !== undefined) {
+        matTexIndex = existing
+      } else if (materialSlotMap.size < 4) {
+        matTexIndex = materialSlotMap.size
+        materialSlotMap.set(layer.materialId, matTexIndex)
+      } else {
+        matTexIndex = 0 // 超过 4 个材质时回退到 slot 0
+      }
+    }
+
     const packedDesc = (opcodeId << 24) | (blendModeId << 16) | (auxOffset & 0xFFFF)
-    const packedMeta = (regionIndex & 0xFFFF) | (0 << 16)
+    // 高 16 位存储材质纹理索引（0-3），低 16 位存储 regionIndex
+    const packedMeta = (regionIndex & 0xFFFF) | ((matTexIndex & 0xFF) << 16)
 
     layerEntries.push({
       layerId: layer.id,
@@ -260,6 +277,10 @@ const OPCODE_IDS: Record<keyof typeof Opcode, number> = {
 }
 
 function readOpcodeName(layer: Layer): keyof typeof Opcode {
+  // material-backed 层：无论原始 opcode 是什么，都视为 IMAGE_TEXTURE
+  if (layer.materialId) {
+    return 'IMAGE_TEXTURE'
+  }
   const entry = Object.entries(Opcode).find(([, value]) => value === layer.opcode)
   if (!entry) {
     throw createRuntimeError('runtime/compile-error', `Unknown opcode value: ${layer.opcode}`)
@@ -281,9 +302,33 @@ function createAuxData(layer: Layer, opcode: keyof typeof Opcode): Float32Array 
       return createNoiseAuxData(layer)
     case 'CIRCLE_SHAPE':
       return createCircleShapeAuxData(layer)
+    case 'IMAGE_TEXTURE':
+      // material-backed 层和图片纹理层使用相同的 aux 格式
+      return createImageTextureAuxData(layer)
     default:
       throw createRuntimeError('runtime/compile-error', `Unsupported opcode: ${opcode}`)
   }
+}
+
+/**
+ * IMAGE_TEXTURE 层的 aux 数据。
+ * material-backed 层也使用此格式。
+ *
+ * 格式: [uvScaleX, uvScaleY, uvOffsetX, uvOffsetY, r, g, b, a]
+ * - uvScale/uvOffset: 纹理坐标缩放和偏移（默认全屏覆盖）
+ * - rgba: 染色色（默认白色不透明，即不染色）
+ */
+function createImageTextureAuxData(layer: Layer): Float32Array {
+  const uvScaleX = readNumber(layer.params.uvScaleX ?? layer.params.scale, 1)
+  const uvScaleY = readNumber(layer.params.uvScaleY, uvScaleX)
+  const uvOffsetX = readNumber(layer.params.uvOffsetX, 0)
+  const uvOffsetY = readNumber(layer.params.uvOffsetY, 0)
+  // 染色色（默认白色 = 不染色）
+  const tint = readColorVector(layer.params.tint ?? layer.params.color, [1, 1, 1, 1])
+  return new Float32Array([
+    uvScaleX, uvScaleY, uvOffsetX, uvOffsetY,
+    tint[0], tint[1], tint[2], tint[3],
+  ])
 }
 
 function createSolidColorAuxData(layer: Layer): Float32Array {

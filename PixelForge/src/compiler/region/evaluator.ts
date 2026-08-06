@@ -15,6 +15,7 @@ const BUFFER_USAGE_STORAGE = typeof GPUBufferUsage !== 'undefined' ? GPUBufferUs
 const BUFFER_USAGE_UNIFORM = typeof GPUBufferUsage !== 'undefined' ? GPUBufferUsage.UNIFORM : 0x0040
 const BUFFER_USAGE_COPY_DST = typeof GPUBufferUsage !== 'undefined' ? GPUBufferUsage.COPY_DST : 0x0008
 const TEXTURE_USAGE_TEXTURE_BINDING = typeof GPUTextureUsage !== 'undefined' ? GPUTextureUsage.TEXTURE_BINDING : 0x0004
+const TEXTURE_USAGE_COPY_DST = typeof GPUTextureUsage !== 'undefined' ? GPUTextureUsage.COPY_DST : 0x0008
 
 export interface RegionEvaluator {
   render: (artifact: RegionCompileArtifact, materialTextures?: MaterialTextureBinding[]) => void
@@ -63,7 +64,7 @@ export function createRegionEvaluator(
       label: `material_dummy_${i}`,
       size: { width: 1, height: 1, depthOrArrayLayers: 1 },
       format: 'rgba8unorm',
-      usage: TEXTURE_USAGE_TEXTURE_BINDING | BUFFER_USAGE_COPY_DST,
+      usage: TEXTURE_USAGE_TEXTURE_BINDING | TEXTURE_USAGE_COPY_DST,
     })
     dummyTextures.push(tex)
     dummyViews.push(tex.createView())
@@ -125,19 +126,19 @@ export function createRegionEvaluator(
       // ---- 创建本帧数据缓冲区（按 artifact 实际大小分配）----
       const descriptorBuffer = device.createBuffer({
         label: '图层描述符缓冲区',
-        size: Math.max(artifact.descriptorData.byteLength, 4),
+        size: Math.max(artifact.descriptorData.byteLength, 16),
         usage: BUFFER_USAGE_STORAGE | BUFFER_USAGE_COPY_DST,
       })
 
       const auxBuffer = device.createBuffer({
         label: '图层辅助参数缓冲区',
-        size: Math.max(artifact.auxData.byteLength, 4),
+        size: Math.max(artifact.auxData.byteLength, 16),
         usage: BUFFER_USAGE_STORAGE | BUFFER_USAGE_COPY_DST,
       })
 
       const regionBuffer = device.createBuffer({
         label: '区域边界缓冲区',
-        size: Math.max(artifact.regionData.byteLength, 4),
+        size: Math.max(artifact.regionData.byteLength, 16),
         usage: BUFFER_USAGE_STORAGE | BUFFER_USAGE_COPY_DST,
       })
 

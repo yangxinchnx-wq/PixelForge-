@@ -25,10 +25,10 @@ const emit = defineEmits<{
     <header class="canvas-head">
       <div>
         <span class="canvas-title">画布预览</span>
-        <span class="canvas-tag">WebGPU · �?{{ hud.frame }}</span>
+        <span class="canvas-tag">WebGPU · 帧 {{ hud.frame }}</span>
       </div>
       <div class="canvas-actions">
-        <button class="btn" data-tip="store.initialize(canvas)" @click="emit('init')">初始�?/button>
+        <button class="btn" data-tip="store.initialize(canvas)" @click="emit('init')">初始化</button>
         <button class="btn btn-dark" data-tip="store.renderCurrentIR()" @click="emit('render')">渲染当前</button>
         <button class="btn btn-accent" data-tip="批量生成" @click="emit('batch')">批量生成</button>
       </div>
@@ -51,9 +51,9 @@ const emit = defineEmits<{
 
 <style scoped>
 .canvas-view {
-  background: var(--glass-bg);
-  border: 1px solid var(--separator);
-  border-radius: var(--radius-md);
+  background: var(--pf-surface);
+  border: 1px solid var(--pf-line);
+  border-radius: var(--pf-r-md);
   padding: 12px;
   display: flex;
   flex-direction: column;
@@ -71,10 +71,10 @@ const emit = defineEmits<{
 .canvas-tag {
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
-  color: var(--accent);
+  color: var(--pf-accent);
   padding: 2px 8px;
   border-radius: 6px;
-  background: rgba(10, 132, 255, 0.12);
+  background: var(--pf-accent-soft);
   margin-left: 8px;
 }
 .canvas-actions { display: flex; gap: 6px; }
@@ -83,27 +83,27 @@ const emit = defineEmits<{
   height: 32px;
   padding: 0 14px;
   border-radius: 999px;
-  background: var(--glass-bg-hover);
-  border: 1px solid var(--separator);
+  background: var(--pf-surface-soft);
+  border: 1px solid var(--pf-line);
   font: inherit;
   font-size: 12.5px;
   font-weight: 500;
-  color: var(--text-primary);
+  color: var(--pf-ink);
   cursor: pointer;
   transition: all 180ms cubic-bezier(0.22, 1, 0.36, 1);
   display: inline-flex; align-items: center; gap: 6px;
 }
-.btn:hover { border-color: var(--separator-strong); transform: translateY(-1px); }
+.btn:hover { border-color: var(--pf-line-strong); transform: translateY(-1px); }
 .btn:active { transform: translateY(0) scale(0.98); }
-.btn-accent { background: var(--accent); color: #fff; border-color: var(--accent); }
-.btn-accent:hover { background: var(--accent-pressed); border-color: var(--accent-pressed); }
-.btn-dark { background: var(--text-primary); color: var(--base-bg); border-color: var(--text-primary); }
+.btn-accent { background: var(--pf-accent); color: #fff; border-color: var(--pf-accent); }
+.btn-accent:hover { background: var(--pf-accent-deep); border-color: var(--pf-accent-deep); }
+.btn-dark { background: var(--pf-ink); color: var(--pf-paper); border-color: var(--pf-ink); }
 .btn-dark:hover { background: #2a2620; }
 
 .canvas-frame {
   flex: 1;
   min-height: 0;
-  border-radius: var(--radius-lg);
+  border-radius: var(--pf-r-lg);
   background: #0d0c10;
   position: relative;
   overflow: hidden;
@@ -145,14 +145,14 @@ const emit = defineEmits<{
   background: rgba(255, 255, 255, 0.94);
   font-size: 11.5px;
   font-weight: 500;
-  color: var(--text-primary);
+  color: var(--pf-ink);
   font-family: 'JetBrains Mono', monospace;
 }
 .canvas-corner::before {
   content: '';
   width: 6px; height: 6px;
   border-radius: 999px;
-  background: var(--accent);
+  background: var(--pf-accent);
 }
 .canvas-readout {
   position: absolute;
@@ -163,7 +163,7 @@ const emit = defineEmits<{
 }
 .readout {
   padding: 7px 11px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--pf-r-sm);
   background: rgba(255, 255, 255, 0.94);
   display: grid;
   gap: 1px;
@@ -171,7 +171,7 @@ const emit = defineEmits<{
 }
 .readout span {
   font-size: 9.5px;
-  color: var(--text-tertiary);
+  color: var(--pf-ink-muted);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   font-weight: 600;
@@ -180,9 +180,9 @@ const emit = defineEmits<{
   font-size: 12.5px;
   font-weight: 600;
   font-family: 'JetBrains Mono', monospace;
-  color: var(--text-primary);
+  color: var(--pf-ink);
 }
-.readout.accent strong { color: var(--accent); }
+.readout.accent strong { color: var(--pf-accent); }
 
 [data-tip] { position: relative; }
 [data-tip]::after {
@@ -192,8 +192,8 @@ const emit = defineEmits<{
   left: 50%;
   transform: translateX(-50%) scale(0.95);
   padding: 5px 10px;
-  background: var(--text-primary);
-  color: var(--base-bg);
+  background: var(--pf-ink);
+  color: var(--pf-paper);
   font-size: 11px;
   border-radius: 7px;
   white-space: nowrap;

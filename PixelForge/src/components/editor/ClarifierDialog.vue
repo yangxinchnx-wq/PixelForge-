@@ -24,16 +24,16 @@ const emit = defineEmits<{
   cancel: []
 }>()
 
-// 用户作答状�?�?question.id �?key)
+// 用户作答状态(以 question.id 为 key)
 const answers = ref<Record<string, string | number | undefined>>({})
 
-// —�?�?questions 变化�?初始�?answers 为默认�?—�?
+// —— 当 questions 变化时,初始化 answers 为默认值 ——
 watch(
   () => props.questions,
   (newQuestions) => {
     const next: Record<string, string | number | undefined> = {}
     for (const q of newQuestions) {
-      // 优先保留已有答案,否则用默认�?
+      // 优先保留已有答案,否则用默认值
       next[q.id] = answers.value[q.id] ?? q.defaultValue
     }
     answers.value = next
@@ -41,7 +41,7 @@ watch(
   { immediate: true },
 )
 
-// —�?当弹窗关闭再打开�?重置 answers —�?
+// —— 当弹窗关闭再打开时,重置 answers ——
 watch(
   () => props.visible,
   (visible) => {
@@ -55,15 +55,15 @@ watch(
   },
 )
 
-// 已识别字段的可读汇�?
+// 已识别字段的可读汇总
 const recognizedSummary = computed(() => summarizeRequirement(props.requirement))
 
-// 是否所有问题都已作�?�?undefined)
+// 是否所有问题都已作答(非 undefined)
 const allAnswered = computed(() => {
   return props.questions.every((q) => answers.value[q.id] !== undefined)
 })
 
-// 已回答数�?
+// 已回答数量
 const answeredCount = computed(() => {
   return props.questions.filter((q) => answers.value[q.id] !== undefined).length
 })
@@ -97,18 +97,18 @@ function handleSkip() {
     <div v-if="visible" class="clarifier-overlay" @click.self="handleClose">
       <Transition name="clarifier-pop" appear>
         <div v-if="visible" class="clarifier-dialog" role="dialog" aria-modal="true">
-          <!-- 标题�?-->
+          <!-- 标题栏 -->
           <header class="clarifier-header">
             <div class="header-title">
-              <span class="title-text">需求澄�?/span>
+              <span class="title-text">需求澄清</span>
               <span class="title-count">{{ answeredCount }} / {{ questions.length }}</span>
             </div>
             <button class="close-btn" data-tip="取消澄清" @click="handleClose">×</button>
           </header>
 
-          <!-- 已识别字段汇�?让用户知道哪些信息已被自动识�? -->
+          <!-- 已识别字段汇总(让用户知道哪些信息已被自动识别) -->
           <section v-if="recognizedSummary && recognizedSummary !== '(未识别到任何创作意图)'" class="recognized-section">
-            <div class="section-label">已识�?/div>
+            <div class="section-label">已识别</div>
             <div class="recognized-text">{{ recognizedSummary }}</div>
           </section>
 
@@ -135,12 +135,12 @@ function handleSkip() {
             </div>
           </section>
 
-          <!-- 底部操作�?-->
+          <!-- 底部操作栏 -->
           <footer class="clarifier-footer">
-            <button class="btn btn-ghost" data-tip="使用默认值补全需�? @click="handleSkip">
-              使用默认�?
+            <button class="btn btn-ghost" data-tip="使用默认值补全需求" @click="handleSkip">
+              使用默认值
             </button>
-            <button class="btn btn-accent" :disabled="!allAnswered" data-tip="提交答案并生成需�? @click="handleSubmit">
+            <button class="btn btn-accent" :disabled="!allAnswered" data-tip="提交答案并生成需求" @click="handleSubmit">
               确认生成
             </button>
           </footer>
@@ -151,7 +151,7 @@ function handleSkip() {
 </template>
 
 <style scoped>
-/* —�?遮罩�?—�?*/
+/* —— 遮罩层 —— */
 .clarifier-overlay {
   position: fixed;
   inset: 0;
@@ -165,14 +165,14 @@ function handleSkip() {
   padding: 24px;
 }
 
-/* —�?弹窗主体 —�?*/
+/* —— 弹窗主体 —— */
 .clarifier-dialog {
   width: 100%;
   max-width: 540px;
   max-height: 85vh;
-  background: var(--glass-bg);
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--separator);
+  background: var(--pf-surface);
+  border-radius: var(--pf-r-xl);
+  border: 1px solid var(--pf-line);
   box-shadow:
     0 20px 60px rgba(20, 18, 14, 0.18),
     0 4px 12px rgba(20, 18, 14, 0.08);
@@ -182,13 +182,13 @@ function handleSkip() {
   font-family: 'Inter', system-ui, sans-serif;
 }
 
-/* —�?标题�?—�?*/
+/* —— 标题栏 —— */
 .clarifier-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 18px 24px 14px;
-  border-bottom: 1px solid var(--separator);
+  border-bottom: 1px solid var(--pf-line);
 }
 
 .header-title {
@@ -200,14 +200,14 @@ function handleSkip() {
 .title-text {
   font-size: 17px;
   font-weight: 600;
-  color: var(--text-primary);
+  color: var(--pf-ink);
   letter-spacing: 0.01em;
 }
 
 .title-count {
   font-size: 12px;
   font-variant-numeric: tabular-nums;
-  color: var(--text-tertiary);
+  color: var(--pf-ink-muted);
   font-family: 'JetBrains Mono', monospace;
 }
 
@@ -217,7 +217,7 @@ function handleSkip() {
   border-radius: 50%;
   border: none;
   background: transparent;
-  color: var(--text-tertiary);
+  color: var(--pf-ink-muted);
   font-size: 20px;
   line-height: 1;
   cursor: pointer;
@@ -228,21 +228,21 @@ function handleSkip() {
 }
 
 .close-btn:hover {
-  background: var(--glass-bg-hover);
-  color: var(--text-primary);
+  background: var(--pf-surface-soft);
+  color: var(--pf-ink);
 }
 
-/* —�?已识别字段汇�?—�?*/
+/* —— 已识别字段汇总 —— */
 .recognized-section {
   padding: 14px 24px;
-  background: rgba(10, 132, 255, 0.12);
+  background: var(--pf-accent-soft);
   border-bottom: 1px solid rgba(184, 92, 46, 0.12);
 }
 
 .section-label {
   font-size: 11px;
   font-weight: 600;
-  color: var(--accent);
+  color: var(--pf-accent);
   letter-spacing: 0.05em;
   text-transform: uppercase;
   margin-bottom: 6px;
@@ -250,11 +250,11 @@ function handleSkip() {
 
 .recognized-text {
   font-size: 13px;
-  color: var(--text-secondary);
+  color: var(--pf-ink-soft);
   line-height: 1.6;
 }
 
-/* —�?警告 —�?*/
+/* —— 警告 —— */
 .warnings-section {
   padding: 10px 24px;
   background: rgba(184, 132, 36, 0.06);
@@ -263,11 +263,11 @@ function handleSkip() {
 
 .warning-item {
   font-size: 12px;
-  color: var(--toggle-solo);
+  color: var(--pf-warning);
   line-height: 1.5;
 }
 
-/* —�?问题列表 —�?*/
+/* —— 问题列表 —— */
 .questions-section {
   flex: 1;
   overflow-y: auto;
@@ -286,7 +286,7 @@ function handleSkip() {
 .question-title {
   font-size: 14px;
   font-weight: 500;
-  color: var(--text-primary);
+  color: var(--pf-ink);
   line-height: 1.4;
 }
 
@@ -299,9 +299,9 @@ function handleSkip() {
 .option-chip {
   padding: 7px 14px;
   border-radius: 999px;
-  border: 1px solid var(--separator);
-  background: var(--glass-bg);
-  color: var(--text-secondary);
+  border: 1px solid var(--pf-line);
+  background: var(--pf-surface);
+  color: var(--pf-ink-soft);
   font: inherit;
   font-size: 12.5px;
   cursor: pointer;
@@ -310,26 +310,26 @@ function handleSkip() {
 }
 
 .option-chip:hover {
-  border-color: var(--separator-strong);
-  color: var(--text-primary);
+  border-color: var(--pf-line-strong);
+  color: var(--pf-ink);
   transform: translateY(-1px);
 }
 
 .option-chip.active {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--pf-accent);
+  border-color: var(--pf-accent);
   color: #fff;
   transform: translateY(0);
   box-shadow: 0 4px 12px rgba(184, 92, 46, 0.24);
 }
 
-/* —�?底部操作�?—�?*/
+/* —— 底部操作栏 —— */
 .clarifier-footer {
   display: flex;
   gap: 10px;
   padding: 16px 24px 20px;
-  border-top: 1px solid var(--separator);
-  background: var(--glass-bg);
+  border-top: 1px solid var(--pf-line);
+  background: var(--pf-surface);
 }
 
 .clarifier-footer .btn {
@@ -337,17 +337,17 @@ function handleSkip() {
   height: 40px;
 }
 
-/* —�?按钮(�?PromptPanel 风格一�? —�?*/
+/* —— 按钮(与 PromptPanel 风格一致) —— */
 .btn {
   height: 36px;
   padding: 0 16px;
   border-radius: 999px;
-  background: var(--glass-bg-hover);
-  border: 1px solid var(--separator);
+  background: var(--pf-surface-soft);
+  border: 1px solid var(--pf-line);
   font: inherit;
   font-size: 13px;
   font-weight: 500;
-  color: var(--text-primary);
+  color: var(--pf-ink);
   cursor: pointer;
   transition: all 180ms cubic-bezier(0.22, 1, 0.36, 1);
   display: inline-flex;
@@ -357,7 +357,7 @@ function handleSkip() {
 }
 
 .btn:hover {
-  border-color: var(--separator-strong);
+  border-color: var(--pf-line-strong);
   transform: translateY(-1px);
 }
 
@@ -366,25 +366,25 @@ function handleSkip() {
 }
 
 .btn-accent {
-  background: var(--accent);
+  background: var(--pf-accent);
   color: #fff;
-  border-color: var(--accent);
+  border-color: var(--pf-accent);
 }
 
 .btn-accent:hover {
-  background: var(--accent-pressed);
-  border-color: var(--accent-pressed);
+  background: var(--pf-accent-deep);
+  border-color: var(--pf-accent-deep);
 }
 
 .btn-ghost {
   background: transparent;
-  color: var(--text-secondary);
-  border-color: var(--separator);
+  color: var(--pf-ink-soft);
+  border-color: var(--pf-line);
 }
 
 .btn-ghost:hover {
-  background: var(--glass-bg-hover);
-  color: var(--text-primary);
+  background: var(--pf-surface-soft);
+  color: var(--pf-ink);
 }
 
 .btn:disabled {
@@ -393,7 +393,7 @@ function handleSkip() {
   transform: none;
 }
 
-/* —�?过渡动画(iOS 风格) —�?*/
+/* —— 过渡动画(iOS 风格) —— */
 .clarifier-fade-enter-active,
 .clarifier-fade-leave-active {
   transition: opacity 220ms cubic-bezier(0.22, 1, 0.36, 1);
