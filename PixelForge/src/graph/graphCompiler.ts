@@ -45,6 +45,7 @@ import type {
 } from './types'
 import { DEFAULT_GRAPH_CANVAS, SUPPORTED_EFFECT_TYPES } from './types'
 import { validateGraph } from './validator'
+import { inlineSubGraphs } from './subgraphInliner'
 
 /**
  * opcodeName → Opcode enum 映射(与 generator/renderIRGenerator 一致)。
@@ -233,16 +234,20 @@ export function compileGraph(
     source = 'llm_parser',
   } = options
 
-  // —— 1. 校验 ——
-  const validation = validateGraph(graph)
+  // —— 1. 子图内联（借鉴 Gigi SubGraphs.cpp） ——
+  // 将 SUBGRAPH 节点递归展开为普通节点，然后再进行验证和编译
+  const resolvedGraph = inlineSubGraphs(graph)
+
+  // —— 2. 校验 ——
+  const validation = validateGraph(resolvedGraph)
   if (!validation.valid) {
     throw new Error(`Graph 校验失败:\n${validation.errors.join('\n')}`)
   }
 
-  // —— 2. 拓扑排序 ——
-  const topoOrder = topologicalSort(graph)
+  // —— 3. 拓扑排序 ——
+  const topoOrder = topologicalSort(resolvedGraph)
   const nodeMap = new Map<string, GraphNode>()
-  for (const node of graph.nodes) {
+  for (const node of resolvedGraph.nodes) {
     nodeMap.set(node.id, node)
   }
 
@@ -254,7 +259,7 @@ export function compileGraph(
 
   // 反向邻接表:to → [from](用于查 EFFECT 的前驱 REGION)
   const reverseAdjacency = new Map<string, string[]>()
-  for (const edge of graph.edges) {
+  for (const edge of resolvedGraph.edges) {
     if (!reverseAdjacency.has(edge.to)) {
       reverseAdjacency.set(edge.to, [])
     }
@@ -375,8 +380,8 @@ export function compileGraph(
   }
 
   // —— 6. 组装 RenderIR ——
-  const width = canvasWidth ?? graph.canvas?.width ?? DEFAULT_GRAPH_CANVAS.width
-  const height = canvasHeight ?? graph.canvas?.height ?? DEFAULT_GRAPH_CANVAS.height
+  const width = canvasWidth ?? resolvedGraph.canvas?.width ?? DEFAULT_GRAPH_CANVAS.width
+  const height = canvasHeight ?? resolvedGraph.canvas?.height ?? DEFAULT_GRAPH_CANVAS.height
 
   const ir: RenderIR = {
     canvas: { width, height },

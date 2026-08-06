@@ -331,6 +331,25 @@ export class InputEvaluator implements NodeEvaluator {
   }
 }
 
+/**
+ * SUBGRAPH 节点求值器(子图引用)。
+ *
+ * SUBGRAPH 节点在编译阶段应被 inlineSubGraphs() 展开为普通节点。
+ * 如果到达运行时仍有 SUBGRAPH 节点，说明内联未执行或失败，应抛出错误。
+ *
+ * 这是防御性设计（对应 Gigi 的编译期展开策略）。
+ */
+export class SubGraphEvaluator implements NodeEvaluator {
+  readonly nodeType: NodeType = 'SUBGRAPH'
+
+  async execute(node: GraphNode, _ctx: RuntimeContext): Promise<TextureHandle> {
+    throw new Error(
+      `SUBGRAPH 节点 ${node.name}(${node.id}) 未被内联就到达了运行时。` +
+      `请确保在编译前调用 inlineSubGraphs() 展开所有子图节点。`,
+    )
+  }
+}
+
 // ============================================================================
 // Evaluator Registry — 按 nodeType 查表
 // ============================================================================
@@ -353,6 +372,7 @@ export const EvaluatorRegistry: Record<NodeType, NodeEvaluator> = {
   EFFECT: new EffectEvaluator(),
   COMPOSITE: new CompositeEvaluator(),
   OUTPUT: new OutputEvaluator(),
+  SUBGRAPH: new SubGraphEvaluator(),
 }
 
 /**

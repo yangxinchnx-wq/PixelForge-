@@ -25,7 +25,7 @@
  */
 
 import type { JsonLiteral } from '@/shared/types'
-import type { NodeType, Port } from './types'
+import type { NodeType, Port, SubGraphDefinition } from './types'
 
 /**
  * 节点定义(注册表中的静态描述)。
@@ -49,7 +49,7 @@ export interface NodeDefinition {
   inputs: Port[]
   outputs: Port[]
   defaultParams: Record<string, JsonLiteral>
-  category: 'background' | 'shape' | 'effect' | 'composite' | 'output'
+  category: 'background' | 'shape' | 'effect' | 'composite' | 'output' | 'subgraph'
 }
 
 /** texture 输出端口(常用) */
@@ -265,6 +265,18 @@ export const NodeRegistry = {
     defaultParams: {},
     category: 'output',
   },
+
+  // —— SUBGRAPH: 子图类(借鉴 Gigi SubGraphs.cpp) ——
+  SubGraph: {
+    key: 'SubGraph',
+    label: '子图',
+    type: 'SUBGRAPH',
+    description: '引用已定义的子图模块(编译时递归内联为普通节点)',
+    inputs: [],   // 动态生成（从 SubGraphDefinition.inputPorts 映射）
+    outputs: [],  // 动态生成（从 SubGraphDefinition.outputPorts 映射）
+    defaultParams: {},
+    category: 'subgraph',
+  },
 } as const satisfies Record<string, NodeDefinition>
 
 /** 注册表 key 类型 */
@@ -327,4 +339,30 @@ export function findEffectNodeByType(
     }
   }
   return undefined
+}
+
+/**
+ * 根据子图定义动态生成 SubGraph 节点的端口列表。
+ *
+ * SUBGRAPH 节点的端口是动态的（取决于引用的 SubGraphDefinition），
+ * 不能在注册表中静态定义。此函数从 SubGraphDefinition 生成端口列表。
+ *
+ * @param subgraphDef 子图定义
+ * @returns { inputs, outputs } 端口列表
+ */
+export function getSubGraphPorts(subgraphDef: SubGraphDefinition): {
+  inputs: Port[]
+  outputs: Port[]
+} {
+  const inputs: Port[] = subgraphDef.inputPorts.map((p) => ({
+    id: p.id,
+    name: p.name,
+    type: p.type,
+  }))
+  const outputs: Port[] = subgraphDef.outputPorts.map((p) => ({
+    id: p.id,
+    name: p.name,
+    type: p.type,
+  }))
+  return { inputs, outputs }
 }

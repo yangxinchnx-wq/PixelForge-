@@ -26,14 +26,21 @@ import type {
   GraphNode,
   NodePosition,
   RenderGraph,
+  SubGraphDefinition,
+  SubGraphNode,
   ValidationResult,
 } from './types'
 import { DEFAULT_GRAPH_CANVAS } from './types'
 import {
   getNodeDefinition,
+  getSubGraphPorts,
   type NodeRegistryKey,
 } from './nodeRegistry'
 import { canAddEdge, validateGraph } from './validator'
+import {
+  generateSubGraphInstanceId,
+  createSubGraphFromSelection,
+} from './subgraphInliner'
 
 /**
  * 生成稳定 edge ID(与 types.ts 中的约定一致)。
@@ -85,6 +92,9 @@ export const useGraphStore = defineStore('graph', () => {
   const edges = ref<GraphEdge[]>([])
   const canvas = ref<{ width: number; height: number }>({ ...DEFAULT_GRAPH_CANVAS })
 
+  // 子图定义库（借鉴 Gigi SubGraphs.cpp）
+  const subgraphLibrary = ref<SubGraphDefinition[]>([])
+
   // 当前选中(单选,UI 用)
   const selectedNodeId = ref<string | null>(null)
   const selectedEdgeId = ref<string | null>(null)
@@ -95,6 +105,7 @@ export const useGraphStore = defineStore('graph', () => {
       nodes: nodes.value,
       edges: edges.value,
       canvas: canvas.value,
+      subgraphLibrary: subgraphLibrary.value,
     }),
   )
 
@@ -289,6 +300,9 @@ export const useGraphStore = defineStore('graph', () => {
     if (graph.canvas) {
       canvas.value = { ...graph.canvas }
     }
+    if (graph.subgraphLibrary) {
+      subgraphLibrary.value = [...graph.subgraphLibrary]
+    }
     selectedNodeId.value = null
     selectedEdgeId.value = null
   }
@@ -299,6 +313,7 @@ export const useGraphStore = defineStore('graph', () => {
   function clearGraph(): void {
     nodes.value = []
     edges.value = []
+    subgraphLibrary.value = []
     selectedNodeId.value = null
     selectedEdgeId.value = null
   }
@@ -316,6 +331,150 @@ export const useGraphStore = defineStore('graph', () => {
       })),
       edges: edges.value.map((e) => ({ ...e })),
       canvas: { ...canvas.value },
+      subgraphLibrary: subgraphLibrary.value.length > 0
+        ? subgraphLibrary.value.map((sg) => ({ ...sg }))
+        : undefined,
+    }
+  }
+
+  // —— Actions: 子图管理(借鉴 Gigi SubGraphs.cpp) ——
+
+  /**
+   * 添加子图定义到子图库。
+   */
+  function addSubGraphDefinition(def: SubGraphDefinition): void {
+    // 检查是否已存在同 ID 的定义
+    const existing = subgraphLibrary.value.findIndex((sg) => sg.id === def.id)
+    if (existing >= 0) {
+      // 替换已有定义
+      subgraphLibrary.value = [
+        ...subgraphLibrary.value.slice(0, existing),
+        def,
+        ...subgraphLibrary.value.slice(existing + 1),
+      ]
+    } else {
+      subgraphLibrary.value = [...subgraphLibrary.value, def]
+    }
+  }
+
+  /**
+   * 移除子图定义。
+   */
+  function removeSubGraphDefinition(subgraphId: string): void {
+    subgraphLibrary.value = subgraphLibrary.value.filter(
+      (sg) => sg.id !== subgraphId,
+    )
+    // 同时移除引用该子图的所有 SUBGRAPH 节点
+    const nodesToRemove = nodes.value
+      .filter(
+        (n) => n.type === 'SUBGRAPH' && (n as SubGraphNode).subgraphId === subgraphId,
+      )
+      .map((n) => n.id)
+    for (const id of nodesToRemove) {
+      removeNode(id)
+    }
+  }
+
+  /**
+   * 获取子图定义。
+   */
+  function getSubGraphDefinition(subgraphId: string): SubGraphDefinition | undefined {
+    return subgraphLibrary.value.find((sg) => sg.id === subgraphId)
+  }
+
+  /**
+   * 列出所有子图定义。
+   */
+  function listSubGraphDefinitions(): SubGraphDefinition[] {
+    return [...subgraphLibrary.value]
+  }
+
+  /**
+   * 添加子图节点（引用已有的子图定义）。
+   *
+   * @param subgraphId   子图定义 ID
+   * @param position     可选位置
+   * @param name         可选名称（不传则用子图定义名称）
+   * @returns 新节点 ID
+   */
+  function addSubGraphNode(
+    subgraphId: string,
+    position?: NodePosition,
+    name?: string,
+  ): string {
+    const def = getSubGraphDefinition(subgraphId)
+    if (!def) {
+      throw new Error(`子图定义不存在: ${subgraphId}`)
+    }
+
+    // 生成动态端口
+    const { inputs, outputs } = getSubGraphPorts(def)
+
+    const id = generateNodeId('subgraph')
+    const instanceId = generateSubGraphInstanceId()
+
+    const node: SubGraphNode = {
+      id,
+      type: 'SUBGRAPH',
+      name: name ?? def.name,
+      position: position ?? nextDefaultPosition(),
+      inputs: inputs.map((p) => ({ ...p })),
+      outputs: outputs.map((p) => ({ ...p })),
+      params: {},
+      subgraphId,
+      paramOverrides: {},
+      instanceId,
+    }
+
+    nodes.value = [...nodes.value, node]
+    return id
+  }
+
+  /**
+   * 从当前选中节点创建子图定义。
+   *
+   * @param subgraphId   子图 ID
+   * @param subgraphName 子图名称
+   * @returns 新创建的子图定义
+   */
+  function createSubGraphFromCurrentSelection(
+    subgraphId: string,
+    subgraphName: string,
+  ): SubGraphDefinition {
+    // 找到所有选中的节点
+    // 当前实现：使用所有选中的节点（如果有的话），否则使用所有节点
+    const selectedIds = new Set(
+      nodes.value
+        .filter((n) => n.id === selectedNodeId.value)
+        .map((n) => n.id),
+    )
+
+    // 如果没有选中节点，抛出错误
+    if (selectedIds.size === 0) {
+      throw new Error('请先选中要包含在子图中的节点')
+    }
+
+    const def = createSubGraphFromSelection(
+      { nodes: nodes.value, edges: edges.value, canvas: canvas.value },
+      selectedIds,
+      subgraphId,
+      subgraphName,
+    )
+
+    addSubGraphDefinition(def)
+    return def
+  }
+
+  /**
+   * 更新子图节点的参数覆盖。
+   */
+  function updateSubGraphNodeOverrides(
+    nodeId: string,
+    overrides: Record<string, JsonLiteral>,
+  ): void {
+    const node = nodes.value.find((n) => n.id === nodeId)
+    if (node && node.type === 'SUBGRAPH') {
+      ;(node as SubGraphNode).paramOverrides = { ...overrides }
     }
   }
 
@@ -324,6 +483,7 @@ export const useGraphStore = defineStore('graph', () => {
     nodes,
     edges,
     canvas,
+    subgraphLibrary,
     selectedNodeId,
     selectedEdgeId,
     // getters
@@ -355,5 +515,13 @@ export const useGraphStore = defineStore('graph', () => {
     loadGraph,
     clearGraph,
     exportGraph,
+    // subgraph actions
+    addSubGraphDefinition,
+    removeSubGraphDefinition,
+    getSubGraphDefinition,
+    listSubGraphDefinitions,
+    addSubGraphNode,
+    createSubGraphFromCurrentSelection,
+    updateSubGraphNodeOverrides,
   }
 })

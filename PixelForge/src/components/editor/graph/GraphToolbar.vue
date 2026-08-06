@@ -55,6 +55,8 @@ const emit = defineEmits<{
   clear: []
   /** 关闭编辑器 */
   close: []
+  /** 将选中的节点打包为子图 */
+  packageSubgraph: []
 }>()
 
 const ui = useGraphUIStore()
@@ -126,6 +128,14 @@ function handleResetZoom() {
         @click="emit('fitView')"
       >
         适应视图
+      </button>
+      <button
+        class="btn btn-ghost"
+        data-tip="将当前选中的节点打包为一个可复用子图(Ctrl 多选)"
+        :disabled="!ui.hasSelection"
+        @click="emit('packageSubgraph')"
+      >
+        打包为子图
       </button>
     </div>
 

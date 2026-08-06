@@ -28,8 +28,13 @@ import type { JsonLiteral } from '@/shared/types'
 
 /**
  * 节点类型(决定节点在编译时的展开方式)。
+ *
+ * 新增 SUBGRAPH 类型(借鉴 Gigi SubGraphs.cpp):
+ * - SUBGRAPH 节点引用一个 SubGraphDefinition
+ * - 编译时递归内联为普通节点(inlineSubGraphs)
+ * - 支持参数覆盖和实例化
  */
-export type NodeType = 'INPUT' | 'REGION' | 'EFFECT' | 'COMPOSITE' | 'OUTPUT'
+export type NodeType = 'INPUT' | 'REGION' | 'EFFECT' | 'COMPOSITE' | 'OUTPUT' | 'SUBGRAPH'
 
 /**
  * 端口数据类型。
@@ -124,6 +129,8 @@ export interface RenderGraph {
   nodes: GraphNode[]
   edges: GraphEdge[]
   canvas?: { width: number; height: number }
+  /** 子图定义库（编译时由 inlineSubGraphs 消费，内联后清空） */
+  subgraphLibrary?: SubGraphDefinition[]
 }
 
 /**
@@ -137,6 +144,98 @@ export interface ValidationResult {
   valid: boolean
   errors: string[]
   warnings: string[]
+}
+
+// ============================================================================
+// 子图(SubGraph)类型定义(借鉴 Gigi SubGraphs.cpp)
+// ============================================================================
+
+/**
+ * 子图端口定义。
+ *
+ * 描述子图的输入/输出接口，绑定到内部节点的某个端口。
+ * 编译时，外部连接到子图端口的边会被重定向到绑定的内部节点端口。
+ *
+ * - id:       端口 ID（在子图内唯一，如 'input' / 'output'）
+ * - name:     端口可读名（如 '背景' / '效果'）
+ * - type:     数据类型（texture / value）
+ * - boundTo:  绑定到内部节点的端口（nodeId + portId）
+ */
+export interface SubGraphPort {
+  id: string
+  name: string
+  type: PortType
+  boundTo: { nodeId: string; portId: string }
+}
+
+/**
+ * 子图参数定义。
+ *
+ * 子图可暴露参数供外部配置，参数在内部节点中通过 ${paramKey} 引用。
+ * 实例化时可通过 paramOverrides 覆盖默认值。
+ *
+ * - key:          参数 key（在子图内唯一）
+ * - name:         参数可读名
+ * - type:         参数类型
+ * - defaultValue: 默认值
+ * - description:  参数描述（可选）
+ */
+export interface SubGraphParam {
+  key: string
+  name: string
+  type: 'number' | 'string' | 'boolean' | 'color'
+  defaultValue: JsonLiteral
+  description?: string
+}
+
+/**
+ * 子图定义（可复用的节点组合模块）。
+ *
+ * 借鉴 Gigi 的 .gg 文件设计：
+ * - 子图是独立的节点+边集合
+ * - 通过 inputPorts / outputPorts 暴露接口
+ * - 通过 params 暴露可配置参数
+ * - 编译时递归内联（inlineSubGraphs）
+ *
+ * - id:           子图唯一 ID
+ * - name:         子图名称
+ * - description:  子图描述
+ * - version:      子图版本
+ * - inputPorts:   输入端口定义
+ * - outputPorts:  输出端口定义
+ * - nodes:        内部节点
+ * - edges:        内部边
+ * - params:       可配置参数
+ * - createdAt:    创建时间
+ * - updatedAt:    更新时间
+ */
+export interface SubGraphDefinition {
+  id: string
+  name: string
+  description: string
+  version: string
+  inputPorts: SubGraphPort[]
+  outputPorts: SubGraphPort[]
+  nodes: GraphNode[]
+  edges: GraphEdge[]
+  params: SubGraphParam[]
+  createdAt: number
+  updatedAt: number
+}
+
+/**
+ * 子图节点（引用 SubGraphDefinition 的实例）。
+ *
+ * - type:          固定为 'SUBGRAPH'
+ * - subgraphId:    引用的子图定义 ID
+ * - paramOverrides: 参数覆盖（覆盖子图定义的默认值）
+ * - instanceId:    实例 ID（区分同一子图的不同实例，用于内联时 ID 前缀）
+ */
+export interface SubGraphNode extends Omit<GraphNode, 'type'> {
+  type: 'SUBGRAPH'
+  subgraphId: string
+  paramOverrides: Record<string, JsonLiteral>
+  instanceId: string
 }
 
 /**

@@ -42,6 +42,8 @@ const emit = defineEmits<{
   portStartConnect: [nodeId: string, portId: string, direction: 'input' | 'output', clientX: number, clientY: number]
   /** 删除节点 */
   removeNode: [nodeId: string]
+  /** 双击节点(SUBGRAPH 节点 → 聚焦/进入) */
+  nodeDblClick: [nodeId: string]
 }>()
 
 const nodeStyle = computed(() => ({
@@ -96,7 +98,12 @@ function handleRemove(): void {
 </script>
 
 <template>
-  <div :class="nodeClass" :style="nodeStyle" @mousedown="handleHeaderMouseDown($event)">
+  <div
+    :class="nodeClass"
+    :style="nodeStyle"
+    @mousedown="handleHeaderMouseDown($event)"
+    @dblclick.stop="emit('nodeDblClick', props.node.id)"
+  >
     <!-- 节点头部 -->
     <header class="node-header">
       <span class="node-name">{{ node.name }}</span>
@@ -110,6 +117,9 @@ function handleRemove(): void {
 
     <!-- 节点类型标签 -->
     <div class="node-type-tag">{{ node.type }}<span v-if="node.opcodeName"> · {{ node.opcodeName }}</span></div>
+
+    <!-- SUBGRAPH 节点提示 -->
+    <div v-if="node.type === 'SUBGRAPH'" class="node-subgraph-hint">⊞ 双击聚焦子图</div>
 
     <!-- 端口区 -->
     <div class="node-ports">
@@ -189,6 +199,19 @@ function handleRemove(): void {
 
 .node-type-input {
   border-left: 3px solid var(--text-secondary);
+}
+
+/* SUBGRAPH 节点:紫色高亮,提示可双击聚焦 */
+.node-type-subgraph {
+  border-left: 3px solid #7c3aed;
+  border-color: #7c3aed;
+}
+
+.node-subgraph-hint {
+  padding: 0 12px 6px;
+  font-size: 10px;
+  color: #7c3aed;
+  font-family: 'JetBrains Mono', monospace;
 }
 
 .node-header {

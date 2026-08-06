@@ -37,6 +37,7 @@ import { autoLayout, computeNodeBounds } from '@/graph/layout'
 import { getNodeDefinition, type NodeRegistryKey } from '@/graph/nodeRegistry'
 import { NODE_SIZE, type GraphNode as GraphNodeType } from '@/graph/types'
 import type { RenderIR } from '@/compiler/ir/renderIR'
+import { createSubGraphFromSelection } from '@/graph/subgraphInliner'
 
 import GraphCanvas from './GraphCanvas.vue'
 import GraphNodeComp from './GraphNode.vue'
@@ -44,6 +45,7 @@ import ConnectionLine from './ConnectionLine.vue'
 import GraphToolbar from './GraphToolbar.vue'
 import NodeMenu from './NodeMenu.vue'
 import Minimap from './Minimap.vue'
+import SubGraphLibraryPanel from './SubGraphLibraryPanel.vue'
 import { useGraphInteraction } from './useGraphInteraction'
 import { useGraphShortcuts } from './useGraphShortcuts'
 
@@ -318,6 +320,51 @@ function handleClose(): void {
   emit('update:visible', false)
 }
 
+/**
+ * 将当前选中的节点打包为一个子图定义。
+ * 注意:绕过 graphStore.createSubGraphFromCurrentSelection(它读 graphStore.selectedNodeId,
+ * 而真实 UI 用的是 uiStore.selectedNodeIds,该值永远为 null),改为直接调用
+ * subgraphInliner.createSubGraphFromSelection(graph.exportGraph(), ui.selectedNodeIds, ...)。
+ */
+function handlePackageSubgraph(): void {
+  if (!ui.hasSelection || ui.selectedNodeIds.size === 0) return
+  const subgraphId = `sg_${Date.now().toString(36)}`
+  const def = createSubGraphFromSelection(
+    graph.exportGraph(),
+    ui.selectedNodeIds,
+    subgraphId,
+    '新子图',
+  )
+  graph.addSubGraphDefinition(def)
+  ui.clearSelection()
+}
+
+/**
+ * 计算画布视口中心对应的世界坐标(用于把子图实例放在用户视野中央)。
+ */
+function worldCenter(): { x: number; y: number } {
+  const rect = canvasEl.value?.getBoundingClientRect()
+  if (!rect) return { x: 0, y: 0 }
+  return interaction.screenToWorld(rect.left + rect.width / 2, rect.top + rect.height / 2)
+}
+
+/** 子图库面板:在画布中心实例化一个 SUBGRAPH 节点 */
+function handleAddSubGraphToCanvas(defId: string): void {
+  graph.addSubGraphNode(defId, worldCenter())
+}
+
+/**
+ * 双击节点:若双击的是 SUBGRAPH 节点,选中并 fitView 聚焦到它(最小可行的"进入子图")。
+ * 普通节点双击暂不做处理。
+ */
+function handleNodeDblClick(nodeId: string): void {
+  const node = graph.getNode(nodeId)
+  if (!node || node.type !== 'SUBGRAPH') return
+  ui.selectNode(nodeId)
+  const bounds = computeNodeBounds([node])
+  ui.fitView(bounds, canvasSize.value)
+}
+
 // —— Canvas 事件代理(转发给 interaction)——
 
 function onCanvasWheel(e: WheelEvent): void {
@@ -349,19 +396,27 @@ function onCanvasContextMenu(e: MouseEvent): void {
             @open-node-menu="handleOpenNodeMenu"
             @auto-layout="handleAutoLayout"
             @fit-view="handleFitView"
+            @package-subgraph="handlePackageSubgraph"
             @compile="handleCompile"
             @clear="handleClear"
             @close="handleClose"
           />
 
-          <!-- 画布区(相对定位,便于 NodeMenu / Minimap 浮层) -->
-          <div
-            ref="canvasEl"
-            class="graph-canvas-wrapper"
-            @wheel="onCanvasWheel"
-            @mousedown="onCanvasMouseDown"
-            @contextmenu="onCanvasContextMenu"
-          >
+          <!-- 主体:左侧子图库面板 + 右侧画布 -->
+          <div class="graph-body">
+            <SubGraphLibraryPanel
+              @add-to-canvas="handleAddSubGraphToCanvas"
+              @remove="(id: string) => graph.removeSubGraphDefinition(id)"
+            />
+
+            <!-- 画布区(相对定位,便于 NodeMenu / Minimap 浮层) -->
+            <div
+              ref="canvasEl"
+              class="graph-canvas-wrapper"
+              @wheel="onCanvasWheel"
+              @mousedown="onCanvasMouseDown"
+              @contextmenu="onCanvasContextMenu"
+            >
             <!-- 无限画布(应用 world 变换) -->
             <GraphCanvas>
               <!-- SVG 连接线层(在节点下方) -->
@@ -400,6 +455,7 @@ function onCanvasContextMenu(e: MouseEvent): void {
                 @header-mouse-down="handleNodeHeaderMouseDown"
                 @port-start-connect="handlePortStartConnect"
                 @remove-node="handleRemoveNode"
+                @node-dbl-click="handleNodeDblClick"
               />
             </GraphCanvas>
 
@@ -409,6 +465,7 @@ function onCanvasContextMenu(e: MouseEvent): void {
             <!-- 右下角缩略图 -->
             <Minimap :canvas-size="canvasSize" />
           </div>
+          </div><!-- /.graph-body -->
 
           <!-- 底部状态栏 -->
           <footer class="graph-footer">
@@ -448,6 +505,14 @@ function onCanvasContextMenu(e: MouseEvent): void {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+/* 主体(左子图库 + 右画布) */
+.graph-body {
+  flex: 1;
+  display: flex;
+  flex-direction: row;
+  min-height: 0;
 }
 
 /* 画布容器(相对定位,用于 NodeMenu / Minimap 浮层) */

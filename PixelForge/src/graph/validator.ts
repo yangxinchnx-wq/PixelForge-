@@ -24,6 +24,7 @@ import type {
   GraphEdge,
   GraphNode,
   RenderGraph,
+  SubGraphNode,
   ValidationResult,
 } from './types'
 
@@ -133,6 +134,30 @@ export function validateGraph(graph: RenderGraph): ValidationResult {
       const hasInput = graph.edges.some((e) => e.to === node.id)
       if (!hasInput) {
         warnings.push(`EFFECT 节点 ${node.name}(${node.id}) 没有输入,effect 不会生效`)
+      }
+    }
+  }
+
+  // —— 10. SUBGRAPH 节点校验(借鉴 Gigi SubGraphs.cpp) ——
+  for (const node of graph.nodes) {
+    if (node.type === 'SUBGRAPH') {
+      const sgNode = node as SubGraphNode
+      // SUBGRAPH 节点必须有 subgraphId
+      if (!sgNode.subgraphId) {
+        errors.push(`SUBGRAPH 节点 ${node.name}(${node.id}) 缺少 subgraphId`)
+      }
+      // SUBGRAPH 节点必须有 instanceId
+      if (!sgNode.instanceId) {
+        errors.push(`SUBGRAPH 节点 ${node.name}(${node.id}) 缺少 instanceId`)
+      }
+      // 如果有子图库，检查引用的子图定义是否存在
+      if (graph.subgraphLibrary && sgNode.subgraphId) {
+        const def = graph.subgraphLibrary.find((sg) => sg.id === sgNode.subgraphId)
+        if (!def) {
+          errors.push(
+            `SUBGRAPH 节点 ${node.name}(${node.id}) 引用的子图定义不存在: ${sgNode.subgraphId}`,
+          )
+        }
       }
     }
   }
