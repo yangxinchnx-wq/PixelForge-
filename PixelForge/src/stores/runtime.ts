@@ -25,8 +25,10 @@ import {
   resolveRenderSequence,
   type PreviewLevel,
 } from '@/compiler/preview/previewPyramid'
-import { createRenderVerificationSnapshot, renderPresentPass } from '@/runtime/encoder'
+import { clearOutputTexture, createRenderVerificationSnapshot, renderPresentPass } from '@/runtime/encoder'
 import { initRuntime } from '@/runtime/device'
+import { createOutputTexture } from '@/runtime/output'
+import { createPresentPipeline } from '@/runtime/pipeline'
 import { RenderGraphAdapter } from '@/runtime/renderGraph'
 import {
   computeUploadDiffByComparison,
@@ -113,6 +115,8 @@ function createRuntimeStore(frameRepository: FrameRepository) {
     const replayError = ref<string | null>(null)
     const replayErrorInfo = ref<ReplayErrorInfo | null>(null)
     const runtime = ref<Awaited<ReturnType<typeof initRuntime>> | null>(null)
+    /** 保存 canvas 元素引用，供 resizeCanvas 使用 */
+    let canvasElement: HTMLCanvasElement | null = null
     const currentIr = ref<RenderIR>(createPhaseADemoIR())
     const currentLayerId = ref<string | null>(null)
     const currentOpcode = ref<string | null>(null)
@@ -226,6 +230,7 @@ function createRuntimeStore(frameRepository: FrameRepository) {
         return
       }
 
+      canvasElement = canvas
       status.value = 'initializing'
       error.value = null
       runtimeError.value = null
@@ -280,18 +285,92 @@ function createRuntimeStore(frameRepository: FrameRepository) {
     }
 
     /**
+     * 调整 GPU 画布尺寸。
+     *
+     * 当 RenderIR.canvas 与当前 GPU canvasSize 不一致时：
+     *   1. 同步 DOM canvas 的 width / height
+     *   2. 销毁旧 output texture，按新尺寸重建
+     *   3. 重建 present pipeline（bindGroup 绑定了旧 texture view）
+     *   4. 重新赋值 runtime 触发响应式更新
+     *
+     * 安全约束：尺寸相同时直接跳过，避免无谓的 GPU 资源重建。
+     */
+    function resizeCanvas(width: number, height: number) {
+      const rt = runtime.value
+      if (!rt || !canvasElement) {
+        return
+      }
+
+      const current = rt.gpu.canvasSize
+      if (current.width === width && current.height === height) {
+        return
+      }
+
+      // 1. 同步 DOM canvas 尺寸
+      canvasElement.width = width
+      canvasElement.height = height
+
+      // 2. 销毁旧 output texture
+      rt.output.texture.destroy()
+
+      // 3. 创建新 output texture
+      const newOutput = createOutputTexture(rt.gpu.device, { width, height }, rt.capability.storageFormat)
+
+      // 4. 重建 present pipeline（绑定新 texture view）
+      const newPresent = createPresentPipeline(rt.gpu, newOutput)
+
+      // 5. 重新赋值 runtime，触发响应式更新
+      runtime.value = {
+        ...rt,
+        gpu: { ...rt.gpu, canvasSize: { width, height } },
+        output: newOutput,
+        present: newPresent,
+      }
+
+      // 6. 清空新纹理并呈现一帧空画面（避免闪烁）
+      clearOutputTexture(rt.gpu.device, newOutput.texture)
+      renderPresentPass(rt.gpu.device, rt.gpu.context, newPresent)
+
+      // 7. 重置 RenderGraphAdapter（下次渲染时按新尺寸重建）
+      renderGraphAdapter = null
+
+      console.log(`[runtime] 画布尺寸调整: ${current.width}×${current.height} → ${width}×${height}`)
+    }
+
+    /**
      * 设置外部 RenderIR（来自 ruleParser / LLM parser 等 L2 层输出）。
      *
      * 链路：
      *   prompt → RequirementClarifier → ParsedIntent → ruleParser → RenderIR
-     *   → setRenderIR(ir) → currentIr = ir → renderCurrentIR() → GPU
+     *   → setRenderIR(ir) → resizeCanvas(ir.canvas) → currentIr = ir → renderCurrentIR() → GPU
+     *
+     * 返回 Promise：渲染完成后 resolve，调用方可 await 后截图或导出。
      */
-    function setRenderIR(ir: RenderIR) {
+    function setRenderIR(ir: RenderIR): Promise<void> {
+      // 尺寸变化时先 resize GPU 画布，再渲染
+      resizeCanvas(ir.canvas.width, ir.canvas.height)
+
       currentIr.value = ir
       currentScenario.value = 'gradient'
       lastPatchId.value = null
       lastPatchSummary.value = `L2 解析 -> ${ir.layers.length} 个图层`
-      void renderCurrentIR()
+      return renderCurrentIR()
+    }
+
+    /**
+     * 截取当前 GPU canvas 画面为 dataURL。
+     *
+     * 先等待所有已提交的 GPU 命令完成，再调用 canvas.toDataURL()。
+     * 用于生成真实渲染截图（替代占位图）。
+     */
+    async function captureCanvas(): Promise<string | null> {
+      const rt = runtime.value
+      if (!rt || !canvasElement) {
+        return null
+      }
+      // 等待 GPU 命令完成，确保画面已写入 canvas
+      await rt.gpu.device.queue.onSubmittedWorkDone()
+      return canvasElement.toDataURL('image/png')
     }
 
     function applyWarmPatch() {
@@ -1028,6 +1107,8 @@ isCompiling.value = true
       initialize,
       setScenario,
       setRenderIR,
+      resizeCanvas,
+      captureCanvas,
       applyWarmPatch,
       applyCoolPatch,
       resetDemoIR,

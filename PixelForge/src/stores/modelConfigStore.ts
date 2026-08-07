@@ -93,16 +93,24 @@ export const useModelConfigStore = defineStore('modelConfig', () => {
   /** 将 store 的 ModelConfig 转换为 callLLM 所需的 LLMProviderConfig */
   function modelConfigToLLMConfig(config: ModelConfig): LLMProviderConfig | null {
     let provider: 'openai' | 'anthropic';
+    let baseUrl = config.baseUrl || undefined;
+
     if (config.provider === 'anthropic') {
       provider = 'anthropic';
     } else {
+      // openai / google / custom 统一走 OpenAI 兼容协议
       provider = 'openai';
+      // Google Gemini 使用 OpenAI 兼容端点
+      if (config.provider === 'google' && !baseUrl) {
+        baseUrl = 'https://generativelanguage.googleapis.com/v1beta/openai';
+      }
     }
+
     if (!config.apiKey || !config.modelId) return null;
     return {
       provider,
       apiKey: config.apiKey,
-      baseUrl: config.baseUrl || undefined,
+      baseUrl,
       defaultModel: config.modelId,
     };
   }

@@ -1,11 +1,9 @@
 <script setup lang="ts">
 import { ref, nextTick, watch, computed } from 'vue';
 import { useAppStore } from '../stores/app';
-import { storeToRefs } from 'pinia';
 import PfSelect from './ui/PfSelect.vue';
 
 const store = useAppStore();
-const { modelConfigs, selectedModelId, selectedModelConfig } = storeToRefs(store);
 
 // ─── Chat Messages ────────────────────────────────────
 interface ChatMessage {
@@ -15,27 +13,47 @@ interface ChatMessage {
   timestamp: number;
 }
 
-const messages = ref<ChatMessage[]>([
-  {
+const CHAT_STORAGE_KEY = 'pixelforge_chat_messages';
+
+function loadChatMessages(): ChatMessage[] {
+  try {
+    const raw = localStorage.getItem(CHAT_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch { /* ignore */ }
+  return [{
     id: 'welcome',
     role: 'assistant',
     content: '你好！我是 AI 创作助手。描述你想要生成的图片，我来帮你实现。',
     timestamp: Date.now(),
-  },
-]);
+  }];
+}
+
+const messages = ref<ChatMessage[]>(loadChatMessages());
+
+function saveChatMessages() {
+  try {
+    localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(messages.value));
+  } catch { /* ignore */ }
+}
 
 const inputText = ref('');
 const isGenerating = computed(() => store.isGenerating);
 const messagesRef = ref<HTMLElement | null>(null);
 
+// 自动保存聊天记录
+watch(messages, saveChatMessages, { deep: true });
+
 // ─── Model Selection（对接 store 的模型配置）────────────
 const modelOptions = computed(() =>
-  modelConfigs.value
+  store.modelConfigs
     .filter((m) => m.enabled)
     .map((m) => ({ value: m.id, label: m.name }))
 );
 const selectedModel = computed({
-  get: () => selectedModelId.value ?? '',
+  get: () => store.selectedModelId ?? '',
   set: (val: string) => store.setSelectedModel(val),
 });
 
@@ -60,7 +78,7 @@ const modelSelectMinWidth = computed(() => {
 async function sendMessage() {
   const text = inputText.value.trim();
   if (!text || isGenerating.value) return;
-  if (!selectedModelConfig.value) return; // 未配置模型时阻止发送
+  if (!store.selectedModelConfig) return; // 未配置模型时阻止发送
 
   // 添加用户消息
   messages.value.push({
@@ -78,22 +96,39 @@ async function sendMessage() {
   await nextTick();
   scrollToBottom();
 
-  // 模拟 AI 回复
-  setTimeout(() => {
-    messages.value.push({
-      id: `ai-${Date.now()}`,
-      role: 'assistant',
-      content: `已收到你的描述："${text.slice(0, 50)}${text.length > 50 ? '…' : ''}"。点击下方"生成"按钮开始创作。`,
-      timestamp: Date.now(),
-    });
-    scrollToBottom();
-  }, 600);
+  // 调用 LLM 获取回复
+  const aiMsgId = `ai-${Date.now()}`;
+  messages.value.push({
+    id: aiMsgId,
+    role: 'assistant',
+    content: '正在思考…',
+    timestamp: Date.now(),
+  });
+  await nextTick();
+  scrollToBottom();
+
+  try {
+    const reply = await store.callSelectedModel(
+      text,
+      '你是一个创意图片生成助手。用户会描述想要生成的图片，请给出简洁、有创意的回复，帮助用户完善创意。回复不要太长，控制在100字以内。',
+    );
+    const aiMsg = messages.value.find((m) => m.id === aiMsgId);
+    if (aiMsg) {
+      aiMsg.content = reply ?? '抱歉，未能获取到回复，请检查模型配置后重试。';
+    }
+  } catch (e) {
+    const aiMsg = messages.value.find((m) => m.id === aiMsgId);
+    if (aiMsg) {
+      aiMsg.content = `调用失败：${(e as Error).message}`;
+    }
+  }
+  scrollToBottom();
 }
 
 // ─── Generate ─────────────────────────────────────────
 function handleGenerate() {
   if (!store.livePromptText) return;
-  if (!selectedModelConfig.value) return; // 未配置模型时阻止生成
+  if (!store.selectedModelConfig) return; // 未配置模型时阻止生成
   store.handleGenerate();
 
   // 添加生成中的消息
@@ -223,14 +258,14 @@ watch(isGenerating, () => {
         <span v-else class="pf-chat-no-model" title="请在设置中添加模型">未配置模型</span>
         <button
           class="btn-primary pf-chat-send-btn"
-          :disabled="!inputText.trim() || isGenerating || !selectedModelConfig"
+          :disabled="!inputText.trim() || isGenerating || !store.selectedModelConfig"
           @click="sendMessage"
         >
           <span class="pf-chat-btn-text">发送</span>
         </button>
         <button
           class="btn-primary pf-chat-generate-btn"
-          :disabled="isGenerating || !selectedModelConfig"
+          :disabled="isGenerating || !store.selectedModelConfig"
           @click="handleGenerate"
         >
           <span class="pf-chat-btn-text">{{ isGenerating ? '生成中…' : '生成' }}</span>

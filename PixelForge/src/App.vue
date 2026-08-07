@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { watch, onMounted, onUnmounted, ref, nextTick, computed, defineAsyncComponent } from 'vue';
-import { storeToRefs } from 'pinia';
+import { watch, onMounted, onUnmounted, ref, nextTick, computed, defineAsyncComponent, toRef } from 'vue';
 import { useAppStore } from './stores/app';
 import { useRuntimeStore } from './stores/runtime';
 import { useMaterialAssetStore } from './material/materialAssetStore';
@@ -33,32 +32,32 @@ const ExportModal = defineAsyncComponent(() => import('./components/ExportModal.
 const SettingsModal = defineAsyncComponent(() => import('./components/SettingsModal.vue'));
 
 const store = useAppStore();
-const {
-  activeLeftTab,
-  livePromptText,
-  activeSnapshot,
-  resolution,
-  frameRate,
-  treeData,
-  currentTime,
-  isPlaying,
-  isExportOpen,
-  isSettingsOpen,
-  theme,
-  isGenerating,
-  showTimeline,
-  autoSaveEnabled,
-  autoSaveInterval,
-  saveStatus,
-  lastSavedTime,
-  modelConfigs,
-  selectedModelId,
-  accentColors,
-  history,
-  currentIndex,
-  canUndo,
-  canRedo,
-} = storeToRefs(store);
+
+// 使用 toRef 保持对子 store 代理属性的响应性（storeToRefs 对子 store 代理不兼容）
+const activeLeftTab = toRef(store, 'activeLeftTab');
+const livePromptText = toRef(store, 'livePromptText');
+const activeSnapshot = toRef(store, 'activeSnapshot');
+const resolution = toRef(store, 'resolution');
+const frameRate = toRef(store, 'frameRate');
+const treeData = toRef(store, 'treeData');
+const currentTime = toRef(store, 'currentTime');
+const isPlaying = toRef(store, 'isPlaying');
+const isExportOpen = toRef(store, 'isExportOpen');
+const isSettingsOpen = toRef(store, 'isSettingsOpen');
+const theme = toRef(store, 'theme');
+const isGenerating = toRef(store, 'isGenerating');
+const showTimeline = toRef(store, 'showTimeline');
+const autoSaveEnabled = toRef(store, 'autoSaveEnabled');
+const autoSaveInterval = toRef(store, 'autoSaveInterval');
+const saveStatus = toRef(store, 'saveStatus');
+const lastSavedTime = toRef(store, 'lastSavedTime');
+const modelConfigs = toRef(store, 'modelConfigs');
+const selectedModelId = toRef(store, 'selectedModelId');
+const accentColors = toRef(store, 'accentColors');
+const history = toRef(store, 'history');
+const currentIndex = toRef(store, 'currentIndex');
+const canUndo = toRef(store, 'canUndo');
+const canRedo = toRef(store, 'canRedo');
 
 const runtimeStore = useRuntimeStore();
 const materialAssetStore = useMaterialAssetStore();

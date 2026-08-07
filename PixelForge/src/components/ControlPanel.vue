@@ -2,7 +2,6 @@
 import { ref, onMounted, onUnmounted, computed } from 'vue';
 import type { ElementTag, TuningParams } from '../types';
 import { useAppStore } from '../stores/app';
-import { storeToRefs } from 'pinia';
 import PfSelect from './ui/PfSelect.vue';
 
 const props = defineProps<{
@@ -20,16 +19,15 @@ const emit = defineEmits<{
 }>();
 
 const store = useAppStore();
-const { modelConfigs, selectedModelId } = storeToRefs(store);
 
 // ─── 大模型选项（对接设置页面的模型配置）───────────────
 const modelOptions = computed(() =>
-  modelConfigs.value
+  store.modelConfigs
     .filter((m) => m.enabled)
     .map((m) => ({ value: m.id, label: m.name || m.modelId || '未配置' }))
 );
 const selectedModel = computed({
-  get: () => selectedModelId.value ?? '',
+  get: () => store.selectedModelId ?? '',
   set: (val: string) => store.setSelectedModel(val),
 });
 

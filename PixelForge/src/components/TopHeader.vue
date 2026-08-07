@@ -11,18 +11,23 @@ const emit = defineEmits<{
 }>();
 
 // ─── 窗口控制（无边框窗口自定义标题栏按钮） ───
-const appWindow = getCurrentWindow();
+let appWindow: ReturnType<typeof getCurrentWindow> | null = null
+try {
+  appWindow = getCurrentWindow()
+} catch {
+  // 浏览器模式下 Tauri API 不可用
+}
 
 async function handleMinimize() {
-  await appWindow.minimize();
+  await appWindow?.minimize()
 }
 
 async function handleToggleMaximize() {
-  await appWindow.toggleMaximize();
+  await appWindow?.toggleMaximize()
 }
 
 async function handleClose() {
-  await appWindow.close();
+  await appWindow?.close()
 }
 </script>
 

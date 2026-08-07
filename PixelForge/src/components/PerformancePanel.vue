@@ -1,12 +1,15 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed } from 'vue';
+import { ref, onMounted, onUnmounted, computed, toRef } from 'vue';
 import { useAppStore } from '../stores/app';
 import { unifiedStore, type UnifiedStoreStats } from '../storage';
 import { TOTAL_DURATION, FPS } from '../data';
-import { storeToRefs } from 'pinia';
 
 const store = useAppStore();
-const { resolution, frameRate, currentTime, isPlaying, isGenerating } = storeToRefs(store);
+const resolution = toRef(store, 'resolution');
+const frameRate = toRef(store, 'frameRate');
+const currentTime = toRef(store, 'currentTime');
+const isPlaying = toRef(store, 'isPlaying');
+const isGenerating = toRef(store, 'isGenerating');
 
 // ─── 实时 FPS / 帧时间监控 ────────────────────────────
 const fps = ref(0);

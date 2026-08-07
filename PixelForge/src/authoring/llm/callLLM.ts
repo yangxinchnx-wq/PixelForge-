@@ -165,7 +165,9 @@ async function callOpenAI(
   startTime: number,
 ): Promise<LLMResponse> {
   const model = request.model ?? config.defaultModel
-  const baseUrl = config.baseUrl ?? 'https://api.openai.com'
+  const rawBase = config.baseUrl ?? 'https://api.openai.com'
+  // 兼容 baseUrl 已含 /v1 的情况（SettingsModal 默认值带 /v1 后缀）
+  const baseUrl = rawBase.replace(/\/v1\/?$/, '')
   const url = `${baseUrl}/v1/chat/completions`
   const timeoutMs = request.timeoutMs ?? DEFAULT_TIMEOUT_MS
 
@@ -211,7 +213,9 @@ async function callOpenAI(
   }
 
   const data = await resp.json() as OpenAIResponse
-  const content = data.choices?.[0]?.message?.content ?? ''
+  const msg = data.choices?.[0]?.message
+  // 推理模型（如 step-3.7-flash）的回复可能在 reasoning_content 中
+  const content = msg?.content || msg?.reasoning_content || ''
   if (!content) {
     throw new LLMError('llm_parse_error', 'OpenAI 返回空内容', { rawResponse: JSON.stringify(data) })
   }
@@ -257,7 +261,9 @@ async function callAnthropic(
   startTime: number,
 ): Promise<LLMResponse> {
   const model = request.model ?? config.defaultModel
-  const baseUrl = config.baseUrl ?? 'https://api.anthropic.com'
+  const rawBase = config.baseUrl ?? 'https://api.anthropic.com'
+  // 兼容 baseUrl 已含 /v1 的情况
+  const baseUrl = rawBase.replace(/\/v1\/?$/, '')
   const url = `${baseUrl}/v1/messages`
   const timeoutMs = request.timeoutMs ?? DEFAULT_TIMEOUT_MS
 
@@ -324,11 +330,21 @@ async function callAnthropic(
 
 /**
  * 尝试解析 JSON，失败时返回 null。
+ * 自动处理 LLM 常见的 markdown 代码块包裹（```json...```）。
  */
 function tryParseJSON(text: string): unknown | null {
   try {
     return JSON.parse(text)
   } catch {
+    // 尝试剥离 markdown 代码块
+    const stripped = text.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim()
+    if (stripped !== text) {
+      try {
+        return JSON.parse(stripped)
+      } catch {
+        return null
+      }
+    }
     return null
   }
 }
@@ -429,7 +445,10 @@ function now(): number {
 
 interface OpenAIResponse {
   choices?: Array<{
-    message?: { content?: string }
+    message?: {
+      content?: string
+      reasoning_content?: string
+    }
   }>
   usage?: {
     prompt_tokens?: number

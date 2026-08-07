@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, nextTick, computed } from 'vue';
 import { modalEnter, modalLeave } from '../composables/useAnime';
+import { useAssetStore } from '@/assets/assetStore';
 import type { Clip, Track, ElementTag, TuningParams, IRTreeNode } from '../types';
 
 const props = defineProps<{
@@ -20,13 +21,15 @@ const emit = defineEmits<{
   close: [];
 }>();
 
+const assetStore = useAssetStore();
+
 // 内部可见状态:支持离开动画
 const internalVisible = ref(false);
 const overlayRef = ref<HTMLElement | null>(null);
 const modalRef = ref<HTMLElement | null>(null);
 
 // ─── 导出格式 ──────────────────────────────────────────
-type ExportFormat = 'json' | 'png' | 'jpeg';
+type ExportFormat = 'json' | 'png' | 'jpeg' | 'mp4' | 'webm';
 const exportFormat = ref<ExportFormat>('json');
 const outputName = ref('PixelForge_Export');
 const isExporting = ref(false);
@@ -34,11 +37,30 @@ const exportProgress = ref(0);
 const exportDone = ref(false);
 const exportError = ref<string | null>(null);
 
+// ─── 视频导出参数 ──────────────────────────────────────
+type VideoQuality = 'max' | 'high' | 'medium' | 'low';
+const videoQuality = ref<VideoQuality>('high');
+const perImageDuration = ref(2); // 每张图展示秒数
+
 const formatOptions: { value: ExportFormat; label: string; desc: string }[] = [
   { value: 'json', label: 'JSON 项目文件', desc: '包含轨道、片段、提示词等完整项目数据' },
   { value: 'png', label: 'PNG 图片', desc: '导出当前画布预览为 PNG（无损）' },
   { value: 'jpeg', label: 'JPEG 图片', desc: '导出当前画布预览为 JPEG（压缩）' },
+  { value: 'mp4', label: 'MP4 视频 (H.264)', desc: '将资源库图片序列编码为 H.264 MP4 视频' },
+  { value: 'webm', label: 'WebM 视频 (VP9)', desc: '将资源库图片序列编码为 VP9 WebM 视频' },
 ];
+
+const qualityOptions: { value: VideoQuality; label: string }[] = [
+  { value: 'max', label: '最高' },
+  { value: 'high', label: '高' },
+  { value: 'medium', label: '中' },
+  { value: 'low', label: '低' },
+];
+
+const isVideoFormat = computed(() => exportFormat.value === 'mp4' || exportFormat.value === 'webm');
+
+// 可用图片数（视频导出帧源）
+const availableImageCount = computed(() => assetStore.images.length);
 
 // 解析分辨率
 const parsedResolution = computed(() => {
@@ -56,7 +78,6 @@ const parsedFps = computed(() => {
 // 估算文件大小
 const estimatedSize = computed(() => {
   if (exportFormat.value === 'json') {
-    // JSON 粗略估算: 每个 clip ~200 bytes, track ~100 bytes
     const base = 500;
     const clipsSize = props.clips.length * 200;
     const tracksSize = props.tracks.length * 100;
@@ -65,12 +86,18 @@ const estimatedSize = computed(() => {
     return total < 1024 ? `${total} B` : `${(total / 1024).toFixed(1)} KB`;
   }
   if (exportFormat.value === 'png') {
-    // PNG 无损: 宽 * 高 * 4 bytes * 压缩比(~0.5)
     const raw = parsedResolution.value.width * parsedResolution.value.height * 4 * 0.5;
     return raw < 1024 * 1024 ? `${(raw / 1024).toFixed(0)} KB` : `${(raw / 1024 / 1024).toFixed(1)} MB`;
   }
-  // JPEG: 宽 * 高 * 压缩比(~0.15)
-  const raw = parsedResolution.value.width * parsedResolution.value.height * 0.15;
+  if (exportFormat.value === 'jpeg') {
+    const raw = parsedResolution.value.width * parsedResolution.value.height * 0.15;
+    return raw < 1024 * 1024 ? `${(raw / 1024).toFixed(0)} KB` : `${(raw / 1024 / 1024).toFixed(1)} MB`;
+  }
+  // 视频估算: 码率 × 时长
+  const imgCount = Math.max(1, availableImageCount.value);
+  const totalDuration = imgCount * perImageDuration.value;
+  const bitrate = computeBitrate(parsedResolution.value.width, parsedResolution.value.height, parsedFps.value);
+  const raw = bitrate * totalDuration / 8;
   return raw < 1024 * 1024 ? `${(raw / 1024).toFixed(0)} KB` : `${(raw / 1024 / 1024).toFixed(1)} MB`;
 });
 
@@ -78,7 +105,6 @@ watch(
   () => props.isOpen,
   async (open) => {
     if (open) {
-      // 进入:先挂载 DOM,下一帧播放进入动画
       internalVisible.value = true;
       exportDone.value = false;
       exportError.value = null;
@@ -88,7 +114,6 @@ watch(
         modalEnter(overlayRef.value, modalRef.value);
       }
     } else if (internalVisible.value) {
-      // 离开:播放离开动画后再卸载 DOM
       if (overlayRef.value && modalRef.value) {
         await modalLeave(overlayRef.value, modalRef.value);
       }
@@ -116,6 +141,12 @@ function downloadBlob(blob: Blob, filename: string) {
   a.click();
   document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// ─── 计算视频码率 ──────────────────────────────────────
+function computeBitrate(width: number, height: number, fps: number): number {
+  // 基于像素量和帧率的经验公式: ~0.1 bits/pixel/frame
+  return Math.round(width * height * fps * 0.1);
 }
 
 // ─── 导出 JSON 项目文件 ────────────────────────────────
@@ -154,13 +185,11 @@ function exportImage(format: 'png' | 'jpeg'): Promise<Blob> {
   canvas.height = height;
   const ctx = canvas.getContext('2d')!;
 
-  // 填充背景（JPEG 不支持透明）
   if (format === 'jpeg') {
     ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, width, height);
   }
 
-  // 绘制图片或视频帧
   ctx.drawImage(source, 0, 0, width, height);
 
   const mimeType = format === 'png' ? 'image/png' : 'image/jpeg';
@@ -177,6 +206,38 @@ function exportImage(format: 'png' | 'jpeg'): Promise<Blob> {
   });
 }
 
+// ─── 导出视频（MP4 / WebM）────────────────────────────
+async function exportVideo(format: 'mp4' | 'webm'): Promise<Blob> {
+  const images = assetStore.images;
+  if (images.length === 0) {
+    throw new Error('资源库中没有图片，请先生成或导入图片');
+  }
+
+  const { width, height } = parsedResolution.value;
+  const fps = parsedFps.value;
+  const bitrate = computeBitrate(width, height, fps);
+
+  // 动态导入编码器（避免 mp4-muxer/webm-muxer 重型依赖在启动时加载）
+  const { encodeImagesToVideo } = await import('@/media/video/encoder/videoEncoder');
+
+  const imageUrls = images.map((a) => a.url);
+  const codecFormat = format === 'mp4' ? 'h264' : 'vp9';
+
+  return encodeImagesToVideo({
+    imageUrls,
+    width,
+    height,
+    fps,
+    perImageDuration: perImageDuration.value,
+    bitrate,
+    format: codecFormat,
+    quality: videoQuality.value,
+    onProgress: (p) => {
+      exportProgress.value = p;
+    },
+  });
+}
+
 // ─── 执行导出 ──────────────────────────────────────────
 async function doExport() {
   if (isExporting.value) return;
@@ -186,31 +247,33 @@ async function doExport() {
   exportProgress.value = 0;
 
   try {
-    // 模拟进度推进
-    const progressTimer = setInterval(() => {
-      exportProgress.value = Math.min(exportProgress.value + Math.random() * 15 + 5, 90);
-    }, 100);
-
     let blob: Blob;
     let ext: string;
 
     if (exportFormat.value === 'json') {
+      // JSON 不需要进度模拟
       blob = exportJSON();
       ext = 'json';
-    } else {
-      // 检查画布是否有内容
+      exportProgress.value = 100;
+    } else if (exportFormat.value === 'png' || exportFormat.value === 'jpeg') {
       const source = getCanvasImage();
       if (!source) {
         throw new Error('画布上没有可导出的图片或视频，请先在画布中加载素材');
       }
+      // 图片导出用轻量进度模拟
+      const progressTimer = setInterval(() => {
+        exportProgress.value = Math.min(exportProgress.value + Math.random() * 15 + 5, 90);
+      }, 100);
       blob = await exportImage(exportFormat.value);
+      clearInterval(progressTimer);
       ext = exportFormat.value === 'png' ? 'png' : 'jpg';
+      exportProgress.value = 100;
+    } else {
+      // 视频导出：进度由编码器回调驱动
+      blob = await exportVideo(exportFormat.value);
+      ext = exportFormat.value;
     }
 
-    clearInterval(progressTimer);
-    exportProgress.value = 100;
-
-    // 下载文件
     const filename = `${outputName.value || 'PixelForge_Export'}.${ext}`;
     downloadBlob(blob, filename);
 
@@ -291,6 +354,47 @@ async function doExport() {
             :disabled="isExporting"
           />
         </div>
+
+        <!-- 视频参数（仅视频格式显示） -->
+        <template v-if="isVideoFormat">
+          <div class="pf-panel-section">
+            <div class="pf-panel-label">画质</div>
+            <div class="pf-export-quality-row">
+              <button
+                v-for="q in qualityOptions"
+                :key="q.value"
+                class="pf-export-quality-btn"
+                :class="{ active: videoQuality === q.value }"
+                :disabled="isExporting"
+                @click="videoQuality = q.value"
+              >
+                {{ q.label }}
+              </button>
+            </div>
+          </div>
+
+          <div class="pf-panel-section">
+            <div class="pf-panel-label">每张图展示时长（秒）</div>
+            <input
+              v-model.number="perImageDuration"
+              class="pf-export-input"
+              type="number"
+              min="0.5"
+              max="60"
+              step="0.5"
+              :disabled="isExporting"
+            />
+          </div>
+
+          <div class="pf-export-info-row">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="16" x2="12" y2="12" />
+              <line x1="12" y1="8" x2="12" y2="8" />
+            </svg>
+            <span>将使用资源库中的 {{ availableImageCount }} 张图片作为帧序列</span>
+          </div>
+        </template>
 
         <!-- 估算大小 -->
         <div class="pf-export-size-row">
@@ -562,6 +666,60 @@ async function doExport() {
   font-size: 11px;
   font-weight: 500;
   color: #ef4444;
+}
+
+/* ── Video Quality ── */
+.pf-export-quality-row {
+  display: flex;
+  gap: 4px;
+}
+
+.pf-export-quality-btn {
+  flex: 1;
+  height: 30px;
+  border: 1px solid var(--separator);
+  background: var(--glass-bg);
+  color: var(--text-secondary);
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 500;
+  transition: all 150ms var(--ease-out);
+}
+
+.pf-export-quality-btn:hover:not(:disabled) {
+  background: var(--glass-bg-hover);
+  color: var(--text-primary);
+}
+
+.pf-export-quality-btn.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--glass-bg));
+  color: var(--accent);
+}
+
+.pf-export-quality-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Info Row ── */
+.pf-export-info-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  margin-top: 4px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 20%, transparent);
+  border-radius: var(--radius-xs);
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.pf-export-info-row svg {
+  color: var(--accent);
+  flex-shrink: 0;
 }
 
 /* ── Footer ── */

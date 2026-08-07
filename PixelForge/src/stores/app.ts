@@ -20,8 +20,15 @@ import { initialPromptText, initialElements, initialTuningParams, initialIRTree 
 import { unifiedStore } from '@/storage';
 import { useAssetStore } from '@/assets/assetStore';
 import type { Asset } from '@/assets/types';
-import { darkenHex, hashString } from '@/utils/colorUtils';
+import { darkenHex } from '@/utils/colorUtils';
 import { buildPersistPayload, persistAll, loadPersistedData, clearPersistedData } from '@/composables/usePersist';
+import { llmParse } from '@/authoring/llm/llmParser';
+import { generateDefaultRegion } from '@/authoring/generator/renderIRGenerator';
+import { stableLayerId, stableRegionId } from '@/shared/ids';
+import type { RenderIR, Layer, Region, Effect } from '@/compiler/ir/renderIR';
+import type { ParsedIntent } from '@/authoring/types';
+import type { BlendMode, SourceKind } from '@/shared/types';
+import { useRuntimeStore } from './runtime';
 
 // ─── 子 store 引入 ─────────────────────────────────────
 import { useHistoryStore, type AppStateSnapshot, type HistoryRecord } from './historyStore';
@@ -172,73 +179,89 @@ export const useAppStore = defineStore('app', () => {
   }
 
   // ─── Generate ───────────────────────────────────────
-  function createGeneratedImageAsset(prompt: string): Asset | null {
-    if (typeof document === 'undefined') return null;
 
-    const width = 512;
-    const height = 512;
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return null;
-
-    const hash = hashString(prompt);
-    const hue = parseInt(hash.slice(2, 5), 16) % 360;
-    const gradient = ctx.createLinearGradient(0, 0, width, height);
-    gradient.addColorStop(0, `hsl(${hue}, 70%, 22%)`);
-    gradient.addColorStop(0.5, `hsl(${(hue + 30) % 360}, 60%, 35%)`);
-    gradient.addColorStop(1, `hsl(${(hue + 70) % 360}, 70%, 25%)`);
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, width, height);
-
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
-    let seed = parseInt(hash.slice(5, 10), 16) || 1;
-    const rnd = () => {
-      seed = (seed * 16807) % 2147483647;
-      return (seed - 1) / 2147483646;
-    };
-    for (let i = 0; i < 80; i++) {
-      const x = rnd() * width;
-      const y = rnd() * height;
-      const r = rnd() * 1.8 + 0.4;
-      ctx.globalAlpha = rnd() * 0.7 + 0.3;
-      ctx.beginPath();
-      ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.globalAlpha = 1;
-
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
-    ctx.font = 'bold 26px system-ui, -apple-system, BlinkMacSystemFont, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    const displayPrompt = prompt.length > 18 ? prompt.slice(0, 18) + '…' : prompt || 'AI Generated';
-    ctx.fillText(displayPrompt, width / 2, height / 2 - 12);
-
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
-    ctx.font = '14px system-ui, -apple-system, BlinkMacSystemFont, sans-serif';
-    ctx.fillText('512 × 512 · PixelForge', width / 2, height / 2 + 22);
-
-    const dataUrl = canvas.toDataURL('image/png');
-    const binary = atob(dataUrl.split(',')[1]);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) {
-      bytes[i] = binary.charCodeAt(i);
-    }
+  /**
+   * 从 GPU canvas 截图的 dataURL 创建 Asset 记录。
+   * 替代旧的占位图生成逻辑，使用真实渲染结果。
+   */
+  function createAssetFromCanvas(
+    dataUrl: string,
+    prompt: string,
+    width: number,
+    height: number,
+  ): Asset | null {
+    // 计算文件大小（dataURL base64 解码后的字节数）
+    const base64 = dataUrl.split(',')[1] ?? '';
+    const size = Math.floor(base64.length * 0.75);
 
     const timestamp = Date.now();
+    const displayPrompt = prompt.length > 20 ? prompt.slice(0, 20) + '…' : (prompt || 'AI Generated');
     return {
       id: `gen-${timestamp}`,
-      name: `AI生成_${new Date(timestamp).toLocaleTimeString('zh-CN', { hour12: false })}.png`,
+      name: `${displayPrompt}_${new Date(timestamp).toLocaleTimeString('zh-CN', { hour12: false })}.png`,
       type: 'image',
       url: dataUrl,
       thumbnail: dataUrl,
       width,
       height,
-      size: bytes.length,
+      size,
       createdAt: timestamp,
       mimeType: 'image/png',
+    };
+  }
+
+  /**
+   * ParsedIntent → RenderIR 转换器。
+   *
+   * 将 LLM 解析出的结构化图层描述转为完整的渲染指令，
+   * 包括 Layer（含稳定 ID）、Region（全画布）和 Effect。
+   */
+  function parsedIntentToRenderIR(intent: ParsedIntent): RenderIR {
+    const canvasW = parseInt(resolution.value.split('×')[0].trim()) || 1920;
+    const canvasH = parseInt(resolution.value.split('×')[1].trim()) || 1080;
+
+    // ParsedLayerIntent → Layer
+    const layers: Layer[] = intent.layers.map((li, i) => {
+      const contentKey = `${i}_${li.opcode}_${li.label ?? ''}_${JSON.stringify(li.params)}`;
+      const paramOwnership: Record<string, string> = {};
+      for (const key of Object.keys(li.params)) {
+        paramOwnership[key] = 'l2_parser';
+      }
+      return {
+        id: stableLayerId('llm_parser', contentKey),
+        opcode: li.opcode,
+        params: li.params,
+        source: 'llm_parser' as SourceKind,
+        paramOwnership: paramOwnership as never,
+        visible: true,
+        blendMode: (li.blendMode ?? 'normal') as BlendMode,
+      };
+    });
+
+    // 默认 Region（覆盖全画布，引用所有 Layer）
+    const regions: Region[] = [];
+    if (layers.length > 0) {
+      regions.push(generateDefaultRegion(layers));
+    }
+
+    // ParsedEffectIntent → Effect
+    const effects: Effect[] = (intent.effects ?? []).map((ei, i) => {
+      const contentKey = `${i}_${ei.type}_${JSON.stringify(ei.params)}`;
+      return {
+        id: stableRegionId('llm_parser', contentKey), // 复用 stableRegionId
+        type: ei.type as string,
+        params: ei.params,
+        targetLayer: ei.targetLayer ?? layers[0]?.id ?? '',
+        targetRegion: ei.targetRegion ?? regions[0]?.id ?? '',
+      } as Effect;
+    });
+
+    return {
+      canvas: { width: canvasW, height: canvasH },
+      layers,
+      regions,
+      effects,
+      compileHints: {},
     };
   }
 
@@ -248,46 +271,56 @@ export const useAppStore = defineStore('app', () => {
     const prompt = livePromptText.value;
     const timestamp = Date.now();
 
-    await modelConfigStore.callSelectedModel(
-      prompt,
-      '你是一个创意图片生成助手。请根据用户的描述，生成一段简洁的创意说明文字。',
-    );
+    try {
+      // 获取当前模型的 LLM 配置
+      const selectedConfig = modelConfigStore.selectedModelConfig;
+      const providerConfig = selectedConfig
+        ? modelConfigStore.modelConfigToLLMConfig(selectedConfig)
+        : null;
 
-    const shaderHash = hashString(prompt);
-    const wgslCode = `// Auto-generated WGSL for prompt: ${prompt.slice(0, 80)}\n@vertex\nfn vs_main(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {\n  return vec4f(0.0, 0.0, 0.0, 1.0);\n}\n@fragment\nfn fs_main() -> @location(0) vec4f {\n  return vec4f(1.0, 0.5, 0.3, 1.0);\n}`;
+      // 调用 LLM 解析管线：自然语言 → ParsedIntent
+       const parseResult = await llmParse(prompt, {
+         providerConfig: providerConfig ?? undefined,
+         temperature: 0.3,
+         maxTokens: 8000, // 推理模型需要更多 token
+       });
 
-    const irJson = JSON.stringify({
-      frame: 0,
-      timestampMs: timestamp,
-      prompt: prompt.slice(0, 200),
-      layers: [{ id: 'layer-1', opacity: 1.0, visible: true }],
-      generatedAt: new Date(timestamp).toISOString(),
-    });
+      console.log('[Generate] LLM 解析结果:', {
+        usedLLM: parseResult.usedLLM,
+        layerCount: parseResult.intent.layers.length,
+        warnings: parseResult.warnings,
+      });
 
-    const pixels = new Uint8Array([
-      255, 128, 64, 255, 255, 128, 64, 255, 255, 128, 64, 255, 255, 128, 64, 255,
-      255, 128, 64, 255, 255, 128, 64, 255, 255, 128, 64, 255, 255, 128, 64, 255,
-      255, 128, 64, 255, 255, 128, 64, 255, 255, 128, 64, 255, 255, 128, 64, 255,
-      255, 128, 64, 255, 255, 128, 64, 255, 255, 128, 64, 255, 255, 128, 64, 255,
-    ]);
+      // ParsedIntent → RenderIR
+      const ir = parsedIntentToRenderIR(parseResult.intent);
 
-    Promise.all([
-      unifiedStore.writeShader(shaderHash, wgslCode),
-      unifiedStore.writeIR(0, irJson),
-      unifiedStore.writeFrame(0, pixels),
-      unifiedStore.writePrompt(timestamp, prompt),
-    ]).catch((e) => {
-      console.warn('[Generate] 产物写入存储失败', e);
-    });
+      // 驱动 GPU 渲染（等待完成后再截图）
+      const runtimeStore = useRuntimeStore();
+      await runtimeStore.setRenderIR(ir);
 
-    setTimeout(() => {
-      const asset = createGeneratedImageAsset(prompt);
-      if (asset) {
-        const assetStore = useAssetStore();
-        assetStore.add(asset);
+      // 持久化产物
+      const irJson = JSON.stringify(ir);
+      Promise.all([
+        unifiedStore.writeIR(0, irJson),
+        unifiedStore.writePrompt(timestamp, prompt),
+      ]).catch((e) => {
+        console.warn('[Generate] 产物写入存储失败', e);
+      });
+
+      // 截取真实 GPU 渲染画面作为资产
+      const dataUrl = await runtimeStore.captureCanvas();
+      if (dataUrl) {
+        const asset = createAssetFromCanvas(dataUrl, prompt, ir.canvas.width, ir.canvas.height);
+        if (asset) {
+          const assetStore = useAssetStore();
+          assetStore.add(asset);
+        }
       }
+    } catch (e) {
+      console.error('[Generate] 生成失败:', e);
+    } finally {
       isGenerating.value = false;
-    }, 1200);
+    }
   }
 
   // ─── 持久化（统一使用 buildPersistPayload + persistAll）──
