@@ -92,7 +92,7 @@ const progressPercent = computed(() => {
 </script>
 
 <template>
-  <div class="pf-panel pf-workflow-panel">
+  <div class="pf-panel glass-surface pf-workflow-panel">
     <!-- Header -->
     <div class="pf-panel-header">
       <span class="pf-panel-title">工作流</span>

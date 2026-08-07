@@ -306,7 +306,7 @@ function clearSelection() {
         :style="{ width: `${viewport.contentWidth.value}px` }"
       >
         <div
-          class="timeline-ruler"
+          class="timeline-ruler glass-surface"
           role="list"
           @mousedown="handleRulerMouseDown"
           @mousemove="handleRulerMouseMove"

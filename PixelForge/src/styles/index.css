@@ -149,41 +149,17 @@ html, body, #app {
 }
 
 @supports not (backdrop-filter: blur(20px)) {
-  [data-theme="light"] .glass,
-  [data-theme="light"] .toolbar,
-  [data-theme="light"] .pf-panel,
-  [data-theme="light"] .pf-rail,
-  [data-theme="light"] .statusbar,
-  [data-theme="light"] .track-headers,
-  [data-theme="light"] .timeline-ruler,
-  [data-theme="light"] .pf-modal,
-  [data-theme="light"] .pf-timeline { background: rgba(255, 255, 255, 0.92); }
-  [data-theme="dark"] .glass,
-  [data-theme="dark"] .toolbar,
-  [data-theme="dark"] .pf-panel,
-  [data-theme="dark"] .pf-rail,
-  [data-theme="dark"] .statusbar,
-  [data-theme="dark"] .track-headers,
-  [data-theme="dark"] .timeline-ruler,
-  [data-theme="dark"] .pf-modal,
-  [data-theme="dark"] .pf-timeline { background: rgba(40, 40, 48, 0.95); }
+  [data-theme="light"] .glass-surface,
+  [data-theme="light"] .glass { background: rgba(255, 255, 255, 0.92); }
+  [data-theme="dark"] .glass-surface,
+  [data-theme="dark"] .glass { background: rgba(40, 40, 48, 0.95); }
 }
 
 @media (prefers-reduced-transparency: reduce) {
-  [data-theme="light"] .glass,
-  [data-theme="light"] .toolbar,
-  [data-theme="light"] .pf-panel,
-  [data-theme="light"] .pf-rail,
-  [data-theme="light"] .statusbar,
-  [data-theme="light"] .pf-modal,
-  [data-theme="light"] .pf-timeline { background: rgba(255, 255, 255, 0.95); backdrop-filter: none; }
-  [data-theme="dark"] .glass,
-  [data-theme="dark"] .toolbar,
-  [data-theme="dark"] .pf-panel,
-  [data-theme="dark"] .pf-rail,
-  [data-theme="dark"] .statusbar,
-  [data-theme="dark"] .pf-modal,
-  [data-theme="dark"] .pf-timeline { background: rgba(40, 40, 48, 0.95); backdrop-filter: none; }
+  [data-theme="light"] .glass-surface,
+  [data-theme="light"] .glass { background: rgba(255, 255, 255, 0.95); backdrop-filter: none; }
+  [data-theme="dark"] .glass-surface,
+  [data-theme="dark"] .glass { background: rgba(40, 40, 48, 0.95); backdrop-filter: none; }
 }
 
 ::-webkit-scrollbar { width: 8px; height: 8px; }
@@ -196,6 +172,25 @@ html, body, #app {
    Glass Base
    ========================================================== */
 .glass {
+  position: relative;
+  isolation: isolate;
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  background: var(--glass-bg);
+  box-shadow: var(--glass-shadow);
+}
+
+/**
+ * .glass-surface — 通用毛玻璃底板工具类。
+ *
+ * 抽取所有 glass 组件共享的 backdrop-filter + background 属性，
+ * 消除 toolbar / pf-panel / pf-rail / statusbar / pf-modal /
+ * pf-timeline / track-headers / timeline-ruler / pf-popover 等
+ * 组件中的重复声明。
+ *
+ * 用法：在组件上同时声明 .glass-surface + 组件特有属性（border / border-radius / layout 等）。
+ */
+.glass-surface {
   position: relative;
   isolation: isolate;
   backdrop-filter: blur(20px) saturate(180%);
@@ -319,13 +314,7 @@ html, body, #app {
   gap: 12px;
   height: var(--toolbar-height);
   padding: 0 16px;
-  position: relative;
-  isolation: isolate;
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  background: var(--glass-bg);
   border-top: 1px solid var(--glass-edge);
-  box-shadow: var(--glass-shadow);
   flex-shrink: 0;
   z-index: 100;
 }
@@ -484,13 +473,7 @@ transform: scale(0.96);
   align-items: center;
   padding: 8px 0;
   gap: 4px;
-  position: relative;
-  isolation: isolate;
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  background: var(--glass-bg);
   border-top: 1px solid var(--glass-edge);
-  box-shadow: var(--glass-shadow);
   z-index: 10;
 }
 
@@ -525,14 +508,8 @@ transform: scale(0.96);
    Panels — glass containers
    ========================================================== */
 .pf-panel {
-  position: relative;
-  isolation: isolate;
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  background: var(--glass-bg);
   border: 1px solid var(--glass-border);
   border-top: 1px solid var(--glass-edge);
-  box-shadow: var(--glass-shadow);
   border-radius: var(--radius-lg);
   display: flex;
   flex-direction: column;
@@ -551,6 +528,7 @@ transform: scale(0.96);
 }
 
 .pf-panel-title {
+  /* ≡ .text-title */
   font-size: 12px; font-weight: 600;
   color: var(--text-primary);
   letter-spacing: -0.01em;
@@ -565,6 +543,7 @@ transform: scale(0.96);
 .pf-panel-section:last-child { margin-bottom: 0; }
 
 .pf-panel-label {
+  /* ≡ .text-value + uppercase */
   font-size: 11px; font-weight: 600;
   color: var(--text-tertiary);
   letter-spacing: 0.04em;
@@ -606,23 +585,8 @@ transform: scale(0.96);
   gap: 6px; margin-bottom: 12px;
 }
 
-.pf-slider-header {
-  display: flex; align-items: center; justify-content: space-between;
-}
-
-.pf-slider-label {
-  font-size: 11px; font-weight: 500;
-  color: var(--text-secondary);
-}
-
-.pf-slider-value {
-  font-size: 11px; font-weight: 600;
-  color: var(--text-primary);
-  font-variant-numeric: tabular-nums;
-}
-
-/* --- Tuning select row --- */
 .pf-tuning-row {
+  /* ≡ .form-row + justify */
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -681,12 +645,8 @@ transform: scale(0.96);
   right: 0;
   z-index: 100;
   min-width: 260px;
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  background: var(--glass-bg);
   border: 1px solid var(--glass-border);
   border-top: 1px solid var(--glass-edge);
-  box-shadow: var(--glass-shadow);
   border-radius: var(--radius-lg);
   display: flex;
   flex-direction: column;
@@ -937,29 +897,14 @@ flex-shrink: 0;
   text-align: center;
 }
 
-.pf-canvas-toolbar {
-  display: flex; align-items: center; gap: 8px;
-  padding: 8px 12px;
-  border-top: 1px solid var(--separator);
-  flex-shrink: 0;
-}
-
-.pf-canvas-toolbar-spacer { flex: 1; }
-
 /* ==========================================================
    Timeline Panel — glass container wrapping 新建文件夹 timeline
    ========================================================== */
 .pf-timeline {
   height: var(--timeline-height);
   flex-shrink: 0;
-  position: relative;
-  isolation: isolate;
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  background: var(--glass-bg);
   border: 1px solid var(--glass-border);
   border-top: 1px solid var(--glass-edge);
-  box-shadow: var(--glass-shadow);
   border-radius: var(--radius-lg);
   display: flex;
   flex-direction: column;
@@ -995,11 +940,6 @@ flex-shrink: 0;
 .track-headers {
   width: var(--track-header-width);
   flex-shrink: 0;
-  position: relative;
-  isolation: isolate;
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  background: var(--glass-bg);
   border-top: 1px solid var(--glass-edge);
   border-right: 1px solid var(--separator);
   display: flex;
@@ -1107,9 +1047,6 @@ flex-shrink: 0;
 
 .timeline-ruler {
   height: var(--ruler-height);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  background: var(--glass-bg);
   border-top: 1px solid var(--glass-edge);
   border-bottom: 1px solid var(--separator);
   position: sticky;
@@ -1276,13 +1213,7 @@ z-index: 31;
   display: flex; align-items: center; gap: 12px;
   height: var(--statusbar-height);
   padding: 0 16px;
-  position: relative;
-  isolation: isolate;
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  background: var(--glass-bg);
   border-top: 1px solid var(--glass-edge);
-  box-shadow: var(--glass-shadow);
   font-size: 11px;
   color: var(--text-tertiary);
   flex-shrink: 0;
@@ -1341,14 +1272,8 @@ z-index: 31;
   width: 420px;
   max-width: 90vw;
   max-height: 80vh;
-  position: relative;
-  isolation: isolate;
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  background: var(--glass-bg);
   border: 1px solid var(--glass-border);
   border-top: 1px solid var(--glass-edge);
-  box-shadow: var(--glass-shadow);
   border-radius: var(--radius-lg);
   display: flex; flex-direction: column;
   overflow: hidden;
@@ -1382,6 +1307,41 @@ z-index: 31;
    Utility
    ========================================================== */
 .tabular-nums { font-variant-numeric: tabular-nums; }
+
+/**
+ * 文本工具类 — 消除 19+ 处 font-size:11px / 12px 重复声明。
+ *
+ * .text-label   — 小号标签（11px/500/secondary）
+ * .text-value   — 小号数值（11px/600/primary）
+ * .text-caption — 说明文字（11px/tertiary）
+ * .text-title   — 面板标题（12px/600/primary）
+ */
+.text-label { font-size: 11px; font-weight: 500; color: var(--text-secondary); }
+.text-value { font-size: 11px; font-weight: 600; color: var(--text-primary); }
+.text-caption { font-size: 11px; color: var(--text-tertiary); }
+.text-title { font-size: 12px; font-weight: 600; color: var(--text-primary); }
+
+/**
+ * 布局工具类 — 消除 10+ 处 flex row 重复声明。
+ *
+ * .flex-row   — 水平行（flex + center + gap:12）
+ * .flex-col   — 垂直列（flex-col + gap:4）
+ * .gap-sm     — 小间距（gap:6）
+ * .gap-md     — 中间距（gap:12）
+ */
+.flex-row { display: flex; align-items: center; gap: 12px; }
+.flex-col { display: flex; flex-direction: column; gap: 4px; }
+.gap-sm { gap: 6px; }
+.gap-md { gap: 12px; }
+
+/**
+ * 表单行工具类 — 消除 pf-render-row / pf-tuning-row 等重复声明。
+ *
+ * .form-row      — 标准表单行（flex-row + margin-bottom:10）
+ * .form-row:last-child — 自动去除末尾间距
+ */
+.form-row { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+.form-row:last-child { margin-bottom: 0; }
 
 /* ==========================================================
    Global Tooltip — Apple Liquid Glass style
@@ -1798,6 +1758,7 @@ z-index: 31;
 
 /* --- AME 表单行 --- */
 .pf-render-row {
+  /* ≡ .form-row */
   display: flex;
   align-items: center;
   gap: 12px;
@@ -1823,39 +1784,6 @@ z-index: 31;
 .pf-render-row > div {
   flex: 1;
   min-width: 0;
-}
-
-/* --- 下拉选择框 --- */
-.pf-select {
-  height: 30px;
-  padding: 0 28px 0 10px;
-  background-color: var(--track-bg);
-  background-image: var(--select-arrow);
-  border: 1px solid var(--separator);
-  border-radius: var(--radius-sm);
-  color: var(--text-primary);
-  font-family: inherit;
-  font-size: 12px;
-  cursor: pointer;
-  outline: none;
-  appearance: none;
-  -webkit-appearance: none;
-  background-repeat: no-repeat;
-  background-position: right 10px center;
-  background-size: 10px 6px;
-  transition: border-color 200ms var(--ease-out), box-shadow 200ms var(--ease-out);
-}
-
-.pf-select:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.12);
-}
-
-.pf-select-sm {
-  height: 28px;
-  padding: 0 24px 0 8px;
-  font-size: 11px;
-  background-position: right 8px center;
 }
 
 /* --- 文本输入框 --- */
@@ -1901,18 +1829,6 @@ z-index: 31;
   flex-shrink: 0;
 }
 
-/* --- AME Tab 标记 --- */
-.pf-render-tab-active {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--accent);
-  padding: 2px 8px;
-  border-radius: var(--radius-xs);
-  background: rgba(10, 132, 255, 0.1);
-}
-
 /* --- 输出摘要网格 --- */
 .pf-render-summary-grid {
   display: flex;
@@ -1933,11 +1849,13 @@ z-index: 31;
 }
 
 .pf-render-summary-label {
+  /* ≡ .text-caption */
   font-size: 11px;
   color: var(--text-tertiary);
 }
 
 .pf-render-summary-val {
+  /* ≡ .text-title + tabular-nums */
   font-size: 12px;
   font-weight: 600;
   color: var(--text-primary);
@@ -2097,6 +2015,7 @@ z-index: 31;
 }
 
 .pf-perf-metric-label {
+  /* ≡ .text-value + uppercase */
   font-size: 11px;
   font-weight: 600;
   color: var(--text-tertiary);
@@ -2144,11 +2063,13 @@ z-index: 31;
 }
 
 .pf-perf-bar-label {
+  /* ≡ .text-label (without font-weight) */
   font-size: 12px;
   color: var(--text-secondary);
 }
 
 .pf-perf-bar-value {
+  /* ≡ .text-title + tabular-nums */
   font-size: 12px;
   font-weight: 600;
   color: var(--text-primary);

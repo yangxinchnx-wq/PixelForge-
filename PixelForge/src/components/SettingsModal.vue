@@ -650,7 +650,7 @@ watch(
 
 <template>
   <div v-if="internalVisible" ref="overlayRef" class="pf-modal-overlay">
-    <div ref="modalRef" class="pf-modal pf-settings-modal" :style="[modalStyle, settingsAccentStyle]">
+    <div ref="modalRef" class="pf-modal glass-surface pf-settings-modal" :style="[modalStyle, settingsAccentStyle]">
       <!-- 标题栏 -->
       <div class="pf-modal-header">
         <span class="pf-modal-title">设置</span>

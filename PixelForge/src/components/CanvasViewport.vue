@@ -220,7 +220,7 @@ function formatDuration(seconds: number): string {
 </script>
 
 <template>
-  <div class="pf-panel pf-panel-center">
+  <div class="pf-panel glass-surface pf-panel-center">
     <!-- Canvas Area -->
     <div
       class="pf-canvas-area"

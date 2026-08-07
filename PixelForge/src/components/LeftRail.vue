@@ -20,7 +20,7 @@ const navItems: { tab: LeftNavTab; label: string; icon: string }[] = [
 </script>
 
 <template>
-  <div class="pf-rail">
+  <div class="pf-rail glass-surface">
     <button
       v-for="item in navItems"
       :key="item.tab"

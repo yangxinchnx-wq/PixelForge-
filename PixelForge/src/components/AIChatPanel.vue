@@ -153,7 +153,7 @@ watch(isGenerating, () => {
 </script>
 
 <template>
-  <div class="pf-panel pf-panel-left pf-chat-panel">
+  <div class="pf-panel glass-surface pf-panel-left pf-chat-panel">
     <!-- Header -->
     <div class="pf-panel-header">
       <span class="pf-panel-title">AI 对话</span>

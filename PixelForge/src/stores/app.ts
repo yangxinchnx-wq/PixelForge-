@@ -1,95 +1,41 @@
+/**
+ * App Store — 顶层编排器。
+ *
+ * 职责拆分为子 store 后，此文件仅保留：
+ *   - UI 全局状态（tab / theme / modal / resolution 等）
+ *   - Prompt + 元素 + 画面参数管理
+ *   - IR 树状态
+ *   - 生成（handleGenerate）
+ *   - 持久化编排（autosave / forceSave / loadFromUnifiedStore）
+ *   - Accent 颜色主题
+ *
+ * 子 store 通过 `useXxxStore()` 在 setup 函数内调用并代理其属性，
+ * 保证 `useAppStore()` 的所有现有消费者零改动即可继续工作。
+ */
+
 import { defineStore } from 'pinia';
-import { ref, computed } from 'vue';
-import type { TuningParams, ElementTag, IRTreeNode, Clip, Track, ParameterTrack } from '../types';
-import {
-  initialPromptText,
-  initialElements,
-  initialTuningParams,
-  initialIRTree,
-} from '../data/presetData';
-import { TOTAL_DURATION, FPS, initialTracks, initialClips } from '../data';
-import { callLLM } from '../authoring/llm/callLLM';
-import type { LLMProviderConfig } from '../authoring/llm/types';
+import { ref } from 'vue';
+import type { TuningParams, IRTreeNode } from '../types';
+import { initialPromptText, initialElements, initialTuningParams, initialIRTree } from '../data/presetData';
 import { unifiedStore } from '@/storage';
-import { CommandHistory, type Command } from '@/utils/commandHistory';
-import { evaluateAllTracks } from '@/utils/keyframe';
 import { useAssetStore } from '@/assets/assetStore';
 import type { Asset } from '@/assets/types';
+import { darkenHex, hashString } from '@/utils/colorUtils';
+import { buildPersistPayload, persistAll, loadPersistedData, clearPersistedData } from '@/composables/usePersist';
 
-// ─── Types ─────────────────────────────────────────────
-export interface AppStateSnapshot {
-  promptText: string;
-  tuningParams: TuningParams;
-  elements: ElementTag[];
-}
+// ─── 子 store 引入 ─────────────────────────────────────
+import { useHistoryStore, type AppStateSnapshot, type HistoryRecord } from './historyStore';
+import { usePlaybackStore } from './playbackStore';
+import { useTimelineStore } from './timelineStore';
+import { useKeyframeStore } from './keyframeStore';
+import { useModelConfigStore, type ModelConfig, type ModelMetadata, type AccentColors } from './modelConfigStore';
 
-export interface HistoryRecord {
-  id: string;
-  timestamp: string;
-  actionName: string;
-  state: AppStateSnapshot;
-}
-
-export interface ModelConfig {
-  id: string;
-  name: string;
-  provider: 'openai' | 'anthropic' | 'google' | 'custom';
-  modelId: string;
-  apiKey: string;
-  baseUrl: string;
-  enabled: boolean;
-  /** 模型元数据（从 API 拉取或静态数据库查询得到） */
-  metadata?: ModelMetadata;
-}
-
-/**
- * 模型元数据（上下文窗口、思考能力、限流等）。
- * 与 authoring/llm/modelRegistry 中的 ModelMetadata 结构一致，
- * 但在此独立定义以避免 store 层直接依赖 authoring 层。
- */
-export interface ModelMetadata {
-  /** 展示名称 */
-  displayName: string;
-  /** 上下文窗口大小（token 数），0 表示未知 */
-  contextWindow: number;
-  /** 最大输出 token 数，0 表示未知 */
-  maxOutputTokens: number;
-  /** 是否支持思考/推理模式 */
-  supportsThinking: boolean;
-  /** 是否支持视觉输入 */
-  supportsVision: boolean;
-  /** 是否支持函数调用 */
-  supportsFunctionCalling: boolean;
-  /** 是否支持图片生成 */
-  supportsImageGeneration?: boolean;
-  /** 是否支持视频生成 */
-  supportsVideoGeneration?: boolean;
-  /** 是否支持音频/音乐生成 */
-  supportsAudioGeneration?: boolean;
-  /** 请求频率限制（RPM） */
-  rpmLimit?: number;
-  /** Token 频率限制（TPM） */
-  tpmLimit?: number;
-}
-
-export interface AccentColors {
-  settings: string;
-  image: string;
-  video: string;
-}
-
-const DEFAULT_ACCENT: AccentColors = { settings: '', image: '', video: '' };
-
-/** 将 hex 色值加深 */
-function darkenHex(hex: string, amount: number): string {
-  const r = Math.max(0, parseInt(hex.slice(1, 3), 16) - amount);
-  const g = Math.max(0, parseInt(hex.slice(3, 5), 16) - amount);
-  const b = Math.max(0, parseInt(hex.slice(5, 7), 16) - amount);
-  return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
-}
+// 重新导出子 store 类型，保持向后兼容
+export type { AppStateSnapshot, HistoryRecord, ModelConfig, ModelMetadata, AccentColors };
 
 const AUTOSAVE_KEY = 'pixelforge_autosave_v2';
-const MAX_HISTORY_LENGTH = 50;
+
+const DEFAULT_ACCENT: AccentColors = { settings: '', image: '', video: '' };
 
 function loadSavedData() {
   try {
@@ -100,32 +46,20 @@ function loadSavedData() {
 }
 
 export const useAppStore = defineStore('app', () => {
-  // ─── History State ──────────────────────────────────
+  // ─── 子 store 初始化 ────────────────────────────────
+  const historyStore = useHistoryStore();
+  const playbackStore = usePlaybackStore();
+  const timelineStore = useTimelineStore();
+  const keyframeStore = useKeyframeStore();
+  const modelConfigStore = useModelConfigStore();
+
   const loadedData = loadSavedData();
 
-  const history = ref<HistoryRecord[]>([
-    {
-      id: 'init-0',
-      timestamp: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
-      actionName: '初始项目状态',
-      state: {
-        promptText: loadedData?.promptText ?? initialPromptText,
-        elements: loadedData?.elements ?? initialElements,
-        tuningParams: loadedData?.tuningParams ?? initialTuningParams,
-      },
-    },
-  ]);
-  const currentIndex = ref(0);
-
-  const activeSnapshot = computed(() => history.value[currentIndex.value]?.state ?? history.value[0].state);
-  const canUndo = computed(() => currentIndex.value > 0);
-  const canRedo = computed(() => currentIndex.value < history.value.length - 1);
-
-  // ─── App State ──────────────────────────────────────
+  // ─── UI 全局状态（本 store 自有）────────────────────
   const activeTopTab = ref<'creation' | 'timeline' | 'preview'>('creation');
   const activeLeftTab = ref<'input' | 'image' | 'elements' | 'effects' | 'history' | 'render' | 'performance' | 'settings'>('image');
 
-  const livePromptText = ref(activeSnapshot.value.promptText);
+  const livePromptText = ref(historyStore.activeSnapshot.promptText);
   let promptDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   const resolution = ref(loadedData?.resolution || '1920 × 1080');
@@ -134,29 +68,12 @@ export const useAppStore = defineStore('app', () => {
     Array.isArray(loadedData?.treeData) ? loadedData.treeData : initialIRTree
   );
 
-  const currentTime = ref(0);
-  const isPlaying = ref(false);
   const isExportOpen = ref(false);
   const isSettingsOpen = ref(false);
   const theme = ref(loadedData?.theme || 'dark');
   const isGenerating = ref(false);
 
-  // ─── 全局时间轴显示开关 ─────────────────────────────
-  /** 是否在底部显示全局时间轴面板（跨 Tab 可用） */
-  const showTimeline = ref(false);
-
-  /** 切换时间轴显示 */
-  function toggleTimeline(): void {
-    showTimeline.value = !showTimeline.value;
-  }
-
-  const autoSaveEnabled = ref(true);
-  const autoSaveInterval = ref(1500);
-  const saveStatus = ref<'saved' | 'saving' | 'unsaved'>('saved');
-  const lastSavedTime = ref<string | null>(loadedData?.savedTime || null);
-  let isInitialMount = true;
-
-  // ─── Accent Colors (per-section custom accent) ────
+  // ─── Accent Colors ──────────────────────────────────
   const accentColors = ref<AccentColors>(
     loadedData?.accentColors ?? { ...DEFAULT_ACCENT }
   );
@@ -169,7 +86,6 @@ export const useAppStore = defineStore('app', () => {
     accentColors.value = { ...DEFAULT_ACCENT };
   }
 
-  /** 根据自定义 accent 生成需要覆盖的 CSS 变量（用于 inline style） */
   function buildAccentVars(hex: string): Record<string, string> | undefined {
     if (!hex) return undefined;
     return {
@@ -179,121 +95,12 @@ export const useAppStore = defineStore('app', () => {
     };
   }
 
-  // ─── Model Configs ──────────────────────────────────
-  const modelConfigs = ref<ModelConfig[]>(
-    Array.isArray(loadedData?.modelConfigs) ? loadedData.modelConfigs : []
-  );
-  /** 当前选中的模型配置 ID（供 AIChatPanel / ControlPanel 共享） */
-  const selectedModelId = ref<string | null>(
-    loadedData?.selectedModelId ?? null
-  );
-
-  /** 当前选中的模型配置对象 */
-  const selectedModelConfig = computed<ModelConfig | null>(() =>
-    selectedModelId.value
-      ? modelConfigs.value.find((m) => m.id === selectedModelId.value) ?? null
-      : null
-  );
-
-  function addModelConfig(config: Omit<ModelConfig, 'id'>): string {
-    const id = `model-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-    modelConfigs.value.push({ ...config, id });
-    // 若之前没有选中模型，自动选中新添加的
-    if (!selectedModelId.value) selectedModelId.value = id;
-    return id;
-  }
-
-  function updateModelConfig(id: string, patch: Partial<Omit<ModelConfig, 'id'>>): void {
-    const idx = modelConfigs.value.findIndex((m) => m.id === id);
-    if (idx !== -1) {
-      modelConfigs.value[idx] = { ...modelConfigs.value[idx], ...patch };
-    }
-  }
-
-  function removeModelConfig(id: string): void {
-    modelConfigs.value = modelConfigs.value.filter((m) => m.id !== id);
-    // 若删除的正是当前选中模型，自动切换到第一个
-    if (selectedModelId.value === id) {
-      selectedModelId.value = modelConfigs.value[0]?.id ?? null;
-    }
-  }
-
-  function setSelectedModel(id: string): void {
-    selectedModelId.value = id;
-  }
-
-  // ─── Timeline State ────────────────────────────────
-  const tracks = ref<Track[]>([...initialTracks]);
-  const clips = ref<Clip[]>([...initialClips]);
-  const selectedClipIds = ref<Set<string>>(new Set());
-
-  /** Timeline 专用 CommandHistory（与 app-level history 分开） */
-  const timelineHistory = new CommandHistory();
-  const timelineHistoryVersion = ref(0); // 触发响应式更新
-
-  const canUndoTimeline = computed(() => {
-    void timelineHistoryVersion.value;
-    return timelineHistory.canUndo();
-  });
-  const canRedoTimeline = computed(() => {
-    void timelineHistoryVersion.value;
-    return timelineHistory.canRedo();
-  });
-
-  // ─── Keyframe Animation State ─────────────────────
-  const paramTracks = ref<ParameterTrack[]>([]);
-  const selectedTrackId = ref<string | null>(null);
-
-  // ─── History Actions ────────────────────────────────
-  function pushState(newState: AppStateSnapshot, actionName: string) {
-    const record: HistoryRecord = {
-      id: `${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-      timestamp: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
-      actionName,
-      state: newState,
-    };
-
-    const truncated = history.value.slice(0, currentIndex.value + 1);
-    const next = [...truncated, record];
-    if (next.length > MAX_HISTORY_LENGTH) {
-      history.value = next.slice(next.length - MAX_HISTORY_LENGTH);
-    } else {
-      history.value = next;
-    }
-    currentIndex.value = Math.min(currentIndex.value + 1, MAX_HISTORY_LENGTH - 1);
-  }
-
-  function undo() {
-    if (canUndo.value) {
-      currentIndex.value--;
-      livePromptText.value = activeSnapshot.value.promptText;
-    }
-  }
-
-  function redo() {
-    if (canRedo.value) {
-      currentIndex.value++;
-      livePromptText.value = activeSnapshot.value.promptText;
-    }
-  }
-
-  function jumpTo(index: number) {
-    if (index >= 0 && index < history.value.length) {
-      currentIndex.value = index;
-      livePromptText.value = activeSnapshot.value.promptText;
-    }
-  }
-
-  function clearHistory() {
-    const freshRecord: HistoryRecord = {
-      id: `reset-${Date.now()}`,
-      timestamp: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
-      actionName: '重置所有历史记录',
-      state: activeSnapshot.value,
-    };
-    history.value = [freshRecord];
-    currentIndex.value = 0;
-  }
+  // ─── 持久化状态 ─────────────────────────────────────
+  const autoSaveEnabled = ref(true);
+  const autoSaveInterval = ref(1500);
+  const saveStatus = ref<'saved' | 'saving' | 'unsaved'>('saved');
+  const lastSavedTime = ref<string | null>(loadedData?.savedTime || null);
+  let isInitialMount = true;
 
   // ─── Theme ──────────────────────────────────────────
   function setTheme(t: 'light' | 'dark') {
@@ -304,190 +111,20 @@ export const useAppStore = defineStore('app', () => {
     theme.value = theme.value === 'dark' ? 'light' : 'dark';
   }
 
-  // ─── Playback ───────────────────────────────────────
-  let rafId: number | null = null;
-
-  function startPlayback() {
-    if (!isPlaying.value) return;
-    let lastTime = performance.now();
-    const tick = (now: number) => {
-      const delta = (now - lastTime) / 1000;
-      lastTime = now;
-      const next = currentTime.value + delta;
-      if (next >= TOTAL_DURATION) {
-        currentTime.value = TOTAL_DURATION;
-        isPlaying.value = false;
-        return;
-      }
-      currentTime.value = next;
-      rafId = requestAnimationFrame(tick);
-    };
-    rafId = requestAnimationFrame(tick);
-  }
-
-  function stopPlayback() {
-    if (rafId !== null) {
-      cancelAnimationFrame(rafId);
-      rafId = null;
-    }
-  }
-
-  function togglePlay() {
-    isPlaying.value = !isPlaying.value;
-  }
-
-  function seek(time: number) {
-    currentTime.value = Math.max(0, Math.min(TOTAL_DURATION, time));
-  }
-
-  function stepForward() {
-    currentTime.value = Math.min(TOTAL_DURATION, currentTime.value + 1 / FPS);
-  }
-
-  function stepBackward() {
-    currentTime.value = Math.max(0, currentTime.value - 1 / FPS);
-  }
-
-  function resetTime() {
-    currentTime.value = 0;
-  }
-
-  // ─── Timeline Actions ─────────────────────────────
-
-  /** 执行时间轴命令（入 undo/redo 栈） */
-  function executeTimelineCommand(cmd: Command): void {
-    timelineHistory.execute(cmd);
-    timelineHistoryVersion.value++;
-  }
-
-  /** 时间轴撤销 */
-  function undoTimeline(): void {
-    timelineHistory.undo();
-    timelineHistoryVersion.value++;
-  }
-
-  /** 时间轴重做 */
-  function redoTimeline(): void {
-    timelineHistory.redo();
-    timelineHistoryVersion.value++;
-  }
-
-  /** 设置 clips（供 Command 使用） */
-  function setClips(newClips: Clip[]): void {
-    clips.value = newClips;
-  }
-
-  /** 设置 tracks */
-  function setTracks(newTracks: Track[]): void {
-    tracks.value = newTracks;
-  }
-
-  /** 选中 / 取消选中 Clip */
-  function selectClip(clipId: string, multi = false): void {
-    if (multi) {
-      if (selectedClipIds.value.has(clipId)) {
-        selectedClipIds.value.delete(clipId);
-      } else {
-        selectedClipIds.value.add(clipId);
-      }
-      selectedClipIds.value = new Set(selectedClipIds.value);
-    } else {
-      selectedClipIds.value = new Set([clipId]);
-    }
-  }
-
-  /** 清除选择 */
-  function clearSelection(): void {
-    selectedClipIds.value = new Set();
-  }
-
-  /** 批量删除选中 Clip */
-  function deleteSelectedClips(): void {
-    if (selectedClipIds.value.size === 0) return;
-    const toDelete = [...selectedClipIds.value];
-    const snapshot = clips.value;
-    const cmd: Command = {
-      label: `删除 ${toDelete.length} 个片段`,
-      execute() { clips.value = snapshot.filter((c) => !toDelete.includes(c.id)); },
-      undo() { clips.value = snapshot; },
-    };
-    executeTimelineCommand(cmd);
-    clearSelection();
-  }
-
-  /** 切换轨道属性 */
-  function toggleTrackProp(trackId: string, prop: 'muted' | 'soloed' | 'locked' | 'visible'): void {
-    tracks.value = tracks.value.map((t) =>
-      t.id === trackId ? { ...t, [prop]: !t[prop] } : t,
-    );
-  }
-
-  // ─── Keyframe Actions ──────────────────────────────
-
-  /** 添加参数轨道 */
-  function addParamTrack(label: string, layerId: string, parameter: string): string {
-    const id = `pt-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-    paramTracks.value.push({ id, label, layerId, parameter, keyframes: [] });
-    return id;
-  }
-
-  /** 删除参数轨道 */
-  function removeParamTrack(trackId: string): void {
-    paramTracks.value = paramTracks.value.filter((t) => t.id !== trackId);
-  }
-
-  /** 在指定时间添加关键帧 */
-  function addKeyframe(trackId: string, time: number, value: number, interpolation: import('../types').Interpolation = 'linear'): void {
-    const track = paramTracks.value.find((t) => t.id === trackId);
-    if (!track) return;
-    const existing = track.keyframes.find((k) => k.time === time);
-    if (existing) {
-      existing.value = value;
-      return;
-    }
-    const id = `kf-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-    track.keyframes.push({ id, time, value, interpolation });
-    track.keyframes.sort((a, b) => a.time - b.time);
-  }
-
-  /** 更新关键帧 */
-  function updateKeyframe(trackId: string, keyframeId: string, time: number, value: number): void {
-    const track = paramTracks.value.find((t) => t.id === trackId);
-    if (!track) return;
-    const kf = track.keyframes.find((k) => k.id === keyframeId);
-    if (!kf) return;
-    kf.time = Math.max(0, time);
-    kf.value = value;
-    track.keyframes.sort((a, b) => a.time - b.time);
-  }
-
-  /** 删除关键帧 */
-  function removeKeyframe(trackId: string, keyframeId: string): void {
-    const track = paramTracks.value.find((t) => t.id === trackId);
-    if (!track) return;
-    track.keyframes = track.keyframes.filter((k) => k.id !== keyframeId);
-  }
-
-  /** 求值当前时间的所有参数轨道 */
-  function evaluateParamTracks(time: number): Array<{ track: ParameterTrack; value: number }> {
-    return evaluateAllTracks(paramTracks.value, time);
-  }
-
   // ─── Prompt / Elements / Tuning ─────────────────────
   function handlePromptTextChange(newText: string) {
     livePromptText.value = newText;
     if (promptDebounceTimer) clearTimeout(promptDebounceTimer);
     promptDebounceTimer = setTimeout(() => {
-      if (newText !== activeSnapshot.value.promptText) {
-        pushState(
+      if (newText !== historyStore.activeSnapshot.promptText) {
+        historyStore.pushState(
           {
             promptText: newText,
-            elements: activeSnapshot.value.elements,
-            tuningParams: activeSnapshot.value.tuningParams,
+            elements: historyStore.activeSnapshot.elements,
+            tuningParams: historyStore.activeSnapshot.tuningParams,
           },
           '修改场景描述词'
         );
-        // 持久化 prompt 历史到三层存储（L1+L2+L3）
         const ts = Date.now();
         void unifiedStore.writePrompt(ts, newText).catch((e) => {
           console.warn('[AppStore] prompt 历史写入失败', e);
@@ -497,25 +134,25 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function toggleElement(id: string) {
-    const updated = activeSnapshot.value.elements.map((item) =>
+    const updated = historyStore.activeSnapshot.elements.map((item) =>
       item.id === id ? { ...item, active: !item.active } : item
     );
-    pushState(
+    historyStore.pushState(
       {
         promptText: livePromptText.value,
         elements: updated,
-        tuningParams: activeSnapshot.value.tuningParams,
+        tuningParams: historyStore.activeSnapshot.tuningParams,
       },
       '切换元素'
     );
   }
 
   function setTuningParams(updater: (prev: TuningParams) => TuningParams) {
-    const next = updater(activeSnapshot.value.tuningParams);
-    pushState(
+    const next = updater(historyStore.activeSnapshot.tuningParams);
+    historyStore.pushState(
       {
         promptText: livePromptText.value,
-        elements: activeSnapshot.value.elements,
+        elements: historyStore.activeSnapshot.elements,
         tuningParams: next,
       },
       '调整画面参数'
@@ -535,15 +172,6 @@ export const useAppStore = defineStore('app', () => {
   }
 
   // ─── Generate ───────────────────────────────────────
-  /** 简单字符串 hash，用作 shader 缓存键 */
-  function hashString(s: string): string {
-    let h = 0;
-    for (let i = 0; i < s.length; i++) {
-      h = ((h << 5) - h + s.charCodeAt(i)) | 0;
-    }
-    return `h_${(h >>> 0).toString(16)}`;
-  }
-
   function createGeneratedImageAsset(prompt: string): Asset | null {
     if (typeof document === 'undefined') return null;
 
@@ -555,7 +183,6 @@ export const useAppStore = defineStore('app', () => {
     const ctx = canvas.getContext('2d');
     if (!ctx) return null;
 
-    // 基于 prompt hash 生成稳定色调
     const hash = hashString(prompt);
     const hue = parseInt(hash.slice(2, 5), 16) % 360;
     const gradient = ctx.createLinearGradient(0, 0, width, height);
@@ -565,7 +192,6 @@ export const useAppStore = defineStore('app', () => {
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, width, height);
 
-    // 随机散点模拟星空/粒子
     ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
     let seed = parseInt(hash.slice(5, 10), 16) || 1;
     const rnd = () => {
@@ -583,7 +209,6 @@ export const useAppStore = defineStore('app', () => {
     }
     ctx.globalAlpha = 1;
 
-    // 提示词文本
     ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
     ctx.font = 'bold 26px system-ui, -apple-system, BlinkMacSystemFont, sans-serif';
     ctx.textAlign = 'center';
@@ -617,67 +242,20 @@ export const useAppStore = defineStore('app', () => {
     };
   }
 
-  // ─── 模型请求桥接（store ModelConfig → callLLM）────────────────
-
-  /** 将 store 的 ModelConfig 转换为 callLLM 所需的 LLMProviderConfig */
-  function modelConfigToLLMConfig(config: ModelConfig): LLMProviderConfig | null {
-    // 'custom' 和 'openai' 走 OpenAI 兼容接口；'google' 暂不支持文本对话
-    let provider: 'openai' | 'anthropic';
-    if (config.provider === 'anthropic') {
-      provider = 'anthropic';
-    } else {
-      provider = 'openai';
-    }
-
-    if (!config.apiKey || !config.modelId) return null;
-
-    return {
-      provider,
-      apiKey: config.apiKey,
-      baseUrl: config.baseUrl || undefined,
-      defaultModel: config.modelId,
-    };
-  }
-
-  /** 调用当前选中的模型，返回 LLM 文本响应（失败时返回 null） */
-  async function callSelectedModel(prompt: string, systemPrompt?: string): Promise<string | null> {
-    const config = selectedModelConfig.value;
-    if (!config) return null;
-
-    const llmConfig = modelConfigToLLMConfig(config);
-    if (!llmConfig) return null;
-
-    try {
-      const response = await callLLM(
-        { prompt, systemPrompt, maxTokens: 4096 },
-        llmConfig,
-        null,
-      );
-      return response.content;
-    } catch (e) {
-      console.error('[AppStore] LLM 调用失败', e);
-      return null;
-    }
-  }
-
   async function handleGenerate() {
     isGenerating.value = true;
 
-    // 生成产物写入三层存储（L1+L2+L3）
     const prompt = livePromptText.value;
     const timestamp = Date.now();
 
-    // 尝试调用真实 LLM
-    const llmResponse = await callSelectedModel(
+    await modelConfigStore.callSelectedModel(
       prompt,
       '你是一个创意图片生成助手。请根据用户的描述，生成一段简洁的创意说明文字。',
     );
 
-    // 1. WGSL 着色器源码（模拟编译产物）
     const shaderHash = hashString(prompt);
     const wgslCode = `// Auto-generated WGSL for prompt: ${prompt.slice(0, 80)}\n@vertex\nfn vs_main(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {\n  return vec4f(0.0, 0.0, 0.0, 1.0);\n}\n@fragment\nfn fs_main() -> @location(0) vec4f {\n  return vec4f(1.0, 0.5, 0.3, 1.0);\n}`;
 
-    // 2. RenderIR 快照（模拟 IR 树序列化）
     const irJson = JSON.stringify({
       frame: 0,
       timestampMs: timestamp,
@@ -686,12 +264,11 @@ export const useAppStore = defineStore('app', () => {
       generatedAt: new Date(timestamp).toISOString(),
     });
 
-    // 3. 帧像素数据（模拟 4x4 RGBA 像素）
     const pixels = new Uint8Array([
-      255, 128, 64, 255,  255, 128, 64, 255,  255, 128, 64, 255,  255, 128, 64, 255,
-      255, 128, 64, 255,  255, 128, 64, 255,  255, 128, 64, 255,  255, 128, 64, 255,
-      255, 128, 64, 255,  255, 128, 64, 255,  255, 128, 64, 255,  255, 128, 64, 255,
-      255, 128, 64, 255,  255, 128, 64, 255,  255, 128, 64, 255,  255, 128, 64, 255,
+      255, 128, 64, 255, 255, 128, 64, 255, 255, 128, 64, 255, 255, 128, 64, 255,
+      255, 128, 64, 255, 255, 128, 64, 255, 255, 128, 64, 255, 255, 128, 64, 255,
+      255, 128, 64, 255, 255, 128, 64, 255, 255, 128, 64, 255, 255, 128, 64, 255,
+      255, 128, 64, 255, 255, 128, 64, 255, 255, 128, 64, 255, 255, 128, 64, 255,
     ]);
 
     Promise.all([
@@ -699,13 +276,11 @@ export const useAppStore = defineStore('app', () => {
       unifiedStore.writeIR(0, irJson),
       unifiedStore.writeFrame(0, pixels),
       unifiedStore.writePrompt(timestamp, prompt),
-    ])
-      .catch((e) => {
-        console.warn('[Generate] 产物写入存储失败', e);
-      });
+    ]).catch((e) => {
+      console.warn('[Generate] 产物写入存储失败', e);
+    });
 
     setTimeout(() => {
-      // 4. 将生成图片加入资源库，供 ResourceManagerPanel 展示
       const asset = createGeneratedImageAsset(prompt);
       if (asset) {
         const assetStore = useAssetStore();
@@ -715,49 +290,29 @@ export const useAppStore = defineStore('app', () => {
     }, 1200);
   }
 
-  // ─── Save / Reset ───────────────────────────────────
+  // ─── 持久化（统一使用 buildPersistPayload + persistAll）──
 
-  /** 将项目快照写入三层统一存储（L1 LRU + L2 OPFS + L3 Redb） */
-  function saveToUnifiedStore(time: string) {
-    const payload = JSON.stringify({
+  /** 收集当前可持久化状态 */
+  function _collectPayload() {
+    return {
       promptText: livePromptText.value,
-      elements: activeSnapshot.value.elements,
-      tuningParams: activeSnapshot.value.tuningParams,
+      elements: historyStore.activeSnapshot.elements,
+      tuningParams: historyStore.activeSnapshot.tuningParams,
       treeData: treeData.value,
       resolution: resolution.value,
       frameRate: frameRate.value,
       theme: theme.value,
-      modelConfigs: modelConfigs.value,
-      selectedModelId: selectedModelId.value,
+      modelConfigs: modelConfigStore.modelConfigs,
+      selectedModelId: modelConfigStore.selectedModelId,
       accentColors: accentColors.value,
-      savedTime: time,
-    });
-    void unifiedStore.writeMetadata(AUTOSAVE_KEY, payload).catch((e) => {
-      console.warn('[AppStore] 统一存储写入失败', e);
-    });
+    };
   }
 
   function handleForceSave() {
     saveStatus.value = 'saving';
     try {
-      const time = new Date().toLocaleTimeString('zh-CN', { hour12: false });
-      const payload = JSON.stringify({
-        promptText: livePromptText.value,
-        elements: activeSnapshot.value.elements,
-        tuningParams: activeSnapshot.value.tuningParams,
-        treeData: treeData.value,
-        resolution: resolution.value,
-        frameRate: frameRate.value,
-        theme: theme.value,
-      modelConfigs: modelConfigs.value,
-      selectedModelId: selectedModelId.value,
-      accentColors: accentColors.value,
-      savedTime: time,
-    });
-      // 同步写 localStorage（向后兼容，保证刷新即恢复）
-      localStorage.setItem(AUTOSAVE_KEY, payload);
-      // 异步写三层统一存储（持久化 + 高性能读取）
-      saveToUnifiedStore(time);
+      const payload = buildPersistPayload(_collectPayload());
+      const { time } = persistAll(payload);
       saveStatus.value = 'saved';
       lastSavedTime.value = time;
     } catch (e) {
@@ -766,29 +321,24 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function handleResetProject() {
-    try {
-      localStorage.removeItem(AUTOSAVE_KEY);
-    } catch (e) { /* ignore */ }
-    // 同步清三层存储中的项目快照
-    void unifiedStore.deleteMetadata(AUTOSAVE_KEY).catch(() => {});
+    void clearPersistedData();
     livePromptText.value = initialPromptText;
     treeData.value = initialIRTree;
     resolution.value = '1920 × 1080';
     frameRate.value = '30 fps';
     theme.value = 'dark';
     accentColors.value = { ...DEFAULT_ACCENT };
-    modelConfigs.value = [];
-    selectedModelId.value = null;
+    modelConfigStore.modelConfigs = [];
+    modelConfigStore.selectedModelId = null;
     lastSavedTime.value = null;
     saveStatus.value = 'saved';
-    clearHistory();
+    historyStore.clearHistory();
   }
 
   function setAutoSaveInterval(ms: number) {
     autoSaveInterval.value = Math.max(500, Math.min(30000, ms));
   }
 
-  // ─── Autosave ───────────────────────────────────────
   function triggerAutosave() {
     if (isInitialMount) {
       isInitialMount = false;
@@ -799,24 +349,8 @@ export const useAppStore = defineStore('app', () => {
     setTimeout(() => {
       saveStatus.value = 'saving';
       try {
-        const time = new Date().toLocaleTimeString('zh-CN', { hour12: false });
-        const payload = JSON.stringify({
-          promptText: livePromptText.value,
-          elements: activeSnapshot.value.elements,
-          tuningParams: activeSnapshot.value.tuningParams,
-          treeData: treeData.value,
-          resolution: resolution.value,
-          frameRate: frameRate.value,
-          theme: theme.value,
-        modelConfigs: modelConfigs.value,
-        selectedModelId: selectedModelId.value,
-        accentColors: accentColors.value,
-        savedTime: time,
-      });
-        // 同步写 localStorage（向后兼容）
-        localStorage.setItem(AUTOSAVE_KEY, payload);
-        // 异步写三层统一存储
-        saveToUnifiedStore(time);
+        const payload = buildPersistPayload(_collectPayload());
+        const { time } = persistAll(payload);
         saveStatus.value = 'saved';
         lastSavedTime.value = time;
       } catch (e) {
@@ -825,58 +359,31 @@ export const useAppStore = defineStore('app', () => {
     }, autoSaveInterval.value);
   }
 
-  /**
-   * 从三层统一存储异步加载项目快照。
-   * 在 initStorage() 完成后调用，优先使用 L3/L2 中的数据。
-   * 若统一存储中无数据，保持 localStorage 的同步加载结果不变。
-   */
   async function loadFromUnifiedStore(): Promise<void> {
     try {
-      const json = await unifiedStore.readMetadata(AUTOSAVE_KEY);
-      if (!json) return;
-      const data = JSON.parse(json) as {
-        promptText?: string;
-        elements?: ElementTag[];
-        tuningParams?: TuningParams;
-        treeData?: IRTreeNode[];
-        resolution?: string;
-        frameRate?: string;
-        theme?: string;
-        modelConfigs?: ModelConfig[];
-        selectedModelId?: string | null;
-        accentColors?: AccentColors;
-        savedTime?: string;
-      };
-      // 统一存储有数据，覆盖 localStorage 的同步加载结果
+      const data = await loadPersistedData();
+      if (!data) return;
       if (data.promptText !== undefined) livePromptText.value = data.promptText;
       if (data.resolution !== undefined) resolution.value = data.resolution;
       if (data.frameRate !== undefined) frameRate.value = data.frameRate;
       if (data.theme !== undefined) theme.value = data.theme;
       if (data.treeData !== undefined) treeData.value = data.treeData;
       if (data.savedTime !== undefined) lastSavedTime.value = data.savedTime;
-      if (data.modelConfigs !== undefined) modelConfigs.value = data.modelConfigs;
-      if (data.selectedModelId !== undefined) selectedModelId.value = data.selectedModelId;
+      if (data.modelConfigs !== undefined) modelConfigStore.modelConfigs = data.modelConfigs;
+      if (data.selectedModelId !== undefined) modelConfigStore.selectedModelId = data.selectedModelId;
       if (data.accentColors !== undefined) accentColors.value = data.accentColors;
-      // 将当前状态推入 history 作为初始快照
       if (data.promptText !== undefined || data.elements !== undefined) {
-        history.value = [{
-          id: 'init-0',
-          timestamp: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
-          actionName: '初始项目状态',
-          state: {
-            promptText: data.promptText ?? initialPromptText,
-            elements: data.elements ?? initialElements,
-            tuningParams: data.tuningParams ?? initialTuningParams,
-          },
-        }];
-        currentIndex.value = 0;
+        historyStore.resetWithData(
+          data.promptText ?? initialPromptText,
+          data.elements ?? initialElements,
+          data.tuningParams ?? initialTuningParams,
+        );
       }
     } catch (e) {
       console.warn('[AppStore] 从统一存储加载失败，使用 localStorage 数据', e);
     }
   }
 
-  /** 查询 prompt 历史（从三层存储读取） */
   async function loadPromptHistory(): Promise<Array<{ timestampMs: number; text: string }>> {
     try {
       return await unifiedStore.listPrompts();
@@ -886,96 +393,102 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
+  // ─── 导出：本 store 自有 + 子 store 代理 ─────────────
   return {
-    // State
-    history,
-    currentIndex,
+    // ── 本 store 自有状态 ──
     activeTopTab,
     activeLeftTab,
     livePromptText,
     resolution,
     frameRate,
     treeData,
-    currentTime,
-    isPlaying,
     isExportOpen,
     isSettingsOpen,
     theme,
     isGenerating,
-    showTimeline,
     autoSaveEnabled,
     autoSaveInterval,
     saveStatus,
     lastSavedTime,
-    modelConfigs,
-    selectedModelId,
-    selectedModelConfig,
     accentColors,
-    // Timeline State
-    tracks,
-    clips,
-    selectedClipIds,
-    paramTracks,
-    selectedTrackId,
 
-    // Getters
-    activeSnapshot,
-    canUndo,
-    canRedo,
-    canUndoTimeline,
-    canRedoTimeline,
-
-    // Actions
-    pushState,
-    undo,
-    redo,
-    jumpTo,
-    clearHistory,
+    // ── 本 store 自有 actions ──
     setTheme,
     toggleTheme,
-    toggleTimeline,
-    startPlayback,
-    stopPlayback,
-    togglePlay,
-    seek,
-    stepForward,
-    stepBackward,
-    resetTime,
     handlePromptTextChange,
     toggleElement,
     setTuningParams,
     toggleIRVisibility,
     handleGenerate,
-    callSelectedModel,
     handleForceSave,
     handleResetProject,
     setAutoSaveInterval,
     triggerAutosave,
     loadFromUnifiedStore,
     loadPromptHistory,
-    addModelConfig,
-    updateModelConfig,
-    removeModelConfig,
-    setSelectedModel,
     setAccentColor,
     resetAccentColors,
     buildAccentVars,
-    // Timeline Actions
-    executeTimelineCommand,
-    undoTimeline,
-    redoTimeline,
-    setClips,
-    setTracks,
-    selectClip,
-    clearSelection,
-    deleteSelectedClips,
-    toggleTrackProp,
-    // Keyframe Actions
-    addParamTrack,
-    removeParamTrack,
-    addKeyframe,
-    updateKeyframe,
-    removeKeyframe,
-    evaluateParamTracks,
+
+    // ── History Store 代理（直接赋值 ref，Pinia 自动解包）──
+    history: historyStore.history,
+    currentIndex: historyStore.currentIndex,
+    activeSnapshot: historyStore.activeSnapshot,
+    canUndo: historyStore.canUndo,
+    canRedo: historyStore.canRedo,
+    pushState: historyStore.pushState,
+    undo: historyStore.undo,
+    redo: historyStore.redo,
+    jumpTo: historyStore.jumpTo,
+    clearHistory: historyStore.clearHistory,
+
+    // ── Playback Store 代理 ──
+    currentTime: playbackStore.currentTime,
+    isPlaying: playbackStore.isPlaying,
+    startPlayback: playbackStore.startPlayback,
+    stopPlayback: playbackStore.stopPlayback,
+    togglePlay: playbackStore.togglePlay,
+    seek: playbackStore.seek,
+    stepForward: playbackStore.stepForward,
+    stepBackward: playbackStore.stepBackward,
+    resetTime: playbackStore.resetTime,
+
+    // ── Timeline Store 代理 ──
+    tracks: timelineStore.tracks,
+    clips: timelineStore.clips,
+    selectedClipIds: timelineStore.selectedClipIds,
+    showTimeline: timelineStore.showTimeline,
+    canUndoTimeline: timelineStore.canUndoTimeline,
+    canRedoTimeline: timelineStore.canRedoTimeline,
+    toggleTimeline: timelineStore.toggleTimeline,
+    executeTimelineCommand: timelineStore.executeTimelineCommand,
+    undoTimeline: timelineStore.undoTimeline,
+    redoTimeline: timelineStore.redoTimeline,
+    setClips: timelineStore.setClips,
+    setTracks: timelineStore.setTracks,
+    selectClip: timelineStore.selectClip,
+    clearSelection: timelineStore.clearSelection,
+    deleteSelectedClips: timelineStore.deleteSelectedClips,
+    toggleTrackProp: timelineStore.toggleTrackProp,
+
+    // ── Keyframe Store 代理 ──
+    paramTracks: keyframeStore.paramTracks,
+    selectedTrackId: keyframeStore.selectedTrackId,
+    addParamTrack: keyframeStore.addParamTrack,
+    removeParamTrack: keyframeStore.removeParamTrack,
+    addKeyframe: keyframeStore.addKeyframe,
+    updateKeyframe: keyframeStore.updateKeyframe,
+    removeKeyframe: keyframeStore.removeKeyframe,
+    evaluateParamTracks: keyframeStore.evaluateParamTracks,
+
+    // ── Model Config Store 代理 ──
+    modelConfigs: modelConfigStore.modelConfigs,
+    selectedModelId: modelConfigStore.selectedModelId,
+    selectedModelConfig: modelConfigStore.selectedModelConfig,
+    addModelConfig: modelConfigStore.addModelConfig,
+    updateModelConfig: modelConfigStore.updateModelConfig,
+    removeModelConfig: modelConfigStore.removeModelConfig,
+    setSelectedModel: modelConfigStore.setSelectedModel,
+    callSelectedModel: modelConfigStore.callSelectedModel,
   };
 });

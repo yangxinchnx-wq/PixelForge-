@@ -194,7 +194,7 @@ onUnmounted(() => {
       <!-- 左栏：实时资源监控 -->
       <div class="pf-perf-left">
         <!-- FPS & 帧时间 -->
-        <div class="pf-panel">
+        <div class="pf-panel glass-surface">
           <div class="pf-panel-header">
             <span class="pf-panel-title">渲染性能</span>
           </div>
@@ -226,7 +226,7 @@ onUnmounted(() => {
         </div>
 
         <!-- 内存监控 -->
-        <div class="pf-panel">
+        <div class="pf-panel glass-surface">
           <div class="pf-panel-header">
             <span class="pf-panel-title">内存</span>
           </div>
@@ -265,7 +265,7 @@ onUnmounted(() => {
         </div>
 
         <!-- 项目资源统计 -->
-        <div class="pf-panel">
+        <div class="pf-panel glass-surface">
           <div class="pf-panel-header">
             <span class="pf-panel-title">项目资源</span>
           </div>
@@ -288,7 +288,7 @@ onUnmounted(() => {
         </div>
 
         <!-- 渲染概览 -->
-        <div class="pf-panel">
+        <div class="pf-panel glass-surface">
           <div class="pf-panel-header">
             <span class="pf-panel-title">渲染概览</span>
             <span class="pf-perf-badge" :class="renderStatus.cls" style="margin-left: auto">
@@ -368,7 +368,7 @@ onUnmounted(() => {
 
       <!-- 右栏：存储统计 -->
       <div class="pf-perf-right">
-        <div class="pf-panel" style="height: 100%">
+        <div class="pf-panel glass-surface" style="height: 100%">
           <div class="pf-panel-header">
             <span class="pf-panel-title">存储消耗</span>
             <button class="btn btn-icon" title="刷新" @click="refreshStorageStats" style="margin-left: auto">

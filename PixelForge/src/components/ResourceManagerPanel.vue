@@ -266,7 +266,7 @@ const activeTaskCount = computed(() => {
 
 <template>
   <div
-    class="pf-panel pf-panel-right pf-resource-panel"
+    class="pf-panel glass-surface pf-panel-right pf-resource-panel"
     :class="{ 'drag-over': isDragOver, loading: isLoading }"
     @dragover="onDragOver"
     @dragleave="onDragLeave"

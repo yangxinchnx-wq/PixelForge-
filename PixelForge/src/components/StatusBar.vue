@@ -16,7 +16,7 @@ const statusText = computed(() => {
 </script>
 
 <template>
-  <div class="statusbar">
+  <div class="statusbar glass-surface">
     <div class="statusbar-item">
       <div class="statusbar-dot" :class="saveStatus" />
       <span>{{ statusText }}</span>

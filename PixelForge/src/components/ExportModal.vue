@@ -227,7 +227,7 @@ async function doExport() {
 
 <template>
   <div v-if="internalVisible" ref="overlayRef" class="pf-modal-overlay" @click="emit('close')">
-    <div ref="modalRef" class="pf-modal pf-export-modal" @click.stop>
+    <div ref="modalRef" class="pf-modal glass-surface pf-export-modal" @click.stop>
       <div class="pf-modal-header">
         <span class="pf-modal-title">导出</span>
         <button class="btn btn-icon" title="关闭" @click="emit('close')">

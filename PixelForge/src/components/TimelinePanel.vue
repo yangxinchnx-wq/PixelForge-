@@ -911,9 +911,9 @@ const canPasteInMenu = computed(() => clipboard !== null && clipboard.length > 0
 </script>
 
 <template>
-  <div class="pf-timeline">
+  <div class="pf-timeline glass-surface">
     <!-- ─── Toolbar ─── -->
-    <div class="toolbar">
+    <div class="toolbar glass-surface">
       <div class="toolbar-section">
         <button class="btn btn-icon" title="跳到开头" @click="emit('seek', 0)">
           <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
@@ -1064,7 +1064,7 @@ const canPasteInMenu = computed(() => clipboard !== null && clipboard.length > 0
     <div class="timeline-container">
       <div class="timeline-body">
         <!-- Track Headers -->
-        <div class="track-headers">
+        <div class="track-headers glass-surface">
           <div class="track-headers-ruler-spacer">
             <span>轨道</span>
           </div>
@@ -1129,7 +1129,7 @@ const canPasteInMenu = computed(() => clipboard !== null && clipboard.length > 0
               @click.self="handleBackgroundClick"
             >
               <!-- Ruler -->
-              <div class="timeline-ruler" @pointerdown="handleRulerPointerDown">
+              <div class="timeline-ruler glass-surface" @pointerdown="handleRulerPointerDown">
                 <template v-for="(tick, i) in ticks" :key="i">
                   <div
                     class="ruler-tick"

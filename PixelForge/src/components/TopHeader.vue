@@ -27,7 +27,7 @@ async function handleClose() {
 </script>
 
 <template>
-  <div class="toolbar" data-tauri-drag-region>
+  <div class="toolbar glass-surface" data-tauri-drag-region>
     <div class="toolbar-section">
       <span class="toolbar-title">PixelForge</span>
     </div>

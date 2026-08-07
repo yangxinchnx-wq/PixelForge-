@@ -102,7 +102,7 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
 </script>
 
 <template>
-  <div class="pf-panel pf-panel-left">
+  <div class="pf-panel glass-surface pf-panel-left">
     <div class="pf-panel-header">
       <PfSelect v-if="modelOptions.length > 0" v-model="selectedModel" :options="modelOptions" size="small" />
       <span v-else class="pf-panel-no-model" title="请在设置中添加模型">未配置模型</span>
@@ -149,7 +149,7 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
         </button>
 
         <!-- Tuning Floating Panel -->
-        <div v-if="isTuningOpen" class="pf-popover">
+        <div v-if="isTuningOpen" class="pf-popover glass-surface">
           <div class="pf-popover-header">
             <span class="pf-popover-title">画面调节</span>
             <button class="btn btn-icon" title="关闭" @click="isTuningOpen = false">

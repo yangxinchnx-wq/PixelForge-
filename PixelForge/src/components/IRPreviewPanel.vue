@@ -25,7 +25,7 @@ function toggleExpand(node: IRTreeNode) {
 </script>
 
 <template>
-  <div class="pf-panel" style="height: 100%">
+  <div class="pf-panel glass-surface" style="height: 100%">
     <div class="pf-panel-header">
       <span class="pf-panel-title">场景图</span>
     </div>
