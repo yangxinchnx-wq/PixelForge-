@@ -38,7 +38,7 @@ import type { MaterialAsset, PBRMaterialParams } from './materialAsset'
 import { DEFAULT_PBR_PARAMS } from './materialAsset'
 import type { MaterialGraph } from './types'
 import { compileMaterialGraph } from './compiler'
-import { MaterialRuntime, withVertexShader } from './runtime'
+import { MaterialRuntime } from './runtime'
 
 // ============================================================================
 // 1. 常量

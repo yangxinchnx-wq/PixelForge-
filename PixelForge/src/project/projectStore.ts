@@ -12,6 +12,13 @@ import {
   saveProjectToLocalStorage,
 } from './fileSystem'
 import type { PixelForgeProject, ProjectMetadata, TimelineSnapshot, TimelineStoreLike } from './types'
+import {
+  currentFrameForTime,
+  normalizeTimelineContent,
+  timelineFromLegacySnapshot,
+  timelineToLegacyTracks,
+  totalFramesForTimeline,
+} from '@/world/timeline/unifiedTimeline'
 
 type RuntimeStore = ReturnType<typeof useRuntimeStore>
 type TimelineStore = TimelineStoreLike
@@ -206,11 +213,29 @@ function cloneIr(ir: RenderIR): RenderIR {
 }
 
 function applyTimelineSnapshot(timeline: TimelineStore, snapshot: TimelineSnapshot): void {
-  timeline.totalFrames = snapshot.totalFrames
-  timeline.fps = snapshot.fps
-  timeline.seek(snapshot.currentFrame)
-  // 替换 tracks(用 splice 保持响应式)
-  timeline.tracks.splice(0, timeline.tracks.length, ...snapshot.tracks)
+  const content = normalizeTimelineContent(
+    snapshot.content ?? timelineFromLegacySnapshot(snapshot),
+    { fps: snapshot.fps, duration: snapshot.totalFrames / Math.max(1, snapshot.fps) },
+  )
+  if (timeline.timelineContent) {
+    timeline.timelineContent = content
+  }
+  if (timeline.currentTime !== undefined) {
+    timeline.currentTime = snapshot.currentTime ?? (snapshot.currentFrame / content.fps)
+  }
+  if (timeline.currentFrame !== undefined) {
+    timeline.currentFrame = currentFrameForTime(snapshot.currentTime ?? 0, content.fps)
+  }
+  if (timeline.totalFrames !== undefined) {
+    timeline.totalFrames = totalFramesForTimeline(content)
+  }
+  if (timeline.fps !== undefined) {
+    timeline.fps = content.fps
+  }
+  if (timeline.tracks) {
+    timeline.tracks.splice(0, timeline.tracks.length, ...timelineToLegacyTracks(content))
+  }
+  timeline.seek?.(currentFrameForTime(snapshot.currentTime ?? 0, content.fps))
 }
 
 function genId(): string {

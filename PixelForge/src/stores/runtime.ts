@@ -118,6 +118,8 @@ function createRuntimeStore(frameRepository: FrameRepository) {
     /** 保存 canvas 元素引用，供 resizeCanvas 使用 */
     let canvasElement: HTMLCanvasElement | null = null
     const currentIr = ref<RenderIR>(createPhaseADemoIR())
+    /** 当前帧时间（秒），不进入 RenderIR，只供 Runtime/导出状态观察。 */
+    const currentRenderTime = ref(0)
     const currentLayerId = ref<string | null>(null)
     const currentOpcode = ref<string | null>(null)
     const currentScenario = ref((demoScenarios[0] ?? 'gradient') as (typeof demoScenarios)[number])
@@ -424,14 +426,79 @@ function createRuntimeStore(frameRepository: FrameRepository) {
      * - 默认记录到 history store(可被 undo/redo 还原)
      *   options.skipHistory = true 时跳过记录(seek/play/undo/redo 自身调用)
      */
+    interface ApplyValuePatchesOptions {
+      skipHistory?: boolean
+      render?: boolean
+      source?: ValuePatch['source']
+    }
+
+    interface ApplyValuePatchesResult {
+      success: boolean
+      appliedCount: number
+      error?: string
+    }
+
+    function applyValuePatches(
+      patches: ValuePatch[],
+      options: ApplyValuePatchesOptions = {},
+    ): ApplyValuePatchesResult {
+      if (!runtime.value) {
+        return { success: false, appliedCount: 0, error: 'Runtime 未初始化' }
+      }
+      try {
+        let nextIr = currentIr.value
+        let appliedCount = 0
+        for (const sourcePatch of patches) {
+          const patch: ValuePatch = {
+            ...sourcePatch,
+            patchId: sourcePatch.patchId || `patch-batch-${Date.now()}-${appliedCount}`,
+            source: options.source ?? sourcePatch.source,
+          }
+          const outcome = applyPatch(nextIr, patch)
+          nextIr = outcome.ir
+          appliedCount += outcome.appliedCount
+          for (const scope of outcome.affectedScopes) invalidateByScopes([scope])
+          invalidateByLayerId(patch.targetId)
+          lastPatchId.value = patch.patchId
+          lastPatchSummary.value = `${patch.targetId}.${patch.paramKey} -> ${formatPatchValue(patch.value)}`
+        }
+        currentIr.value = nextIr
+        if (options.render !== false && appliedCount > 0) {
+          void renderCurrentIR()
+        }
+        return { success: true, appliedCount }
+      } catch (caughtError) {
+        const normalized = classifyError(caughtError, 'patch')
+        error.value = normalized.message
+        runtimeError.value = normalized
+        return {
+          success: false,
+          appliedCount: 0,
+          error: normalized.message,
+        }
+      }
+    }
+
+    function setRenderTime(time: number): void {
+      currentRenderTime.value = Math.max(0, time)
+    }
+
     function applyValuePatch(
       targetId: string,
       paramKey: string,
       value: ValuePatch['value'],
-      options?: { skipHistory?: boolean },
+      options?: ApplyValuePatchesOptions,
     ): boolean {
       if (!runtime.value) {
         return false
+      }
+
+      if (options?.source && options.source !== 'user_patch') {
+        const result = applyValuePatches([{
+          ...createValuePatch(targetId, paramKey, value),
+          source: options.source,
+        }], options)
+        return result.success
       }
 
       try {
@@ -648,7 +715,10 @@ isCompiling.value = true
         lastCompileCacheHit.value = false
         try {
           const pool = getWorkerPool()
-          artifact = await pool.compile(currentIr.value)
+          // 必须传 irSnapshot（JSON 深拷贝的普通对象）：
+          // currentIr.value 是 Vue reactive Proxy，无法被 postMessage 结构化克隆，
+          // 直接传入会让每次 Worker 分发都抛 DataCloneError 并静默降级主线程编译
+          artifact = await pool.compile(irSnapshot)
         } catch {
           // Worker 编译失败 → 主线程降级编译
           artifact = compileRenderIRToRegionArtifact(currentIr.value)
@@ -1069,6 +1139,7 @@ isCompiling.value = true
       replayErrorInfo,
       runtime,
       currentIr,
+      currentRenderTime,
       currentLayerId,
       currentOpcode,
       currentScenario,
@@ -1114,6 +1185,8 @@ isCompiling.value = true
       resetDemoIR,
       applyDemoPatch,
       applyValuePatch,
+      applyValuePatches,
+      setRenderTime,
       applyStructuralPatch,
       renderCurrentIR,
       renderProgressive,

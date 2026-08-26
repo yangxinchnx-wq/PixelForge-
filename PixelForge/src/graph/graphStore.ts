@@ -11,7 +11,7 @@
  */
 
 import { defineStore } from 'pinia'
-import { computed, ref } from 'vue'
+import { computed, shallowRef } from 'vue'
 
 import type { JsonLiteral } from '@/shared/types'
 import type {
@@ -46,14 +46,14 @@ import {
  */
 export const useGraphStore = defineStore('graph', () => {
   // ─── 共享节点图基础（CRUD / selection / load / clear / export）───
+  // 子图定义库（graphStore 独有）。使用 shallowRef，避免 Pinia 深度展开图节点参数。
+  const subgraphLibrary = shallowRef<SubGraphDefinition[]>([])
+
   const graph = useNodeGraph<GraphNode, GraphEdge, ValidationResult, { width: number; height: number }>({
     defaultCanvas: { ...DEFAULT_GRAPH_CANVAS },
     validate: (nodes, edges, canvas) =>
       validateGraph({ nodes, edges, canvas, subgraphLibrary: subgraphLibrary.value }),
   })
-
-  // 子图定义库（graphStore 独有）
-  const subgraphLibrary = ref<SubGraphDefinition[]>([])
 
   // ─── domain-specific getters ────────────────────────
   const isValid = computed(() => graph.validation.value.valid)

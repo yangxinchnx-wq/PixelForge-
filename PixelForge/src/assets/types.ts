@@ -43,6 +43,8 @@ export interface Asset {
   thumbnail?: string
   /** MIME 类型(如 'image/png' / 'video/mp4') */
   mimeType: string
+  /** OPFS 持久化路径（相对于 assets 命名空间，如 "asset_xxx.png"）。有此字段表示二进制已持久化到 OPFS */
+  opfsPath?: string
   // ── 视频特有字段(仅 type === 'video' 时有效) ──
   /** 视频时长(秒),仅视频类型 */
   duration?: number
@@ -51,6 +53,27 @@ export interface Asset {
   /** 编码格式,仅视频类型 */
   codec?: string
   /** 总帧数,仅视频类型 */
+  frameCount?: number
+}
+
+/**
+ * 资产持久化索引条目 — 写入 OPFS 的 index.json 中。
+ * 只保存可序列化的元数据，不保存 blob URL（刷新后失效）。
+ */
+export interface AssetIndexEntry {
+  id: string
+  name: string
+  type: AssetType
+  width: number
+  height: number
+  size: number
+  createdAt: number
+  thumbnail?: string
+  mimeType: string
+  opfsPath: string
+  duration?: number
+  fps?: number
+  codec?: string
   frameCount?: number
 }
 

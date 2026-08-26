@@ -1,16 +1,21 @@
 import type { RenderIR } from '@/compiler/ir/renderIR'
 import type { ParameterTrack } from '@/types'
+import type { TimelineContent } from '@/world/types'
 
 /**
  * Timeline store 的最小接口（用于 project 模块序列化/恢复）。
- * 替代已删除的 @/stores/timeline 中的 useTimelineStore 返回类型。
+ * TimelineContent 是唯一权威模型；旧字段仅作为兼容输入/镜像保留。
  */
 export interface TimelineStoreLike {
-  currentFrame: number
-  totalFrames: number
-  fps: number
+  timelineContent?: TimelineContent
+  currentTime?: number
+  isPlaying?: boolean
+  currentFrame?: number
+  totalFrames?: number
+  fps?: number
+  /** Legacy mirror. It is optional for runtime adapters, but present in snapshots/mocks. */
   tracks: ParameterTrack[]
-  seek: (frame: number) => void
+  seek?: (frame: number) => void
 }
 
 /**
@@ -49,8 +54,10 @@ export interface ProjectMetadata {
   canvasSize: { width: number; height: number }
 }
 
-/** 时间轴快照(与 timeline store state shape 一致) */
+/** 时间轴快照。content 是权威模型，legacy 字段用于旧项目兼容。 */
 export interface TimelineSnapshot {
+  content?: TimelineContent
+  currentTime?: number
   currentFrame: number
   totalFrames: number
   fps: number

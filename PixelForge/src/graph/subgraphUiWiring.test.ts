@@ -14,7 +14,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
-import type { GraphNode } from './types'
+import type { GraphNode, SubGraphNode } from './types'
 import { useGraphStore } from './graphStore'
 import { useGraphUIStore } from './uiStore'
 import { createSubGraphFromSelection } from './subgraphInliner'
@@ -96,7 +96,8 @@ describe('SG-UI: 子图 UI 接线(库面板 + 打包按钮 + 双击聚焦)', () 
 
     const sgNodes = graph.nodes.filter((n) => n.type === 'SUBGRAPH')
     expect(sgNodes.length).toBe(1)
-    const sg = sgNodes[0] as Extract<GraphNode, { type: 'SUBGRAPH' }>
+    const sg = sgNodes[0] as SubGraphNode
+    expect(sg).toBeDefined()
     expect(sg.subgraphId).toBe(sgId)
     expect(sg.position).toEqual({ x: 100, y: 100 })
     // 实例应带子图定义的动态端口

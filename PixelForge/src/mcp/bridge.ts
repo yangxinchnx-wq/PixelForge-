@@ -650,7 +650,7 @@ export class MockEditorBridge implements EditorBridge {
     }
   }
 
-  async getSuggestions(context: string, _type: string) {
+  async getSuggestions(_context: string, _type: string) {
     // 从材质预设中提取与上下文相关的建议
     const { listPresetKeys, getPreset } = await import('@/material/materialPresets')
     const suggestions = listPresetKeys().map((key) => {
@@ -680,9 +680,11 @@ export class MockEditorBridge implements EditorBridge {
       assets: limited.map((a) => ({
         id: a.id,
         name: a.name,
-        category: a.category,
+        type: 'shader' as AssetType,
         tags: a.tags,
-        thumbnail: a.thumbnail,
+        size: 0,
+        path: a.id,
+        thumbnail: a.thumbnail ?? undefined,
       })),
       total,
     }
@@ -703,9 +705,11 @@ export class MockEditorBridge implements EditorBridge {
       assets: matched.map((a) => ({
         id: a.id,
         name: a.name,
-        category: a.category,
+        type: 'shader' as AssetType,
         tags: a.tags,
-        thumbnail: a.thumbnail,
+        size: 0,
+        path: a.id,
+        thumbnail: a.thumbnail ?? undefined,
       })),
       total: matched.length,
     }
@@ -725,11 +729,11 @@ export class MockEditorBridge implements EditorBridge {
       asset: {
         id: asset.id,
         name: asset.name,
-        category: asset.category,
+        type: 'shader' as AssetType,
         tags: asset.tags,
-        pbr: asset.pbr,
-        graph: asset.graph,
-        thumbnail: asset.thumbnail,
+        size: 0,
+        path: asset.id,
+        thumbnail: asset.thumbnail ?? undefined,
       },
     }
   }

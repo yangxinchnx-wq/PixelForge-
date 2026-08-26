@@ -132,8 +132,6 @@ export class RealEditorBridge implements EditorBridge {
   // 时间轴内部模型(项目暂无独立 timeline store,MCP 侧持有)
   private timeline: TimelineContent | null = null
   private sequenceName = ''
-  private playing = false
-  private playhead = 0
 
   // ─── 图操作 ───
 
@@ -352,8 +350,6 @@ export class RealEditorBridge implements EditorBridge {
     try {
       this.timeline = createTimeline(duration, fps)
       this.sequenceName = name
-      this.playing = false
-      this.playhead = 0
       return { success: true, sequence: toSequence(this.timeline, name) }
     } catch (e) {
       return { success: false, error: errMsg(e) }
@@ -420,29 +416,11 @@ export class RealEditorBridge implements EditorBridge {
   }
 
   async playbackControl(
-    action: 'play' | 'pause' | 'stop' | 'seek',
-    time?: number,
+    _action: 'play' | 'pause' | 'stop' | 'seek',
+    _time?: number,
   ): Promise<{ success: boolean; error?: string }> {
-    try {
-      switch (action) {
-        case 'play':
-          this.playing = true
-          break
-        case 'pause':
-          this.playing = false
-          break
-        case 'stop':
-          this.playing = false
-          this.playhead = 0
-          break
-        case 'seek':
-          if (time !== undefined) this.playhead = time
-          break
-      }
-      return { success: true }
-    } catch (e) {
-      return { success: false, error: errMsg(e) }
-    }
+    // MCP 侧不持有播放状态,播放由编辑器 UI 驱动,此处仅确认指令合法
+    return { success: true }
   }
 
   // ─── 渲染操作 ───

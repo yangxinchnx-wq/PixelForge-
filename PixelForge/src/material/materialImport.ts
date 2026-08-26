@@ -22,7 +22,6 @@ import type {
 } from './materialAsset'
 import { createMaterialAsset, DEFAULT_PBR_PARAMS } from './materialAsset'
 import type { GLTFDocument, GLTFMaterial } from './materialExport'
-import type { MaterialGraph } from './types'
 
 // ============================================================================
 // 1. 导入结果类型

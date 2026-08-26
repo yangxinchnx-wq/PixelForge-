@@ -1,9 +1,15 @@
 <script setup lang="ts">
 import { ref, nextTick, watch, computed } from 'vue';
 import { useAppStore } from '../stores/app';
+import { useGraphStore } from '@/graph/graphStore';
+import type { RenderGraph } from '@/graph/types';
 import PfSelect from './ui/PfSelect.vue';
+import DirectorPanel from './DirectorPanel.vue';
+import WDLWorkspace from './WDLWorkspace.vue';
 
 const store = useAppStore();
+const graphStore = useGraphStore();
+const wdlWorkspaceRef = ref<InstanceType<typeof WDLWorkspace> | null>(null);
 
 // ─── Chat Messages ────────────────────────────────────
 interface ChatMessage {
@@ -42,6 +48,8 @@ function saveChatMessages() {
 const inputText = ref('');
 const isGenerating = computed(() => store.isGenerating);
 const messagesRef = ref<HTMLElement | null>(null);
+const showDirector = ref(true);
+const showWdl = ref(false);
 
 // 自动保存聊天记录
 watch(messages, saveChatMessages, { deep: true });
@@ -150,6 +158,90 @@ function handleGenerate() {
   }, 1300);
 }
 
+// ─── Image Revision（以图生图修改）────────────────
+const imageRevisionRef = ref<HTMLInputElement | null>(null);
+const uploadedImageSrc = ref<string | null>(null);
+const uploadedImageEl = ref<HTMLImageElement | null>(null);
+const revisionInstruction = ref('换成动作和颜色');
+const isRevising = ref(false);
+
+/** 图片上传回调 */
+function onImageFileChange(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (!file) return;
+  // 创建 blob URL
+  if (uploadedImageSrc.value?.startsWith('blob:')) {
+    URL.revokeObjectURL(uploadedImageSrc.value);
+  }
+  uploadedImageSrc.value = URL.createObjectURL(file);
+  // 创建 HTMLImageElement 供分析使用
+  const img = new Image();
+  img.onload = () => {
+    uploadedImageEl.value = img;
+  };
+  img.src = uploadedImageSrc.value;
+  input.value = '';
+}
+
+/** 触发图片选择 */
+function triggerImageUpload() {
+  imageRevisionRef.value?.click();
+}
+
+/** 执行图片修改 */
+async function handleImageRevision() {
+  if (!uploadedImageEl.value || !revisionInstruction.value.trim()) return;
+  if (isRevising.value || isGenerating.value) return;
+
+  isRevising.value = true;
+
+  // 添加用户消息
+  messages.value.push({
+    id: `user-rev-${Date.now()}`,
+    role: 'user',
+    content: `[图片修改] ${revisionInstruction.value}`,
+    timestamp: Date.now(),
+  });
+  await nextTick();
+  scrollToBottom();
+
+  // 添加 AI 处理中消息
+  const aiMsgId = `ai-rev-${Date.now()}`;
+  messages.value.push({
+    id: aiMsgId,
+    role: 'assistant',
+    content: '正在分析图片并生成修改方案…',
+    timestamp: Date.now(),
+  });
+  await nextTick();
+  scrollToBottom();
+
+  try {
+    const result = await store.handleImageRevision(
+      uploadedImageEl.value,
+      revisionInstruction.value,
+    );
+    const aiMsg = messages.value.find((m) => m.id === aiMsgId);
+    if (aiMsg) {
+      if (result.success) {
+        aiMsg.content = '图片修改完成！你可以在画布中查看效果。' +
+          (result.warnings.length > 0 ? `\n提示: ${result.warnings.join('; ')}` : '');
+      } else {
+        aiMsg.content = `修改失败: ${result.warnings.join('; ')}`;
+      }
+    }
+  } catch (e) {
+    const aiMsg = messages.value.find((m) => m.id === aiMsgId);
+    if (aiMsg) {
+      aiMsg.content = `发生错误: ${(e as Error).message}`;
+    }
+  } finally {
+    isRevising.value = false;
+  }
+  scrollToBottom();
+}
+
 // ─── Quick Prompts ────────────────────────────────────
 const quickPrompts = [
   '夕阳下的山脉',
@@ -160,6 +252,14 @@ const quickPrompts = [
 
 function useQuickPrompt(prompt: string) {
   inputText.value = prompt;
+}
+
+function handleWdlGraphSync(graph: RenderGraph): void {
+  graphStore.loadGraph(graph);
+}
+
+function handleGraphToWdl(): void {
+  wdlWorkspaceRef.value?.updateFromGraph(graphStore.exportGraph());
 }
 
 // ─── Helpers ──────────────────────────────────────────
@@ -191,8 +291,21 @@ watch(isGenerating, () => {
   <div class="pf-panel glass-surface pf-panel-left pf-chat-panel">
     <!-- Header -->
     <div class="pf-panel-header">
-      <span class="pf-panel-title">AI 对话</span>
+      <span class="pf-panel-title">AI Director</span>
+      <div class="pf-chat-header-actions">
+        <button type="button" class="pf-chat-mode-btn" :class="{ active: showDirector }" @click="showDirector = !showDirector">决策</button>
+        <button type="button" class="pf-chat-mode-btn" :class="{ active: showWdl }" @click="showWdl = !showWdl">WDL</button>
+        <button v-if="showWdl" type="button" class="pf-chat-mode-btn" @click="handleGraphToWdl">图→WDL</button>
+      </div>
     </div>
+    <DirectorPanel v-if="showDirector" v-model:visible="showDirector" />
+    <WDLWorkspace
+      v-if="showWdl"
+      ref="wdlWorkspaceRef"
+      class="pf-inline-wdl"
+      @apply-i-r="store.applyRenderIR"
+      @graph-sync="handleWdlGraphSync"
+    />
 
     <!-- Messages -->
     <div class="pf-chat-messages" ref="messagesRef">
@@ -231,6 +344,52 @@ watch(isGenerating, () => {
       >
         {{ prompt }}
       </button>
+    </div>
+
+    <!-- Image Revision Area -->
+    <div class="pf-chat-revision">
+      <input
+        ref="imageRevisionRef"
+        type="file"
+        accept="image/*"
+        class="pf-chat-file-input"
+        @change="onImageFileChange"
+      />
+      <div class="pf-chat-revision-row">
+        <button
+          class="pf-chat-upload-btn"
+          :class="{ 'has-image': uploadedImageSrc }"
+          @click="triggerImageUpload"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+            <rect x="3" y="3" width="18" height="18" rx="2" />
+            <circle cx="8.5" cy="8.5" r="1.5" />
+            <path d="M21 15l-5-5L5 21" />
+          </svg>
+          <span>{{ uploadedImageSrc ? '更换图片' : '上传图片' }}</span>
+        </button>
+        <img
+          v-if="uploadedImageSrc"
+          :src="uploadedImageSrc"
+          class="pf-chat-revision-thumb"
+          alt="待修改图片"
+        />
+      </div>
+      <div class="pf-chat-revision-input-row" v-if="uploadedImageSrc">
+        <input
+          v-model="revisionInstruction"
+          class="pf-chat-revision-input"
+          placeholder="输入修改指令，如：换成动作和颜色"
+          @keydown.enter.prevent="handleImageRevision"
+        />
+        <button
+          class="btn-primary pf-chat-revision-btn"
+          :disabled="!revisionInstruction.trim() || isRevising || isGenerating"
+          @click="handleImageRevision"
+        >
+          {{ isRevising ? '修改中…' : '执行修改' }}
+        </button>
+      </div>
     </div>
 
     <!-- Input Area -->
@@ -280,6 +439,12 @@ watch(isGenerating, () => {
   height: 100%;
   display: flex;
   flex-direction: column;
+}
+
+.pf-inline-wdl {
+  flex: 1 1 45%;
+  min-height: 240px;
+  margin: 0 12px 8px;
 }
 
 /* ── Messages ── */
@@ -389,6 +554,107 @@ watch(isGenerating, () => {
   gap: 4px;
   padding: 8px 12px 4px;
   flex-shrink: 0;
+}
+
+/* ── Image Revision ── */
+.pf-chat-revision {
+  flex-shrink: 0;
+  padding: 8px 12px 4px;
+  border-top: 1px solid var(--separator);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pf-chat-file-input {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.pf-chat-revision-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pf-chat-upload-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px dashed var(--separator-strong);
+  background: var(--glass-bg);
+  color: var(--text-secondary);
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 500;
+  transition: all 150ms var(--ease-out);
+}
+
+.pf-chat-upload-btn:hover {
+  background: var(--glass-bg-hover);
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+
+.pf-chat-upload-btn.has-image {
+  border-style: solid;
+  border-color: var(--separator);
+}
+
+.pf-chat-revision-thumb {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--separator);
+  flex-shrink: 0;
+}
+
+.pf-chat-revision-input-row {
+  display: flex;
+  gap: 6px;
+}
+
+.pf-chat-revision-input {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  background: var(--track-bg);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-xs);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 11px;
+  outline: none;
+  transition: border-color 200ms var(--ease-out);
+}
+
+.pf-chat-revision-input:focus {
+  border-color: var(--accent);
+}
+
+.pf-chat-revision-input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.pf-chat-revision-btn {
+  flex-shrink: 0;
+  height: 28px;
+  padding: 0 12px;
+  font-size: 11px;
+  border-radius: var(--radius-xs);
+}
+
+.pf-chat-revision-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .pf-chat-quick-btn {

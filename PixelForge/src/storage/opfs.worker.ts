@@ -70,7 +70,7 @@ async function getNamespaceDir(
 }
 
 async function handleRequest(req: OpfsRequest): Promise<OpfsResponse> {
-  const { id, op, namespace, filename } = req
+  const { op, namespace, filename } = req
 
   // list 和 clear 是目录级操作，不需要 per-file 锁
   if (op === 'list' || op === 'clear') {

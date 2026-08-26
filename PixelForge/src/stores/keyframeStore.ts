@@ -1,58 +1,98 @@
 import { defineStore } from 'pinia';
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import type { ParameterTrack, Interpolation } from '../types';
-import { evaluateAllTracks } from '@/utils/keyframe';
+import type { JsonLiteral } from '@/shared/types';
+import { createKeyframe as createUnifiedKeyframe } from '@/world/timeline/timelineManager';
+import {
+  legacyInterpolationToUnified,
+  timelineToLegacyTracks,
+  unifiedTrackToLegacy,
+} from '@/world/timeline/unifiedTimeline';
+import { useTimelineStore } from './timelineStore';
+import { evaluateTrack } from '@/world/timeline/evaluator';
 
 /**
- * Keyframe Store — 参数轨道关键帧动画管理。
+ * Keyframe Store — 兼容门面。
  *
- * 管理 paramTracks 的 CRUD 和关键帧求值。
+ * TimelineContent 是唯一真实数据源；这里保留旧 paramTracks API，
+ * 让旧 UI/MCP 调用者平滑迁移，而不会再维护第二份关键帧数据。
  */
 export const useKeyframeStore = defineStore('keyframe', () => {
-  const paramTracks = ref<ParameterTrack[]>([]);
+  const timelineStore = useTimelineStore();
   const selectedTrackId = ref<string | null>(null);
 
+  const paramTracks = computed<ParameterTrack[]>(() =>
+    timelineToLegacyTracks(timelineStore.timelineContent),
+  );
+
   function addParamTrack(label: string, layerId: string, parameter: string): string {
-    const id = `pt-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-    paramTracks.value.push({ id, label, layerId, parameter, keyframes: [] });
+    const id = `track_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+    timelineStore.addUnifiedTrack({
+      id,
+      name: label,
+      targetEntity: 'layer',
+      targetId: layerId,
+      paramKey: parameter,
+      keyframes: [],
+      enabled: true,
+    });
+    selectedTrackId.value = id;
     return id;
   }
 
   function removeParamTrack(trackId: string): void {
-    paramTracks.value = paramTracks.value.filter((t) => t.id !== trackId);
+    timelineStore.removeUnifiedTrackById(trackId);
+    if (selectedTrackId.value === trackId) selectedTrackId.value = null;
   }
 
-  function addKeyframe(trackId: string, time: number, value: number, interpolation: Interpolation = 'linear'): void {
-    const track = paramTracks.value.find((t) => t.id === trackId);
+  function addKeyframe(
+    trackId: string,
+    time: number,
+    value: JsonLiteral,
+    interpolation: Interpolation = 'linear',
+  ): void {
+    const track = timelineStore.timelineContent.tracks.find((candidate) => candidate.id === trackId);
     if (!track) return;
-    const existing = track.keyframes.find((k) => k.time === time);
+    const existing = track.keyframes.find((keyframe) => keyframe.time === time);
     if (existing) {
-      existing.value = value;
+      timelineStore.updateUnifiedKeyframeById(trackId, existing.id, {
+        value,
+        interpolation: legacyInterpolationToUnified(interpolation),
+      });
       return;
     }
-    const id = `kf-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-    track.keyframes.push({ id, time, value, interpolation });
-    track.keyframes.sort((a, b) => a.time - b.time);
+    const keyframe = createUnifiedKeyframe(
+      Math.max(0, time),
+      value,
+      legacyInterpolationToUnified(interpolation),
+    );
+    timelineStore.addUnifiedKeyframeById(trackId, keyframe);
   }
 
-  function updateKeyframe(trackId: string, keyframeId: string, time: number, value: number): void {
-    const track = paramTracks.value.find((t) => t.id === trackId);
-    if (!track) return;
-    const kf = track.keyframes.find((k) => k.id === keyframeId);
-    if (!kf) return;
-    kf.time = Math.max(0, time);
-    kf.value = value;
-    track.keyframes.sort((a, b) => a.time - b.time);
+  function updateKeyframe(
+    trackId: string,
+    keyframeId: string,
+    time: number,
+    value: JsonLiteral,
+  ): void {
+    timelineStore.updateUnifiedKeyframeById(trackId, keyframeId, {
+      time: Math.max(0, time),
+      value,
+    });
   }
 
   function removeKeyframe(trackId: string, keyframeId: string): void {
-    const track = paramTracks.value.find((t) => t.id === trackId);
-    if (!track) return;
-    track.keyframes = track.keyframes.filter((k) => k.id !== keyframeId);
+    timelineStore.removeUnifiedKeyframeById(trackId, keyframeId);
   }
 
   function evaluateParamTracks(time: number): Array<{ track: ParameterTrack; value: number }> {
-    return evaluateAllTracks(paramTracks.value, time);
+    return timelineStore.timelineContent.tracks.map((track) => ({
+      track: unifiedTrackToLegacy(track),
+      value: (() => {
+        const value = evaluateTrack(track, time);
+        return typeof value === 'number' ? value : 0;
+      })(),
+    }));
   }
 
   return {

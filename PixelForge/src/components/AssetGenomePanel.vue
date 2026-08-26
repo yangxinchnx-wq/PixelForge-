@@ -38,6 +38,7 @@ import {
 import {
   computeContentHash,
   findDuplicates,
+  type DuplicateGroup,
 } from '../editor/asset-genome/contentHash';
 import {
   createLoadStatusTable,
@@ -105,8 +106,17 @@ const upstreamDeps = computed(() =>
 const cycles = computed(() => findCycles(refGraph.graph));
 
 // ─── 去重分析 ──────────────────────────────────────────
-const duplicates = computed(() => findDuplicates(registry.all));
-const hasDuplicates = computed(() => duplicates.value.length > 0);
+const duplicates = computed<DuplicateGroup[]>(() => findDuplicates(registry.all));
+const duplicateAssets = computed(() => {
+  const byId = new Map(registry.all.map((asset) => [asset.id, asset]));
+  return duplicates.value.map((group) => ({
+    ...group,
+    assets: group.assetIds
+      .map((id) => byId.get(id))
+      .filter((asset): asset is AssetRecord => Boolean(asset)),
+  }));
+});
+const hasDuplicates = computed(() => duplicateAssets.value.length > 0);
 
 // ─── 懒加载状态表 ──────────────────────────────────────
 const loadStatusTable = ref(createLoadStatusTable());
@@ -504,9 +514,9 @@ function initSampleData() {
                 <p>未检测到重复资产</p>
               </div>
               <template v-else>
-                <div v-for="dup in duplicates" :key="dup.hash" class="pf-genome-dup-group">
+                <div v-for="dup in duplicateAssets" :key="dup.contentHash" class="pf-genome-dup-group">
                   <div class="pf-genome-dup-header">
-                    <span class="pf-genome-dup-hash">{{ dup.hash }}</span>
+                    <span class="pf-genome-dup-hash">{{ dup.contentHash }}</span>
                     <span class="pf-genome-dup-count">{{ dup.assets.length }} 个重复</span>
                   </div>
                   <div v-for="asset in dup.assets" :key="asset.id" class="pf-genome-dup-item">

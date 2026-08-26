@@ -345,7 +345,6 @@ describe('RT: MaterialRuntime Device Lost', () => {
 
   it('RT2: 设备丢失后 isDeviceLost 变为 true', async () => {
     const { MaterialRuntime } = await import('./runtime')
-    const { shaderCache } = await import('./shaderCache')
 
     let lostResolve: (info: GPUDeviceLostInfo) => void
     const lostPromise = new Promise<GPUDeviceLostInfo>((resolve) => {

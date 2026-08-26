@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, toRef } from 'vue';
 import { useAppStore } from '../stores/app';
-import { unifiedStore, type UnifiedStoreStats } from '../storage';
+import { unifiedStore, type UnifiedStoreStats } from '../storage/unifiedStore';
+import { getDbPath } from '../storage/tauriDb';
 import { TOTAL_DURATION, FPS } from '../data';
 
 const store = useAppStore();
@@ -75,7 +76,7 @@ async function refreshStorageStats() {
   try {
     const [stats, path] = await Promise.all([
       unifiedStore.stats(),
-      import('../storage').then((m) => m.tauriDb.getDbPath()),
+      getDbPath(),
     ]);
     storageStats.value = stats;
     storagePath.value = path;

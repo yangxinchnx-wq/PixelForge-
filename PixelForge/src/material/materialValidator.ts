@@ -111,7 +111,6 @@ export async function validateMaterialOutput(
   // —— 2. 创建回读缓冲区 ——
   // rgba8unorm: 4 bytes per pixel
   const bytesPerPixel = 4
-  const bufferSize = width * height * bytesPerPixel
   // 需要按 256 字节对齐 rows，pitch = ceil(width * 4 / 256) * 256
   const bytesPerRow = Math.ceil((width * bytesPerPixel) / 256) * 256
   const paddedBufferSize = bytesPerRow * height
@@ -332,7 +331,6 @@ export async function validateCompileResult(
   options?: MaterialOutputValidationOptions,
 ): Promise<MaterialOutputValidationResult> {
   // 导入 runtime 相关（延迟导入避免循环依赖）
-  const { MaterialRuntime } = await import('./runtime')
   const { withVertexShader } = await import('./runtime')
   const { validateWGSL } = await import('./wgslValidator')
 
@@ -356,7 +354,6 @@ export async function validateCompileResult(
   }
 
   // 2. 创建 pipeline
-  const runtime = new MaterialRuntime({ device, format, enableCache: false, enableValidation: true })
   const fullWgsl = withVertexShader(result.wgsl)
   const module = device.createShaderModule({
     label: `validation_${result.hash}`,

@@ -2,7 +2,7 @@ import { createApp } from 'vue';
 import { createPinia } from 'pinia';
 import router from './router';
 import App from './App.vue';
-import PhosphorIcons from '@phosphor-icons/vue';
+import { PhActivity, PhEye, PhEyeSlash, PhGearSix, PhMoon, PhSun, PhWarningCircle } from '@phosphor-icons/vue';
 import './styles/index.css';
 import { initStorage } from './storage';
 import tooltipDirective from './directives/tooltip';
@@ -11,7 +11,14 @@ function bootstrap() {
   const app = createApp(App);
   app.use(createPinia());
   app.use(router);
-  app.use(PhosphorIcons);
+  // 按需注册 Phosphor 图标组件，避免全量打包 5.6MB
+  app.component('PhActivity', PhActivity);
+  app.component('PhEye', PhEye);
+  app.component('PhEyeSlash', PhEyeSlash);
+  app.component('PhGearSix', PhGearSix);
+  app.component('PhMoon', PhMoon);
+  app.component('PhSun', PhSun);
+  app.component('PhWarningCircle', PhWarningCircle);
   app.directive('tooltip', tooltipDirective);
 
   // 先挂载应用，让 UI 立即渲染（使用 localStorage 同步加载的初始数据）

@@ -28,6 +28,10 @@ const {
   renderTargetBitrate,
   renderPerImageDuration,
   renderOutputName,
+  renderSource,
+  runtimeDuration,
+  runtimeReady,
+  runtimeFrameCount,
   isExporting,
   exportProgress,
   exportError,
@@ -58,6 +62,13 @@ const {
           <span v-if="isCodecDetecting" class="pf-render-detect-hint">检测硬件支持中…</span>
         </div>
         <div class="pf-panel-body">
+          <div class="pf-render-row">
+            <label class="pf-render-label">渲染源</label>
+            <div class="pf-seg">
+              <button class="pf-seg-btn" :class="{ active: renderSource === 'assets' }" @click="renderSource = 'assets'">资源库图片</button>
+              <button class="pf-seg-btn" :class="{ active: renderSource === 'runtime' }" @click="renderSource = 'runtime'">画布逐帧渲染</button>
+            </div>
+          </div>
           <div class="pf-render-row">
             <label class="pf-render-label">导出格式</label>
             <PfSelect v-model="renderFormat" :options="formatOpts" />
@@ -91,12 +102,33 @@ const {
               <button class="pf-seg-btn" :class="{ active: frameRate === '60 fps' }" @click="emit('update:frame-rate', '60 fps')">60</button>
             </div>
           </div>
-          <div class="pf-render-row">
+          <div v-if="renderSource === 'assets'" class="pf-render-row">
             <label class="pf-render-label">每张图片时长</label>
             <div class="pf-render-bitrate">
               <input type="range" class="pf-slider" min="0.5" max="10" step="0.5" v-model.number="renderPerImageDuration" />
               <span class="pf-render-bitrate-val">{{ renderPerImageDuration }} 秒</span>
             </div>
+          </div>
+          <div v-else class="pf-render-row">
+            <label class="pf-render-label">导出时长</label>
+            <div class="pf-render-bitrate">
+              <input
+                type="range"
+                class="pf-slider"
+                min="0.5"
+                max="30"
+                step="0.5"
+                :disabled="isExporting"
+                v-model.number="runtimeDuration"
+              />
+              <span class="pf-render-bitrate-val">{{ runtimeDuration.toFixed(1) }} 秒</span>
+            </div>
+          </div>
+          <div v-if="renderSource === 'runtime'" class="pf-render-row">
+            <label class="pf-render-label">渲染引擎</label>
+            <span class="pf-render-engine-status" :class="{ ready: runtimeReady }">
+              {{ runtimeReady ? 'WebGPU Runtime 就绪' : 'WebGPU Runtime 未就绪' }}
+            </span>
           </div>
           <div class="pf-render-row">
             <label class="pf-render-label">目标码率</label>
@@ -134,8 +166,8 @@ const {
               <span class="pf-render-summary-val">{{ frameRate }}</span>
             </div>
             <div class="pf-render-summary-item">
-              <span class="pf-render-summary-label">图片数</span>
-              <span class="pf-render-summary-val">{{ assetStore.images.length }} 张</span>
+              <span class="pf-render-summary-label">{{ renderSource === 'runtime' ? '帧数' : '图片数' }}</span>
+              <span class="pf-render-summary-val">{{ renderSource === 'runtime' ? `${runtimeFrameCount} 帧` : `${assetStore.images.length} 张` }}</span>
             </div>
             <div class="pf-render-summary-item">
               <span class="pf-render-summary-label">时长</span>
@@ -193,10 +225,13 @@ const {
             <svg v-else class="pf-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
               <path d="M21 12a9 9 0 1 1-6.219-8.56" />
             </svg>
-            {{ isExporting ? '编码中…' : '开始导出' }}
+            {{ isExporting ? '渲染中…' : '开始导出' }}
           </button>
-          <p v-if="assetStore.images.length === 0 && !isCodecDetecting" class="pf-render-hint">
+          <p v-if="renderSource === 'assets' && assetStore.images.length === 0 && !isCodecDetecting" class="pf-render-hint">
             请先在「图片」页面导入或生成图片
+          </p>
+          <p v-if="renderSource === 'runtime' && !runtimeReady && !isCodecDetecting" class="pf-render-hint">
+            请先在「图片」页面初始化 WebGPU 画布
           </p>
         </div>
       </div>

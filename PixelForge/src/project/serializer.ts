@@ -1,6 +1,13 @@
 import type { RenderIR } from '@/compiler/ir/renderIR'
 import type { HistoryEntry } from '@/stores/history'
 import type { useRuntimeStore } from '@/stores/runtime'
+import {
+  cloneTimelineContent,
+  currentFrameForTime,
+  timelineFromLegacySnapshot,
+  timelineToLegacyTracks,
+  totalFramesForTimeline,
+} from '@/world/timeline/unifiedTimeline'
 
 import {
   PROJECT_FILE_VERSION,
@@ -127,13 +134,25 @@ function cloneIr(ir: RenderIR): RenderIR {
 }
 
 function cloneTimeline(timeline: TimelineStore): TimelineSnapshot {
-  const snapshot: TimelineSnapshot = {
-    currentFrame: timeline.currentFrame,
-    totalFrames: timeline.totalFrames,
-    fps: timeline.fps,
-    tracks: JSON.parse(JSON.stringify(timeline.tracks)) as TimelineSnapshot['tracks'],
+  const content = timeline.timelineContent
+    ? cloneTimelineContent(timeline.timelineContent)
+    : timelineFromLegacySnapshot({
+        currentFrame: timeline.currentFrame,
+        totalFrames: timeline.totalFrames,
+        fps: timeline.fps,
+        tracks: timeline.tracks,
+      })
+  const currentTime = timeline.currentTime
+    ?? ((timeline.currentFrame ?? 0) / content.fps)
+
+  return {
+    content,
+    currentTime,
+    currentFrame: currentFrameForTime(currentTime, content.fps),
+    totalFrames: totalFramesForTimeline(content),
+    fps: content.fps,
+    tracks: timelineToLegacyTracks(content),
   }
-  return snapshot
 }
 
 function cloneHistory(stack: HistoryEntry[]): HistoryEntrySnapshot[] {

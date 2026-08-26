@@ -50,6 +50,14 @@ const showExportMenu = ref<string | null>(null); // 导出菜单关联的材质 
 const editingName = ref<string | null>(null);
 const tempName = ref('');
 const detailTab = ref<'info' | 'pbr' | 'graph'>('info');
+const newTagInput = ref('');
+
+function addTagFromInput(assetId: string): void {
+  const tag = newTagInput.value.trim();
+  if (!tag) return;
+  store.addTag(assetId, tag);
+  newTagInput.value = '';
+}
 
 // ─── 应用材质到当前图层 ───────────────────────────────────
 function applyMaterialToCurrentLayer(materialId: string) {
@@ -584,7 +592,8 @@ const sortOptions = [
                   {{ tag }}
                   <button class="pf-mat-tag-remove" @click="store.removeTag(selectedAsset.id, tag)">×</button>
                 </span>
-                <button class="pf-mat-tag-add" @click="store.addTag(selectedAsset.id, prompt('输入标签名') || '')">+ 添加标签</button>
+                <input v-model="newTagInput" class="pf-mat-tag-input" placeholder="输入标签名" @keyup.enter="addTagFromInput(selectedAsset.id)" />
+                <button class="pf-mat-tag-add" @click="addTagFromInput(selectedAsset.id)">+ 添加标签</button>
               </div>
             </div>
             <div v-if="selectedAsset.textures.length > 0" class="pf-mat-detail-row">

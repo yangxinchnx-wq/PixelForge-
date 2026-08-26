@@ -265,10 +265,13 @@ export async function decideWithContext(
     cache?: PromptCache | null
     model?: string
     disableCache?: boolean
+    systemPromptOverride?: string
+    timelineFactory?: (output: LLMOutput, ir: RenderIR | null) => TimelineContent | null
   },
 ): Promise<DirectorDecision> {
   try {
-    const systemPrompt = buildContextAwareSystemPrompt(intent.mode, ir, timeline)
+    const systemPrompt = options?.systemPromptOverride
+      ?? buildContextAwareSystemPrompt(intent.mode, ir, timeline)
 
     const response = await callLLM(
       {
@@ -294,11 +297,13 @@ export async function decideWithContext(
     const llmOutput = response.parsed as LLMOutput
 
     const patches = convertLLMOutputToPatchesWithContext(llmOutput, intent, ir)
+    const generatedTimeline = options?.timelineFactory?.(llmOutput, ir) ?? undefined
 
     return {
       intentId: intent.id,
       patches,
-      reasoning: `AI Director(${intent.mode} 模式)生成 ${patches.length} 个参数修改`,
+      ...(generatedTimeline ? { timeline: generatedTimeline } : {}),
+      reasoning: `AI Director(${intent.mode} 模式)生成 ${patches.length} 个参数修改${generatedTimeline ? `，生成 ${generatedTimeline.tracks.length} 条时间轴轨道` : ''}`,
     }
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err)

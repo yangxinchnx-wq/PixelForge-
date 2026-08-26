@@ -8,6 +8,7 @@
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "test:chain": "vitest run src/integration/chain.acceptance.test.ts --reporter=verbose",
     "tauri": "tauri"
   },
   "dependencies": {

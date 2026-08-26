@@ -8,7 +8,7 @@
  * - LP: materialPrompt(LLM prompt 构建 + 输出解析)
  */
 
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { Opcode, type JsonLiteral } from '@/shared/types'
 import type { Layer, RenderIR } from '@/compiler/ir/renderIR'
 import type { CreativeRequirement } from '@/authoring/clarifier/types'
@@ -39,7 +39,6 @@ import {
   MATERIAL_LLM_SCHEMA,
 } from './materialPrompt'
 import { compileMaterialGraph } from './compiler'
-import { DEFAULT_MATERIAL_CANVAS } from './types'
 
 // ============================================================================
 // MP: materialPresets
@@ -345,7 +344,6 @@ describe('materialGraphGenerator', () => {
 
     it('MG-E2: 在已有 CC 的图上更新参数', () => {
       const graph = buildPreset('cinematic')
-      const originalCC = graph.nodes.find((n) => n.templateKey === 'color_correct')!
       const result = appendColorCorrect(graph, { brightness: 0.3 })
       const updatedCC = result.nodes.find((n) => n.templateKey === 'color_correct')!
       // 节点数不变(不追加新节点)

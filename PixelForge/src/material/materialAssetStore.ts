@@ -23,7 +23,7 @@ import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 
 import type { MaterialAsset, MaterialCategory, MaterialExportFormat } from './materialAsset'
-import { createMaterialAsset, touchMaterialAsset, DEFAULT_PBR_PARAMS } from './materialAsset'
+import { createMaterialAsset, touchMaterialAsset } from './materialAsset'
 import { generateMaterialId, isValidMaterialId } from './materialId'
 import {
   exportMaterial,

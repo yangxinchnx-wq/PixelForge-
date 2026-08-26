@@ -422,8 +422,6 @@ import {
   importMaterial,
   detectFormatByExtension,
   detectFormatByContent,
-  countGLTFMaterials,
-  countMTLMaterials,
   countMaterialsInFile,
 } from './materialImport'
 
@@ -929,7 +927,6 @@ describe('materialAssetStore', () => {
       const store = useMaterialAssetStore()
       store.assets.forEach((a) => store.deleteMaterial(a.id))
       const id = store.createMaterial('PBR 更新测试')
-      const originalThumb = store.getMaterial(id)!.thumbnail
       store.updatePBR(id, { metallicFactor: 1.0 })
       const updatedThumb = store.getMaterial(id)!.thumbnail
       expect(updatedThumb).toBeTruthy()

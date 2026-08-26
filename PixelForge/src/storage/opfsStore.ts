@@ -231,6 +231,7 @@ export const opfsStore = new OpfsStore()
  * - ir       : RenderIR 快照（ir_<frame>.json）
  * - thumbnails : 缩略图（thumb_<assetId>.png）
  * - videos   : 编码后的视频文件（export_<timestamp>.mp4）
+ * - assets   : 用户导入的图片/视频原始文件（asset_<id>.<ext>）+ 资产索引（index.json）
  */
 export const OPFS_NAMESPACES = {
   FRAMES: 'frames',
@@ -239,4 +240,5 @@ export const OPFS_NAMESPACES = {
   IR: 'ir',
   THUMBNAILS: 'thumbnails',
   VIDEOS: 'videos',
+  ASSETS: 'assets',
 } as const

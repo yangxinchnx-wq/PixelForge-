@@ -23,8 +23,7 @@
 
 import type { CreativeRequirement } from '@/authoring/clarifier/types'
 import type { JsonLiteral } from '@/shared/types'
-import type { MaterialGraph, MaterialNode, MaterialEdge } from './types'
-import { DEFAULT_MATERIAL_CANVAS } from './types'
+import type { MaterialGraph, MaterialEdge } from './types'
 import { createNodeFromTemplate } from './shaderRegistry'
 import {
   buildPreset,

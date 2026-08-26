@@ -189,13 +189,6 @@ function checkSemicolons(
   lines: string[],
   errors: WGSLValidationError[],
 ): void {
-  // 这些关键字开头的行不需要分号结尾
-  const noSemicolonKeywords = [
-    'if', 'for', 'while', 'else', 'switch', 'case',
-    'fn', 'struct', '}', '{', 'var', 'let', 'const',
-    '@group', '@binding', '@vertex', '@fragment',
-    '@compute', '@workgroup_size', 'return',
-  ]
   // 这些行也不需要分号
   const noSemicolonPatterns = [
     /^\s*$/,                    // 空行

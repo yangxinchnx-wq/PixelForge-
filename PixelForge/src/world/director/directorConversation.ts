@@ -22,11 +22,10 @@ import type {
 } from '../types'
 import type { LLMProviderConfig, LLMOutput } from '@/authoring/llm/types'
 import type { PromptCache } from '@/authoring/llm/promptCache'
-import { callLLM } from '@/authoring/llm/callLLM'
-import { validateLLMOutput } from '@/authoring/schema/schemas'
 import {
   parseEnhancedIntent,
   buildContextAwareSystemPrompt,
+  decideWithContext,
   toValuePatches,
   resetDirectorIdCounter,
 } from './directorEnhanced'
@@ -184,13 +183,21 @@ export function serializeConversation(session: ConversationSession): string {
 /**
  * 构建包含对话历史的系统提示词。
  */
+function buildConversationContextPrompt(
+  mode: EnhancedIntent['mode'],
+  ir: RenderIR | null,
+  timeline: TimelineContent | null,
+): string {
+  return buildContextAwareSystemPrompt(mode, ir, timeline)
+}
+
 export function buildConversationSystemPrompt(
   session: ConversationSession,
   mode: EnhancedIntent['mode'],
   ir: RenderIR | null,
   timeline: TimelineContent | null = null,
 ): string {
-  const basePrompt = buildContextAwareSystemPrompt(mode, ir, timeline)
+  const basePrompt = buildConversationContextPrompt(mode, ir, timeline)
   const history = serializeConversation(session)
 
   if (history) {
@@ -230,125 +237,24 @@ export async function converse(
     disableCache?: boolean
   },
 ): Promise<ConversationSession> {
-  // 1. 解析意图
+  // 1. 解析意图并先写入会话，使本轮 prompt 也进入历史上下文。
   const intent = parseEnhancedIntent(prompt, ir)
+  const updatedSession = addUserMessage(session, intent)
+  const systemPrompt = buildConversationSystemPrompt(updatedSession, intent.mode, ir, timeline)
 
-  // 2. 添加用户消息
-  let updatedSession = addUserMessage(session, intent)
+  // 2. 统一走 decideWithContext；对话历史通过 systemPromptOverride 注入，
+  //    从而保证 UI 与其它 Director 调用方使用同一套上下文决策实现。
+  const decision = await decideWithContext(intent, ir, timeline, {
+    providerConfig: options?.providerConfig,
+    cache: options?.cache,
+    model: options?.model,
+    disableCache: options?.disableCache,
+    systemPromptOverride: systemPrompt,
+    timelineFactory: (output, currentIr) =>
+      intent.mode === 'animate' ? generateTimelineFromLLM(output, currentIr) : null,
+  })
 
-  // 3. 构建包含对话历史的系统提示词
-  const systemPrompt = buildConversationSystemPrompt(
-    updatedSession,
-    intent.mode,
-    ir,
-    timeline,
-  )
-
-  // 4. 调用 LLM
-  let decision: DirectorDecision
-  try {
-    const response = await callLLM(
-      {
-        prompt: intent.prompt,
-        systemPrompt,
-        temperature: 0.4,
-        maxTokens: 4096,
-        model: options?.model,
-      },
-      options?.providerConfig ?? undefined,
-      options?.disableCache ? null : (options?.cache ?? undefined),
-    )
-
-    if (!response.parsed) {
-      decision = {
-        intentId: intent.id,
-        patches: [],
-        reasoning: `LLM 返回内容不是合法 JSON(模式: ${intent.mode})`,
-      }
-    } else {
-      validateLLMOutput(response.parsed)
-      const llmOutput = response.parsed as LLMOutput
-      const patches = convertLLMOutputWithHistory(llmOutput, intent, ir, updatedSession)
-      decision = {
-        intentId: intent.id,
-        patches,
-        reasoning: `Director(${intent.mode} 模式)生成 ${patches.length} 个修改`,
-      }
-    }
-  } catch (err) {
-    const reason = err instanceof Error ? err.message : String(err)
-    decision = {
-      intentId: intent.id,
-      patches: [],
-      reasoning: `Director 决策失败: ${reason}`,
-    }
-  }
-
-  // 5. 添加 Director 消息
-  updatedSession = addDirectorMessage(updatedSession, decision)
-
-  return updatedSession
-}
-
-/**
- * 带对话历史的 LLM 输出转换。
- *
- * 在 modify 模式下,如果用户说"再亮一点",LLM 可能只输出增量修改。
- * 此函数确保 patches 正确映射到已有图层。
- */
-function convertLLMOutputWithHistory(
-  output: LLMOutput,
-  intent: EnhancedIntent,
-  ir: RenderIR | null,
-  session: ConversationSession,
-): DirectorPatch[] {
-  const patches: DirectorPatch[] = []
-
-  for (const element of output.elements) {
-    let targetId = `layer_${element.layer}`
-
-    // 优先使用用户引用的图层
-    if (intent.referencedLayerIds.length > 0) {
-      const refIdx = Math.min(element.layer, intent.referencedLayerIds.length - 1)
-      targetId = intent.referencedLayerIds[Math.max(0, refIdx)]
-    }
-    // 其次使用 IR 中的实际图层
-    else if (ir && element.layer < ir.layers.length) {
-      targetId = ir.layers[element.layer].id
-    }
-    // 最后:检查对话历史中 Director 之前创建的图层
-    else {
-      const directorMsgs = session.messages.filter((m) => m.role === 'director' && m.decision)
-      for (const msg of directorMsgs) {
-        const found = msg.decision!.patches.find((p) => p.targetId === targetId)
-        if (found) break
-      }
-    }
-
-    if (element.color) {
-      const [r, g, b] = element.color
-      patches.push({
-        targetEntity: 'layer',
-        targetId,
-        paramKey: 'color',
-        value: [r / 255, g / 255, b / 255, 1.0],
-      })
-    }
-
-    if (element.params) {
-      for (const [key, value] of Object.entries(element.params)) {
-        if (['animateFrom', 'animateTo', 'duration'].includes(key)) continue
-        patches.push({
-          targetEntity: 'layer',
-          targetId,
-          paramKey: key,
-          value,
-        })
-      }
-    }
-  }
-
-  return patches
+  return addDirectorMessage(updatedSession, decision)
 }
 
 // ============================================================================

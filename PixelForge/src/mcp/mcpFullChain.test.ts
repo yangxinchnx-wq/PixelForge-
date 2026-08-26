@@ -18,7 +18,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { MCPServer, MemoryTransport, registerToolModule } from './server'
 import { ToolRegistry } from './registry'
-import type { ToolDefinition, JsonRpcRequest, JsonRpcResponse } from './types'
+import type { ToolDefinition, JsonRpcRequest, JsonRpcResponse, JsonRpcSuccessResponse } from './types'
 import { SecurityManager } from './security'
 import { RealEditorBridge } from './realBridge'
 import {
@@ -96,8 +96,11 @@ async function runScript(bridge: RealEditorBridge, calls: CallSpec[]): Promise<J
 
 /** 从 tools/call 响应中提取桥接层返回的 JSON 结果 */
 function bridgeResultOf(resp: JsonRpcResponse): any {
-  const text = (resp.result as { content?: Array<{ text?: string }> })?.content?.[0]?.text
-  return text ? JSON.parse(text) : null
+  if ('result' in resp) {
+    const text = (resp.result as { content?: Array<{ text?: string }> })?.content?.[0]?.text
+    return text ? JSON.parse(text) : null
+  }
+  return null
 }
 
 function respById(responses: JsonRpcResponse[], id: number): JsonRpcResponse {
@@ -128,7 +131,7 @@ describe('MCP 全链路打通 (RealEditorBridge → 真实 store)', () => {
     await server.run(transport)
 
     const listResp = transport.getOutputResponses().find((r) => r.id === 'list')!
-    const tools = ((listResp.result as { tools: ToolDefinition[] }).tools)
+    const tools = ((listResp as JsonRpcSuccessResponse).result as { tools: ToolDefinition[] }).tools
     expect(tools.length).toBe(23)
 
     const names = new Set(tools.map((t) => t.name))
@@ -269,7 +272,8 @@ describe('MCP 全链路打通 (RealEditorBridge → 真实 store)', () => {
       { id: 2, name: 'render_status', args: {} },
     ])
     // render_start 在 stdio 无 GPU 环境下应返回(成功或带说明的失败),不应崩溃 MCP server
-    expect(respById(res, 1).result).toBeTruthy()
+    const startResp = respById(res, 1) as JsonRpcSuccessResponse
+    expect(startResp.result).toBeTruthy()
     const status = bridgeResultOf(respById(res, 2))
     // getRenderStatus 返回 RenderStatus(无 success 字段),断言真实状态可读
     expect(status).toBeTruthy()

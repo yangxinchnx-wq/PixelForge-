@@ -32,6 +32,15 @@ const MAX_WORKERS = 8
 const MIN_WORKERS = 1
 
 /**
+ * 单次编译任务超时（毫秒）。
+ *
+ * Worker 无响应（脚本崩溃 / 消息丢失 / postMessage 序列化异常）时，
+ * 超时的任务会被 reject，调用方（renderCurrentIR）降级为主线程编译，
+ * 保证渲染流程永不因单个 Worker 故障而挂起。
+ */
+const COMPILE_TIMEOUT_MS = 10_000
+
+/**
  * 根据硬件并发数计算 Worker 数量。
  *
  * 策略：
@@ -56,6 +65,13 @@ interface PendingTask {
   ir: RenderIR
   resolve: (artifact: RegionCompileArtifact) => void
   reject: (error: Error) => void
+}
+
+interface PendingResolver {
+  resolve: (artifact: RegionCompileArtifact) => void
+  reject: (error: Error) => void
+  /** 分发到的 worker 下标（错误时用于反查该 worker 上挂起的任务） */
+  workerIndex: number
 }
 
 /**
@@ -149,12 +165,17 @@ class WorkerPool {
 
     // 所有 Worker 忙 → 排队等待
     return new Promise<RegionCompileArtifact>((resolve, reject) => {
-      this.queue.push({
+      const task: PendingTask = {
         id: this.nextTaskId++,
         ir,
         resolve,
         reject,
-      })
+      }
+      this.queue.push(task)
+      // 防御：若长时间无人分发（Worker 池异常停滞），主动唤醒队列
+      setTimeout(() => {
+        if (this.queue.includes(task)) this.processQueue()
+      }, COMPILE_TIMEOUT_MS)
     })
   }
 
@@ -173,20 +194,36 @@ class WorkerPool {
     }
 
     return new Promise<RegionCompileArtifact>((resolve, reject) => {
+      const entry: PendingResolver = { resolve, reject, workerIndex }
       // 存储 resolve/reject 以便在消息回调中使用
-      this.pendingResolvers.set(taskId, { resolve, reject })
+      this.pendingResolvers.set(taskId, entry)
       this.busy[workerIndex] = true
-      this.workers[workerIndex].postMessage(request)
+      try {
+        this.workers[workerIndex].postMessage(request)
+      } catch (err) {
+        // postMessage 失败（如 IR 不可结构化克隆）：回滚占用并 reject，
+        // 调用方降级为主线程编译，避免 busy 永久泄漏导致池死锁
+        this.pendingResolvers.delete(taskId)
+        this.busy[workerIndex] = false
+        this.processQueue()
+        reject(err instanceof Error ? err : new Error(String(err)))
+        return
+      }
+      // 超时保护：Worker 无响应时 reject 该任务并释放 worker
+      setTimeout(() => {
+        if (this.pendingResolvers.get(taskId) !== entry) return
+        this.pendingResolvers.delete(taskId)
+        this.busy[workerIndex] = false
+        this.processQueue()
+        entry.reject(new Error('Worker compile timeout'))
+      }, COMPILE_TIMEOUT_MS)
     })
   }
 
   /**
    * taskId → resolver 映射（用于在 Worker 消息回调中找到对应的 Promise）
    */
-  private pendingResolvers = new Map<
-    number,
-    { resolve: (a: RegionCompileArtifact) => void; reject: (e: Error) => void }
-  >()
+  private pendingResolvers = new Map<number, PendingResolver>()
 
   /**
    * Worker 消息处理。
@@ -195,20 +232,18 @@ class WorkerPool {
     this.busy[workerIndex] = false
 
     const resolver = this.pendingResolvers.get(msg.id)
-    if (!resolver) return
+    if (!resolver) {
+      // 未知消息（重复投递 / 已超时清理）：仍需尝试推进队列
+      this.processQueue()
+      return
+    }
     this.pendingResolvers.delete(msg.id)
 
     if (msg.type === 'result') {
       resolver.resolve(msg.artifact)
     } else {
-      // Worker 编译失败 → 降级为主线程编译
-      try {
-        // 从队列中取出原始 ir（但我们没有存储它...需要重构）
-        // 实际上，reject 后让调用方处理
-        resolver.reject(new Error(msg.message))
-      } catch {
-        resolver.reject(new Error('Worker compilation failed'))
-      }
+      // Worker 编译失败 → reject，调用方降级为主线程编译
+      resolver.reject(new Error(msg.message))
     }
 
     // 处理队列中的下一个任务
@@ -221,9 +256,14 @@ class WorkerPool {
   private handleWorkerError(workerIndex: number, _e: ErrorEvent): void {
     this.busy[workerIndex] = false
 
-    // Worker 出错，标记为不可用并降级
-    // 注意：不 terminate 所有 Worker，只标记这一个为不可用
-    // 其他 Worker 仍可继续工作
+    // Worker 脚本崩溃：该 worker 上挂起的任务永远不会收到回复，
+    // 必须显式 reject（否则调用方永久挂起），调用方降级为主线程编译
+    for (const [taskId, entry] of [...this.pendingResolvers]) {
+      if (entry.workerIndex === workerIndex) {
+        this.pendingResolvers.delete(taskId)
+        entry.reject(new Error('Worker crashed'))
+      }
+    }
 
     // 处理队列中的下一个任务（可能用其他 Worker 或降级）
     this.processQueue()

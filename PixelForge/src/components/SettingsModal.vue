@@ -3,7 +3,7 @@ import { ref, watch, nextTick, computed, onMounted, onBeforeUnmount } from 'vue'
 import { modalEnter, modalLeave } from '../composables/useAnime';
 import PfSelect from './ui/PfSelect.vue';
 import type { ModelConfig, AccentColors, ModelMetadata } from '../stores/app';
-import { fetchModels, lookupModel, clearModelCache, type DiscoveredModel, type ModelFetchError } from '../authoring/llm/modelDiscovery';
+import { fetchModels, lookupModel, clearModelCache, type DiscoveredModel, ModelFetchError } from '../authoring/llm/modelDiscovery';
 import { inferCapabilities } from '../authoring/llm/modelRegistry';
 
 const props = defineProps<{

@@ -384,7 +384,6 @@ async function fetchModelsFromProvider(config: FetchModelsConfig): Promise<strin
  */
 function mergeWithRegistry(provider: string, apiModelIds: string[]): DiscoveredModel[] {
   const knownModels = getKnownModels(provider)
-  const knownIds = new Set(knownModels.map((m) => m.id))
   const apiIdSet = new Set(apiModelIds)
   const result: DiscoveredModel[] = []
 

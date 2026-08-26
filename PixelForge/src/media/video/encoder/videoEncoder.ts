@@ -22,9 +22,6 @@ import {
   EXPORT_FORMATS,
   getQualityPreset,
   buildH264CodecString,
-  type ExportFormatId,
-  type ExportFormatInfo,
-  type QualityLevel,
   type EncodeOptions,
 } from './videoEncoderTypes';
 
@@ -153,8 +150,8 @@ export async function encodeImagesToVideo(options: EncodeOptions): Promise<Blob>
     height,
     bitrate: actualBitrate,
     framerate: fps,
-    keyInterval: keyframeInterval,
-    latencyMode: qualityPreset.latencyMode,
+    // WebCodecs latencyMode 仅接受 'quality' | 'realtime';预设中的 'normal' 归并为默认 'quality'
+    latencyMode: qualityPreset.latencyMode === 'realtime' ? 'realtime' : 'quality',
   });
 
   // ── 5. 逐帧编码 ──
@@ -169,8 +166,8 @@ export async function encodeImagesToVideo(options: EncodeOptions): Promise<Blob>
         duration: frameDurationUs,
       });
 
-      // 关键帧：每张图片的第一帧
-      const keyFrame = frameInImage === 0;
+      // 关键帧：每张图片的第一帧，或按质量预设的关键帧间隔（每 X 秒）强制刷新
+      const keyFrame = frameInImage === 0 || globalFrame % keyframeInterval === 0;
       encoder.encode(frame, { keyFrame });
       frame.close();
 

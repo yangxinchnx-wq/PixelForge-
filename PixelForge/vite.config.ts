@@ -42,10 +42,6 @@ export default defineConfig({
           ) {
             return 'vendor-vue';
           }
-          // Phosphor 图标库
-          if (id.includes('/node_modules/@phosphor-icons/')) {
-            return 'vendor-icons';
-          }
           // 动画引擎
           if (id.includes('/node_modules/animejs/')) {
             return 'vendor-anime';

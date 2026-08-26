@@ -8,21 +8,23 @@
  * - 上下文感知：Director 读取当前 RenderIR 状态
  *
  * 数据流:
- *   用户输入 → parseEnhancedIntent → appStore.handleGenerate
- *   isGenerating 触发 WorkflowPanel 步骤动画
- *   生成完成 → createGeneratedImageAsset → assetStore.add
- *   ResourceManagerPanel 自动展示新资源
+ *   用户输入 → converse() → DirectorDecision
+ *   → l3_director ValuePatch / Unified Timeline
+ *   → Runtime WebGPU + 时间轴
  */
-import { ref, computed, nextTick, watch } from 'vue';
+import { ref, shallowRef, computed, nextTick } from 'vue';
 import { useAppStore } from '../stores/app';
 import { useAssetStore } from '../assets/assetStore';
+import { useRuntimeStore } from '../stores/runtime';
+import { useTimelineStore } from '../stores/timelineStore';
 import {
   createConversation,
-  addUserMessage,
-  addDirectorMessage,
+  converse,
   type ConversationSession,
 } from '../world/director/directorConversation';
 import { parseEnhancedIntent } from '../world/director/directorEnhanced';
+import { toValuePatches } from '../world/director/director';
+import type { DirectorDecision } from '../world/types';
 
 const props = defineProps<{
   visible: boolean;
@@ -34,12 +36,16 @@ const emit = defineEmits<{
 
 const appStore = useAppStore();
 const assetStore = useAssetStore();
+const runtimeStore = useRuntimeStore();
+const timelineStore = useTimelineStore();
 
 // ─── 对话状态 ──────────────────────────────────────────
-const session = ref<ConversationSession>(createConversation());
+const session = shallowRef<ConversationSession>(createConversation());
 const inputText = ref('');
 const isProcessing = ref(false);
 const messagesRef = ref<HTMLElement | null>(null);
+const lastDecision = shallowRef<DirectorDecision | null>(null);
+const lastError = ref<string | null>(null);
 
 // ─── 对话消息（从 session 提取用于显示）──────────────────
 interface DisplayMessage {
@@ -60,44 +66,85 @@ const displayMessages = computed<DisplayMessage[]>(() =>
   }))
 );
 
-// ─── 发送消息 ──────────────────────────────────────────
+// ─── 发送消息：Director 是主决策入口 ───────────────────
 async function sendMessage() {
   const text = inputText.value.trim();
   if (!text || isProcessing.value) return;
 
   isProcessing.value = true;
+  lastError.value = null;
   inputText.value = '';
-
-  // 解析意图
-  const intent = parseEnhancedIntent(text, null);
-
-  // 添加用户消息到会话
-  session.value = addUserMessage(session.value, intent);
+  appStore.handlePromptTextChange(text);
 
   await nextTick();
   scrollToBottom();
 
-  // 将输入同步到 store 并触发生成
-  appStore.handlePromptTextChange(text);
-  appStore.handleGenerate();
+  try {
+    const currentIr = runtimeStore.currentIr;
+    const currentTimeline = timelineStore.timelineContent;
+    const intent = parseEnhancedIntent(text, currentIr);
 
-  // 监听生成完成
-  const unwatch = watch(
-    () => appStore.isGenerating,
-    (generating) => {
-      if (!generating) {
-        unwatch();
-        const decision = {
-          intentId: intent.id,
-          patches: [],
-          reasoning: '图片已生成完成，你可以在「资源管理」面板中查看并使用它。',
-        };
-        session.value = addDirectorMessage(session.value, decision);
-        isProcessing.value = false;
-        scrollToBottom();
-      }
-    },
+    // converse 负责多轮历史和真实 DirectorDecision；它的结果是唯一 UI 决策来源。
+    const nextSession = await converse(
+      session.value,
+      text,
+      currentIr,
+      currentTimeline,
+      {
+        providerConfig: appStore.selectedModelConfig
+          ? appStore.modelConfigToLLMConfig(appStore.selectedModelConfig)
+          : undefined,
+        model: appStore.selectedModelConfig?.modelId,
+      },
+    );
+    session.value = nextSession;
+      const decision = nextSession.messages[nextSession.messages.length - 1]?.decision;
+    if (decision) {
+      lastDecision.value = decision;
+      await applyDecision(decision, intent.id);
+    }
+  } catch (error) {
+    lastError.value = error instanceof Error ? error.message : String(error);
+  } finally {
+    isProcessing.value = false;
+    await nextTick();
+    scrollToBottom();
+  }
+}
+
+async function applyDecision(decision: DirectorDecision, fallbackIntentId: string): Promise<void> {
+  const intentId = decision.intentId || fallbackIntentId;
+  const valuePatches = toValuePatches(decision.patches, intentId);
+  const validPatches = valuePatches.filter((patch) =>
+    patch.targetEntity === 'layer'
+      ? runtimeStore.currentIr.layers.some((layer) => layer.id === patch.targetId)
+      : runtimeStore.currentIr.effects.some((effect) => effect.id === patch.targetId),
   );
+
+  if (validPatches.length > 0) {
+    const result = runtimeStore.applyValuePatches(validPatches, {
+      source: 'l3_director',
+      skipHistory: false,
+      render: false,
+    });
+    if (!result.success) throw new Error(result.error ?? 'Director 参数应用失败');
+    await runtimeStore.renderCurrentIR();
+  }
+
+  if (decision.timeline) {
+    timelineStore.setTimelineContent(decision.timeline);
+  }
+
+  const dataUrl = await runtimeStore.captureCanvas();
+  if (dataUrl) {
+    const asset = appStore.createAssetFromCanvas(
+      dataUrl,
+      appStore.livePromptText,
+      runtimeStore.currentIr.canvas.width,
+      runtimeStore.currentIr.canvas.height,
+    );
+    if (asset) assetStore.add(asset);
+  }
 }
 
 // ─── 辅助 ──────────────────────────────────────────────

@@ -23,9 +23,11 @@ import type { Asset } from '@/assets/types';
 import { darkenHex } from '@/utils/colorUtils';
 import { buildPersistPayload, persistAll, loadPersistedData, clearPersistedData } from '@/composables/usePersist';
 import { llmParse } from '@/authoring/llm/llmParser';
+import { reviseImage, localReviseImage } from '@/authoring/image/imageRevision';
 import { generateDefaultRegion } from '@/authoring/generator/renderIRGenerator';
 import { stableLayerId, stableRegionId } from '@/shared/ids';
 import type { RenderIR, Layer, Region, Effect } from '@/compiler/ir/renderIR';
+import { renderIRToTreeNodes } from '@/utils/irTreeUtils';
 import type { ParsedIntent } from '@/authoring/types';
 import type { BlendMode, SourceKind } from '@/shared/types';
 import { useRuntimeStore } from './runtime';
@@ -265,6 +267,21 @@ export const useAppStore = defineStore('app', () => {
     };
   }
 
+  async function applyRenderIR(ir: RenderIR): Promise<void> {
+    const runtimeStore = useRuntimeStore();
+    await runtimeStore.setRenderIR(ir);
+    treeData.value = renderIRToTreeNodes(ir);
+  }
+
+  function createAssetFromCanvasPublic(
+    dataUrl: string,
+    prompt: string,
+    width: number,
+    height: number,
+  ): Asset | null {
+    return createAssetFromCanvas(dataUrl, prompt, width, height);
+  }
+
   async function handleGenerate() {
     isGenerating.value = true;
 
@@ -318,6 +335,92 @@ export const useAppStore = defineStore('app', () => {
       }
     } catch (e) {
       console.error('[Generate] 生成失败:', e);
+    } finally {
+      isGenerating.value = false;
+    }
+  }
+
+  /**
+   * 以图生图修改：上传图片 + 修改指令 → 色块分析 → LLM 语义修改 → RenderIR → GPU 渲染
+   *
+   * 完整链路（技术路线 §21 以图生图 + §21.7 用户修改）：
+   *   1. reviseImage(image, instruction, providerConfig) → ParsedIntent
+   *      内部：analyzeImage → toLLMView → callLLM → LLMOutput → ParsedIntent
+   *   2. parsedIntentToRenderIR(intent) → RenderIR
+   *   3. runtimeStore.setRenderIR(ir) → GPU 渲染
+   *   4. 截图保存为 Asset
+   *
+   * @param image 用户上传的 HTMLImageElement
+   * @param instruction 修改指令（如"换成动作和颜色"）
+   */
+  async function handleImageRevision(
+    image: HTMLImageElement,
+    instruction: string,
+  ): Promise<{ success: boolean; warnings: string[] }> {
+    isGenerating.value = true;
+    const timestamp = Date.now();
+
+    try {
+      // 获取当前模型的 LLM 配置
+      const selectedConfig = modelConfigStore.selectedModelConfig;
+      const providerConfig = selectedConfig
+        ? modelConfigStore.modelConfigToLLMConfig(selectedConfig)
+        : null;
+
+      // 如果有 LLM 配置，走 LLM 管线；否则走本地智能修改
+      const result = providerConfig
+        ? await reviseImage({ image, instruction }, providerConfig)
+        : await localReviseImage({ image, instruction });
+
+      console.log('[ImageRevision] 修改完成:', {
+        usedLLM: result.usedLLM,
+        analysisMs: `${result.analysisMs.toFixed(0)}ms`,
+        llmMs: `${result.llmMs.toFixed(0)}ms`,
+        layerCount: result.intent.layers.length,
+        warnings: result.warnings,
+      });
+
+      // ParsedIntent → RenderIR
+      const ir = parsedIntentToRenderIR(result.intent);
+
+      // 驱动 GPU 渲染
+      const runtimeStore = useRuntimeStore();
+      await runtimeStore.setRenderIR(ir);
+
+      // 持久化产物
+      const irJson = JSON.stringify(ir);
+      Promise.all([
+        unifiedStore.writeIR(0, irJson),
+        unifiedStore.writePrompt(timestamp, `[图片修改] ${instruction}`),
+      ]).catch((e) => {
+        console.warn('[ImageRevision] 产物写入存储失败', e);
+      });
+
+      // 截取 GPU 渲染画面作为资产
+      const dataUrl = await runtimeStore.captureCanvas();
+      if (dataUrl) {
+        const displayInstruction = instruction.length > 20
+          ? instruction.slice(0, 20) + '…'
+          : instruction;
+        const asset = createAssetFromCanvas(
+          dataUrl,
+          `[修改] ${displayInstruction}`,
+          ir.canvas.width,
+          ir.canvas.height,
+        );
+        if (asset) {
+          const assetStore = useAssetStore();
+          assetStore.add(asset);
+        }
+      }
+
+      return { success: true, warnings: result.warnings };
+    } catch (e) {
+      console.error('[ImageRevision] 修改失败:', e);
+      return {
+        success: false,
+        warnings: [`修改失败: ${e instanceof Error ? e.message : String(e)}`],
+      };
     } finally {
       isGenerating.value = false;
     }
@@ -402,8 +505,9 @@ export const useAppStore = defineStore('app', () => {
       if (data.theme !== undefined) theme.value = data.theme;
       if (data.treeData !== undefined) treeData.value = data.treeData;
       if (data.savedTime !== undefined) lastSavedTime.value = data.savedTime;
-      if (data.modelConfigs !== undefined) modelConfigStore.modelConfigs = data.modelConfigs;
-      if (data.selectedModelId !== undefined) modelConfigStore.selectedModelId = data.selectedModelId;
+      // modelConfigStore 在初始化时已从 localStorage 同步加载，且有自己的即时持久化机制。
+      // 不从 unifiedStore 覆盖 modelConfigs，避免旧数据覆盖最新的 localStorage 数据。
+      // modelConfigStore 的持久化优先级：localStorage（即时同步） > unifiedStore（延迟异步）
       if (data.accentColors !== undefined) accentColors.value = data.accentColors;
       if (data.promptText !== undefined || data.elements !== undefined) {
         historyStore.resetWithData(
@@ -453,6 +557,9 @@ export const useAppStore = defineStore('app', () => {
     setTuningParams,
     toggleIRVisibility,
     handleGenerate,
+    handleImageRevision,
+    applyRenderIR,
+    createAssetFromCanvas: createAssetFromCanvasPublic,
     handleForceSave,
     handleResetProject,
     setAutoSaveInterval,
@@ -518,6 +625,7 @@ export const useAppStore = defineStore('app', () => {
     modelConfigs: modelConfigStore.modelConfigs,
     selectedModelId: modelConfigStore.selectedModelId,
     selectedModelConfig: modelConfigStore.selectedModelConfig,
+    modelConfigToLLMConfig: modelConfigStore.modelConfigToLLMConfig,
     addModelConfig: modelConfigStore.addModelConfig,
     updateModelConfig: modelConfigStore.updateModelConfig,
     removeModelConfig: modelConfigStore.removeModelConfig,

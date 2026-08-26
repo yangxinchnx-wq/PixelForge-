@@ -4,6 +4,7 @@ import { useAppStore } from './stores/app';
 import { useRuntimeStore } from './stores/runtime';
 import { useMaterialAssetStore } from './material/materialAssetStore';
 import { disposeMaterialRenderBridge } from './material/materialRenderBridge';
+import { useAssetStore } from './assets/assetStore';
 import { useErrorStore } from './stores/errorStore';
 import type { RenderIR } from './compiler/ir/renderIR';
 import { renderIRToTreeNodes } from './utils/irTreeUtils';
@@ -61,6 +62,7 @@ const canRedo = toRef(store, 'canRedo');
 
 const runtimeStore = useRuntimeStore();
 const materialAssetStore = useMaterialAssetStore();
+const assetStore = useAssetStore();
 const errorStore = useErrorStore();
 
 // ─── WebGPU 画布 ──────────────────────────────────────
@@ -114,6 +116,8 @@ onMounted(() => {
   window.addEventListener('keydown', handleKeyDown);
   void store.loadFromUnifiedStore();
   materialAssetStore.init();
+  // 从 OPFS 恢复持久化的图片/视频资产
+  void assetStore.init();
   nextTick(() => { void ensureGpuCanvasInitialized(); });
 });
 
@@ -169,9 +173,9 @@ watch(activeLeftTab, async () => {
 // ─── Graph Editor ─────────────────────────────────────
 const showGraphEditor = ref(false);
 
-function handleApplyIR(ir: RenderIR) {
+async function handleApplyIR(ir: RenderIR): Promise<void> {
   try {
-    runtimeStore.setRenderIR(ir);
+    await runtimeStore.setRenderIR(ir);
     treeData.value = renderIRToTreeNodes(ir);
     showGraphEditor.value = false;
   } catch (e) {

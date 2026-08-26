@@ -13,6 +13,24 @@ function loadSavedData() {
   return null;
 }
 
+/**
+ * 即时同步模型配置到 localStorage。
+ *
+ * modelConfigStore 自己管理持久化，不依赖 App.vue 的延迟自动保存。
+ * 这样即使用户关闭自动保存或快速关闭应用，模型配置也不会丢失。
+ */
+function persistModelConfigs(configs: ModelConfig[], selectedId: string | null): void {
+  try {
+    const raw = localStorage.getItem(AUTOSAVE_KEY);
+    const data = raw ? JSON.parse(raw) : {};
+    data.modelConfigs = configs;
+    data.selectedModelId = selectedId;
+    localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(data));
+  } catch (e) {
+    console.error('[ModelConfigStore] 模型配置持久化失败', e);
+  }
+}
+
 export interface AccentColors {
   settings: string;
   image: string;
@@ -69,6 +87,7 @@ export const useModelConfigStore = defineStore('modelConfig', () => {
     const id = `model-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
     modelConfigs.value.push({ ...config, id });
     if (!selectedModelId.value) selectedModelId.value = id;
+    persistModelConfigs(modelConfigs.value, selectedModelId.value);
     return id;
   }
 
@@ -76,6 +95,7 @@ export const useModelConfigStore = defineStore('modelConfig', () => {
     const idx = modelConfigs.value.findIndex((m) => m.id === id);
     if (idx !== -1) {
       modelConfigs.value[idx] = { ...modelConfigs.value[idx], ...patch };
+      persistModelConfigs(modelConfigs.value, selectedModelId.value);
     }
   }
 
@@ -84,10 +104,12 @@ export const useModelConfigStore = defineStore('modelConfig', () => {
     if (selectedModelId.value === id) {
       selectedModelId.value = modelConfigs.value[0]?.id ?? null;
     }
+    persistModelConfigs(modelConfigs.value, selectedModelId.value);
   }
 
   function setSelectedModel(id: string): void {
     selectedModelId.value = id;
+    persistModelConfigs(modelConfigs.value, selectedModelId.value);
   }
 
   /** 将 store 的 ModelConfig 转换为 callLLM 所需的 LLMProviderConfig */
