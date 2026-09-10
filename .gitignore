@@ -43,3 +43,6 @@ coverage/
 
 # Output files
 _size_output.txt
+
+# WorkBuddy 本地工作记忆（不上传）
+.workbuddy/
