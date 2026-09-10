@@ -78,6 +78,18 @@ cd PixelForge-/PixelForge   # 仓库根是外层,实际工程在 PixelForge/ 子
 npm install
 ```
 
+> **想省事的话可以不手动敲**:仓库根目录提供了一键脚本,会自动检查 Node / Rust / 平台依赖,然后装依赖并自检。
+>
+> ```bash
+> # Windows(PowerShell)
+> powershell -ExecutionPolicy Bypass -File setup.ps1
+>
+> # macOS / Linux
+> bash setup.sh
+> ```
+>
+> 两个脚本都支持 `--skip-install`(`-SkipInstall`)只做检查、`--skip-checks`(`-SkipChecks`)跳过自检。放在仓库根或 `PixelForge/` 子目录下都能跑。
+
 ### 3. 启动
 
 ```bash
