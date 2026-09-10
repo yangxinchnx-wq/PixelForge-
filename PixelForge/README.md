@@ -56,6 +56,52 @@ PixelForge 是一个基于 Vue 3、TypeScript、Vite、Tauri 和 WebGPU 的可�
 
 ---
 
+## 新环境搭建(换机 / 新同事)
+
+仓库已包含全部源码、锁文件与配置(`package-lock.json`、`Cargo.lock`、图标、`src-tauri/gen/schemas`、`tauri.conf.json` 均在库内),拉下来即可完整重建。**但环境依赖和两类本地数据不会跟着走**,按本节步骤来。
+
+### 1. 前置工具链
+
+| 工具 | 版本 | 备注 |
+|------|------|------|
+| Node.js | 22.x | CI 用的就是 22;`package-lock.json` 已锁定依赖版本 |
+| Rust | stable(edition 2021) | 通过 [rustup](https://rustup.rs) 安装 |
+| 平台依赖 | — | **Windows**:MSVC 生成工具(VS Build Tools,勾选"C++ 生成工具")+ WebView2 Runtime;**macOS**:Xcode Command Line Tools;**Linux**:webkit2gtk-4.1 等 Tauri 系统依赖 |
+
+> WebGPU 需要较新的 WebView2 与显卡驱动。Windows 11 一般开箱可用,Windows 10 老机器建议先更新 WebView2 Runtime。
+
+### 2. 拉取与安装
+
+```bash
+git clone https://github.com/yangxinchnx-wq/PixelForge-.git
+cd PixelForge-/PixelForge   # 仓库根是外层,实际工程在 PixelForge/ 子目录
+npm install
+```
+
+### 3. 启动
+
+```bash
+npm run tauri dev     # 桌面应用(Vite + Rust 一起起)
+npm run tauri build   # 打包安装包
+npm run dev           # 只跑前端,浏览器里看(Tauri 相关能力不可用)
+```
+
+首次 `tauri dev` 会编译全部 Rust 依赖,十几分钟到半小时属正常,之后为增量编译。
+
+### 4. 换机后需要手动补的东西
+
+- **LLM API key**:存在浏览器 localStorage(`src/stores/modelConfigStore.ts`),不进仓库。AI Director / LLM 相关功能需要在应用「设置」里重新填写。
+- **本地作品数据**:OPFS 里的图片/视频缓存 + redb 数据库(`pixelforge.redb`)不随仓库迁移。数据库位置:Windows `%APPDATA%\com.pixelforge.app\`、macOS `~/Library/Application Support/com.pixelforge.app/`、Linux `~/.local/share/com.pixelforge.app/`。要保留旧数据就手动拷这个目录。
+
+### 5. 装完自检
+
+```bash
+npm test                 # 约 2859 项,期望 0 失败
+npx vue-tsc --noEmit     # 期望 0 错误
+```
+
+---
+
 ## 开发命令
 
 安装依赖:
