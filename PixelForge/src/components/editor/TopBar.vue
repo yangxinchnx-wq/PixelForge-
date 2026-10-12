@@ -2,13 +2,21 @@
 import { computed } from 'vue'
 
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { useHistoryStore } from '@/stores/history'
 import { useProjectStore } from '@/project/projectStore'
 
 interface Props {
   status: 'idle' | 'initializing' | 'ready' | 'error' | string
   currentFrame: number
   totalFrames: number
+  theme: string
+  isPlaying: boolean
+  resolution: string
+  frameRate: string
+  /** 撤销/重做可用性与描述由 App.vue 统一两套历史后下发(避免绑定单一历史栈) */
+  canUndo: boolean
+  canRedo: boolean
+  undoTip: string
+  redoTip: string
 }
 
 const props = defineProps<Props>()
@@ -25,9 +33,10 @@ const emit = defineEmits<{
   newProject: []
   openProject: []
   saveProject: []
+  toggleTheme: []
+  export: []
 }>()
 
-const history = useHistoryStore()
 const project = useProjectStore()
 
 const statusInfo = computed(() => {
@@ -39,17 +48,6 @@ const statusInfo = computed(() => {
   }
 })
 
-const undoTip = computed(() =>
-  history.canUndo
-    ? `撤销 · ${history.lastEntry?.description ?? ''} (Ctrl+Z)`
-    : '无可撤销操作',
-)
-const redoTip = computed(() =>
-  history.canRedo
-    ? `重做 · ${history.nextRedoEntry?.description ?? ''} (Ctrl+Y)`
-    : '无可重做操作',
-)
-
 const projectTitle = computed(() => {
   if (!project.hasProject) return 'PixelForge <sub>语义视频生成</sub>'
   const dirty = project.dirty ? ' •' : ''
@@ -60,19 +58,34 @@ const saveTip = computed(() =>
   project.dirty ? '保存项目(有未保存修改)' : '保存项目',
 )
 
+// 画布芯片:resolution 形如 "1920 × 1080",frameRate 形如 "30 fps"
+const resolutionParts = computed(() =>
+  props.resolution.split('×').map((part) => part.trim()),
+)
+const fpsNumber = computed(() => {
+  const parsed = Number.parseInt(props.frameRate, 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 30
+})
+
 // —— 窗口控制（无边框窗口自定义标题栏按钮）——
-const appWindow = getCurrentWindow()
+// 浏览器 dev 模式下 Tauri API 不可用，getCurrentWindow() 会抛错，必须保护
+let appWindow: ReturnType<typeof getCurrentWindow> | null = null
+try {
+  appWindow = getCurrentWindow()
+} catch {
+  // 纯浏览器模式：窗口控制不可用
+}
 
 async function handleMinimize() {
-  await appWindow.minimize()
+  await appWindow?.minimize()
 }
 
 async function handleToggleMaximize() {
-  await appWindow.toggleMaximize()
+  await appWindow?.toggleMaximize()
 }
 
 async function handleClose() {
-  await appWindow.close()
+  await appWindow?.close()
 }
 </script>
 
@@ -91,16 +104,16 @@ async function handleClose() {
     <div class="topbar-center">
       <button
         class="tp-btn history-btn"
-        :class="{ disabled: !history.canUndo }"
+        :class="{ disabled: !canUndo }"
         :data-tip="undoTip"
-        :disabled="!history.canUndo"
+        :disabled="!canUndo"
         @click="emit('undo')"
       >↶</button>
       <button
         class="tp-btn history-btn"
-        :class="{ disabled: !history.canRedo }"
+        :class="{ disabled: !canRedo }"
         :data-tip="redoTip"
-        :disabled="!history.canRedo"
+        :disabled="!canRedo"
         @click="emit('redo')"
       >↷</button>
 
@@ -108,19 +121,32 @@ async function handleClose() {
 
       <button class="tp-btn" data-tip="跳到开头 (Home)" @click="emit('jumpStart')">⏮</button>
       <button class="tp-btn" data-tip="上一帧 (←)" @click="emit('stepBackward')">‹</button>
-      <button class="tp-btn play" data-tip="播放 (Space)" @click="emit('play')">▶</button>
+      <button
+        class="tp-btn play"
+        :data-tip="isPlaying ? '暂停 (Space)' : '播放 (Space)'"
+        @click="isPlaying ? emit('pause') : emit('play')"
+      >{{ isPlaying ? '❚❚' : '▶' }}</button>
       <button class="tp-btn" data-tip="下一帧 (→)" @click="emit('stepForward')">›</button>
       <button class="tp-btn" data-tip="跳到结尾 (End)" @click="emit('jumpEnd')">⏭</button>
     </div>
 
     <div class="topbar-right">
-      <span class="chip"><strong>1920</strong> × <strong>1080</strong></span>
-      <span class="chip"><strong>60</strong> FPS</span>
+      <span class="chip"><strong>{{ resolutionParts[0] }}</strong> × <strong>{{ resolutionParts[1] }}</strong></span>
+      <span class="chip"><strong>{{ fpsNumber }}</strong> FPS</span>
       <span class="chip">帧 <strong>{{ currentFrame }}</strong> / {{ totalFrames }}</span>
       <span class="chip">
         <span class="dot" :style="{ background: statusInfo.color }"></span>
         {{ statusInfo.label }}
       </span>
+      <button
+        class="tp-btn theme-btn"
+        :data-tip="theme === 'dark' ? '切换到浅色模式' : '切换到深色模式'"
+        @click="emit('toggleTheme')"
+      >
+        <PhSun v-if="theme === 'dark'" :size="15" weight="duotone" />
+        <PhMoon v-else :size="15" weight="duotone" />
+      </button>
+      <button class="tp-btn export-btn" data-tip="导出视频" @click="emit('export')">导出</button>
       <div class="window-controls">
         <button class="wc-btn" data-tip="最小化" @click="handleMinimize">
           <svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 5h10" stroke="currentColor" stroke-width="1.5"/></svg>
@@ -246,6 +272,16 @@ async function handleClose() {
 .tp-btn.play:hover { background: #2a2620; }
 
 .tp-btn.history-btn { font-size: 16px; }
+.tp-btn.theme-btn { font-size: 15px; }
+.tp-btn.export-btn {
+  width: auto;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--pf-accent);
+  color: #fff;
+}
+.tp-btn.export-btn:hover { background: var(--pf-accent-deep); color: #fff; }
 .tp-btn.history-btn.disabled,
 .tp-btn:disabled {
   opacity: 0.35;

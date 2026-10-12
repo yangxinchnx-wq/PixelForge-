@@ -8,7 +8,7 @@ import { useAssetStore } from './assets/assetStore';
 import { useErrorStore } from './stores/errorStore';
 import type { RenderIR } from './compiler/ir/renderIR';
 import { renderIRToTreeNodes } from './utils/irTreeUtils';
-import TopHeader from './components/TopHeader.vue';
+import TopBar from './components/editor/TopBar.vue';
 import LeftRail from './components/LeftRail.vue';
 import ControlPanel from './components/ControlPanel.vue';
 import CanvasViewport from './components/CanvasViewport.vue';
@@ -25,6 +25,13 @@ import HistoryPage from './components/HistoryPage.vue';
 import RenderPage from './components/RenderPage.vue';
 import { pageEnter } from './composables/useAnime';
 import { TOTAL_DURATION } from './data';
+import { useTimelineStore } from './stores/timelineStore';
+import { useHistoryStore as usePatchHistoryStore } from './stores/history';
+import { useHistoryStore as useSnapshotHistoryStore } from './stores/historyStore';
+import { useProjectStore } from './project/projectStore';
+import { loadProjectFromFile, pickProjectFile, saveProjectToFile } from './project/fileSystem';
+import type { TimelineStoreLike } from './project/types';
+import { currentFrameForTime, totalFramesForTimeline } from './world/timeline/unifiedTimeline';
 
 // ─── 异步加载重型组件 ─────────────────────────────────
 const GraphEditor = defineAsyncComponent(() => import('./components/editor/graph/GraphEditor.vue'));
@@ -64,6 +71,12 @@ const runtimeStore = useRuntimeStore();
 const materialAssetStore = useMaterialAssetStore();
 const assetStore = useAssetStore();
 const errorStore = useErrorStore();
+const timelineStore = useTimelineStore();
+// patch 制历史(Inspector/LayerTree 参数修改),与快照制 store.undo() 是两套系统
+const patchHistory = usePatchHistoryStore();
+// 快照制历史(prompt/elements/tuningParams 全量状态,appStore 代理同一单例)
+const snapshotHistory = useSnapshotHistoryStore();
+const projectStore = useProjectStore();
 
 // ─── WebGPU 画布 ──────────────────────────────────────
 const gpuCanvasRef = ref<HTMLCanvasElement | null>(null);
@@ -85,6 +98,141 @@ const projectDuration = computed(() => {
   return Math.max(...store.clips.map(c => c.start + c.duration));
 });
 
+// ─── TopBar 帧信息(以 TimelineContent 为权威模型推导) ───
+const timelineFps = computed(() => timelineStore.timelineContent.fps);
+const totalFrames = computed(() => totalFramesForTimeline(timelineStore.timelineContent));
+const currentFrame = computed(() => currentFrameForTime(currentTime.value, timelineFps.value));
+
+// ─── Undo / Redo(两套历史统一入口,按"最近编辑"仲裁) ────
+// 快照制(snapshotHistory):prompt/elements/tuningParams 全量状态,经 appStore.undo/redo
+// patch 制(patchHistory):runtime Inspector/LayerTree 参数增量
+// 两栈均非空时撤销/重做时间戳更近的一方,使键盘 Ctrl+Z/Y 与 TopBar ↶↷ 行为一致
+const canUndoAny = computed(() => canUndo.value || patchHistory.canUndo);
+const canRedoAny = computed(() => canRedo.value || patchHistory.canRedo);
+
+/** 下一次 undo 应作用的历史系统;都不可撤销返回 null */
+function undoTarget(): 'patch' | 'snapshot' | null {
+  if (!patchHistory.canUndo && !canUndo.value) return null;
+  const patchTs = patchHistory.lastEntry?.timestamp ?? 0;
+  if (patchHistory.canUndo && (!canUndo.value || patchTs > snapshotHistory.lastEditTs)) {
+    return 'patch';
+  }
+  return 'snapshot';
+}
+
+/** 下一次 redo 应作用的历史系统;都不可重做返回 null */
+function redoTarget(): 'patch' | 'snapshot' | null {
+  if (!patchHistory.canRedo && !canRedo.value) return null;
+  const patchTs = patchHistory.nextRedoEntry?.timestamp ?? 0;
+  if (patchHistory.canRedo && (!canRedo.value || patchTs > snapshotHistory.nextRedoTs)) {
+    return 'patch';
+  }
+  return 'snapshot';
+}
+
+function handleUndo() {
+  const target = undoTarget();
+  if (target === 'patch') {
+    if (!patchHistory.undo(runtimeStore)) {
+      errorStore.push(new Error('撤销操作应用失败'), '撤销失败');
+    }
+    return;
+  }
+  if (target === 'snapshot') {
+    store.undo();
+  }
+}
+
+function handleRedo() {
+  const target = redoTarget();
+  if (target === 'patch') {
+    if (!patchHistory.redo(runtimeStore)) {
+      errorStore.push(new Error('重做操作应用失败'), '重做失败');
+    }
+    return;
+  }
+  if (target === 'snapshot') {
+    store.redo();
+  }
+}
+
+const undoTip = computed(() => {
+  if (undoTarget() === 'patch') {
+    return `撤销 · ${patchHistory.lastEntry?.description ?? ''} (Ctrl+Z)`;
+  }
+  if (undoTarget() === 'snapshot') {
+    const name = snapshotHistory.history[snapshotHistory.currentIndex]?.actionName;
+    return name ? `撤销 · ${name} (Ctrl+Z)` : '无可撤销操作';
+  }
+  return '无可撤销操作';
+});
+
+const redoTip = computed(() => {
+  if (redoTarget() === 'patch') {
+    return `重做 · ${patchHistory.nextRedoEntry?.description ?? ''} (Ctrl+Y)`;
+  }
+  if (redoTarget() === 'snapshot') {
+    const name = snapshotHistory.history[snapshotHistory.currentIndex + 1]?.actionName;
+    return name ? `重做 · ${name} (Ctrl+Y)` : '无可重做操作';
+  }
+  return '无可重做操作';
+});
+
+function handleJumpStart() {
+  store.seek(0);
+}
+
+function handleJumpEnd() {
+  store.seek(timelineStore.timelineContent.duration);
+}
+
+// ─── 项目文件动作 ─────────────────────────────────────
+// project 模块的 TimelineStoreLike 与 timelineStore 的 legacy tracks(Track[])形状不同,
+// 用 getter/setter 适配:写入穿透到 store;legacy tracks 传空数组(序列化以 timelineContent 为准)
+const timelineStoreLike: TimelineStoreLike = {
+  get timelineContent() { return timelineStore.timelineContent },
+  set timelineContent(content) { if (content) timelineStore.timelineContent = content },
+  get currentTime() { return timelineStore.currentTime },
+  set currentTime(time) { if (time !== undefined) timelineStore.currentTime = time },
+  tracks: [],
+};
+
+function handleNewProject() {
+  const name = window.prompt('新项目名称', '未命名项目');
+  if (name === null) return;
+  projectStore.newProject(name.trim() || '未命名项目');
+  // newProject 只创建 metadata,runtime IR 需调用方重置到当前场景的初始状态
+  runtimeStore.setScenario(runtimeStore.currentScenario);
+  patchHistory.clear();
+}
+
+async function handleOpenProject() {
+  try {
+    const file = await pickProjectFile();
+    if (!file) return;
+    const project = await loadProjectFromFile(file);
+    projectStore.openProject(project, runtimeStore, timelineStoreLike, patchHistory);
+  } catch (e) {
+    errorStore.push(e, '打开项目失败');
+  }
+}
+
+async function handleSaveProject() {
+  try {
+    // 从未新建过项目时,保存即创建(避免保存按钮空转)
+    if (!projectStore.hasProject) projectStore.newProject('未命名项目');
+    const project = projectStore.snapshotCurrent(runtimeStore, timelineStoreLike, patchHistory);
+    if (!project) {
+      errorStore.push(new Error('没有可保存的项目内容'), '保存项目失败');
+      return;
+    }
+    await saveProjectToFile(project);
+    projectStore.dirty = false;
+  } catch (e) {
+    errorStore.push(e, '保存项目失败');
+  }
+}
+
 // ─── Theme ────────────────────────────────────────────
 watch(theme, (val) => {
   document.documentElement.dataset.theme = val;
@@ -96,18 +244,58 @@ watch(isPlaying, (playing) => {
   else store.stopPlayback();
 });
 
+// ─── currentTime 双轨同步 ─────────────────────────────
+// playback 轨(UI 权威):seek/step/rAF 驱动;timeline 轨(模型):项目序列化读取。
+// 双向 watch + 等值守卫:任一侧变化即镜像到另一侧,相等则跳过,防止互激循环
+watch(currentTime, (t) => {
+  if (timelineStore.currentTime !== t) timelineStore.seekTimeline(t);
+});
+watch(() => timelineStore.currentTime, (t) => {
+  if (store.currentTime !== t) store.seek(t);
+});
+
+// ─── 快照撤销/重做后同步 prompt 文本 ─────────────────
+// historyStore.undo/redo/jumpTo 只移动 currentIndex;livePromptText 是独立 ref,
+// 不跟随 activeSnapshot 变化,撤销后输入框与生成所用 prompt 会停留在旧值
+// (elements/tuningParams 直接绑 activeSnapshot computed,无此问题)。
+// 输入防抖期内两者相等,watch 不触发,无互激循环
+watch(
+  () => activeSnapshot.value.promptText,
+  (text) => { if (livePromptText.value !== text) livePromptText.value = text },
+);
+
+// ─── 项目脏标记:快照制历史的编辑/导航动作即视为有未保存修改 ──
+// pushState(prompt/elements/tuning 编辑)、undo/redo、jumpTo(历史面板跳转)
+// 均会改变持久化 payload 内容;clearHistory(重置项目)/resetWithData(打开项目)
+// 是项目生命周期动作,不标脏。pinia 对 setup store 的 action 统一包装,
+// 经 appStore 代理(store.undo 等)调用同样触发本 hook
+snapshotHistory.$onAction(({ name, after }) => {
+  if (name === 'pushState' || name === 'undo' || name === 'redo' || name === 'jumpTo') {
+    after(() => projectStore.markDirty());
+  }
+});
+
+// ─── 项目脏标记:patch 制历史的编辑动作(推入条目/撤销/重做)同样标脏 ──
+// 不用 watch(undoCount):openProject 直接 splice 历史栈会误触大切;
+// $onAction 只捕获真实 action,pushEntry/undo/redo 之外的变更不标记
+patchHistory.$onAction(({ name, after }) => {
+  if (name === 'pushEntry' || name === 'undo' || name === 'redo') {
+    after(() => projectStore.markDirty());
+  }
+});
+
 // ─── Keyboard (undo/redo) ─────────────────────────────
 function handleKeyDown(e: KeyboardEvent) {
   const activeTag = document.activeElement?.tagName;
   const isEditingText = activeTag === 'INPUT' || activeTag === 'TEXTAREA';
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
     if (e.shiftKey) {
-      if (canRedo.value) { e.preventDefault(); store.redo(); }
+      if (canRedoAny.value && !isEditingText) { e.preventDefault(); handleRedo(); }
     } else {
-      if (canUndo.value && !isEditingText) { e.preventDefault(); store.undo(); }
+      if (canUndoAny.value && !isEditingText) { e.preventDefault(); handleUndo(); }
     }
   } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'y') {
-    if (canRedo.value) { e.preventDefault(); store.redo(); }
+    if (canRedoAny.value && !isEditingText) { e.preventDefault(); handleRedo(); }
   }
 }
 
@@ -199,9 +387,29 @@ function handleWorkflowStepClick(stepId: string) {
   <div class="pf-app">
     <AmbientFluidCanvas />
 
-    <TopHeader
+    <TopBar
+      :status="runtimeStore.status"
+      :current-frame="currentFrame"
+      :total-frames="totalFrames"
       :theme="theme"
-      :is-generating="isGenerating"
+      :is-playing="isPlaying"
+      :resolution="resolution"
+      :frame-rate="frameRate"
+      :can-undo="canUndoAny"
+      :can-redo="canRedoAny"
+      :undo-tip="undoTip"
+      :redo-tip="redoTip"
+      @play="store.togglePlay"
+      @pause="store.togglePlay"
+      @step-forward="store.stepForward"
+      @step-backward="store.stepBackward"
+      @jump-start="handleJumpStart"
+      @jump-end="handleJumpEnd"
+      @undo="handleUndo"
+      @redo="handleRedo"
+      @new-project="handleNewProject"
+      @open-project="handleOpenProject"
+      @save-project="handleSaveProject"
       @toggle-theme="store.toggleTheme"
       @export="isExportOpen = true"
     />

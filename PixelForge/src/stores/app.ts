@@ -14,7 +14,7 @@
  */
 
 import { defineStore } from 'pinia';
-import { ref } from 'vue';
+import { ref, toRef } from 'vue';
 import type { TuningParams, IRTreeNode } from '../types';
 import { initialPromptText, initialElements, initialTuningParams, initialIRTree } from '../data/presetData';
 import { unifiedStore } from '@/storage';
@@ -124,7 +124,11 @@ export const useAppStore = defineStore('app', () => {
   function handlePromptTextChange(newText: string) {
     livePromptText.value = newText;
     if (promptDebounceTimer) clearTimeout(promptDebounceTimer);
+    // 记录调度时的历史代际:防抖窗口内若发生撤销/重做/跳转/重置,
+    // 本次编辑已被回退,回调作废,避免把旧文本重新推回历史栈
+    const scheduledEpoch = historyStore.historyEpoch;
     promptDebounceTimer = setTimeout(() => {
+      if (scheduledEpoch !== historyStore.historyEpoch) return;
       if (newText !== historyStore.activeSnapshot.promptText) {
         historyStore.pushState(
           {
@@ -570,12 +574,14 @@ export const useAppStore = defineStore('app', () => {
     resetAccentColors,
     buildAccentVars,
 
-    // ── History Store 代理（直接赋值 ref，Pinia 自动解包）──
-    history: historyStore.history,
-    currentIndex: historyStore.currentIndex,
-    activeSnapshot: historyStore.activeSnapshot,
-    canUndo: historyStore.canUndo,
-    canRedo: historyStore.canRedo,
+    // ── History Store 代理 ──
+    // 注意：必须用 toRef 保持活链接。直接写 `historyStore.history` 会在 reactive store 上
+    // 读取时被解包成普通值快照，之后子 store 更新本 store 永远看不到（曾导致时间轴/撤销全冻结）。
+    history: toRef(() => historyStore.history),
+    currentIndex: toRef(() => historyStore.currentIndex),
+    activeSnapshot: toRef(() => historyStore.activeSnapshot),
+    canUndo: toRef(() => historyStore.canUndo),
+    canRedo: toRef(() => historyStore.canRedo),
     pushState: historyStore.pushState,
     undo: historyStore.undo,
     redo: historyStore.redo,
@@ -583,8 +589,8 @@ export const useAppStore = defineStore('app', () => {
     clearHistory: historyStore.clearHistory,
 
     // ── Playback Store 代理 ──
-    currentTime: playbackStore.currentTime,
-    isPlaying: playbackStore.isPlaying,
+    currentTime: toRef(() => playbackStore.currentTime),
+    isPlaying: toRef(() => playbackStore.isPlaying),
     startPlayback: playbackStore.startPlayback,
     stopPlayback: playbackStore.stopPlayback,
     togglePlay: playbackStore.togglePlay,
@@ -594,12 +600,12 @@ export const useAppStore = defineStore('app', () => {
     resetTime: playbackStore.resetTime,
 
     // ── Timeline Store 代理 ──
-    tracks: timelineStore.tracks,
-    clips: timelineStore.clips,
-    selectedClipIds: timelineStore.selectedClipIds,
-    showTimeline: timelineStore.showTimeline,
-    canUndoTimeline: timelineStore.canUndoTimeline,
-    canRedoTimeline: timelineStore.canRedoTimeline,
+    tracks: toRef(() => timelineStore.tracks),
+    clips: toRef(() => timelineStore.clips),
+    selectedClipIds: toRef(() => timelineStore.selectedClipIds),
+    showTimeline: toRef(() => timelineStore.showTimeline),
+    canUndoTimeline: toRef(() => timelineStore.canUndoTimeline),
+    canRedoTimeline: toRef(() => timelineStore.canRedoTimeline),
     toggleTimeline: timelineStore.toggleTimeline,
     executeTimelineCommand: timelineStore.executeTimelineCommand,
     undoTimeline: timelineStore.undoTimeline,
@@ -613,8 +619,8 @@ export const useAppStore = defineStore('app', () => {
     toggleTrackProp: timelineStore.toggleTrackProp,
 
     // ── Keyframe Store 代理 ──
-    paramTracks: keyframeStore.paramTracks,
-    selectedTrackId: keyframeStore.selectedTrackId,
+    paramTracks: toRef(() => keyframeStore.paramTracks),
+    selectedTrackId: toRef(() => keyframeStore.selectedTrackId),
     addParamTrack: keyframeStore.addParamTrack,
     removeParamTrack: keyframeStore.removeParamTrack,
     addKeyframe: keyframeStore.addKeyframe,
@@ -623,9 +629,9 @@ export const useAppStore = defineStore('app', () => {
     evaluateParamTracks: keyframeStore.evaluateParamTracks,
 
     // ── Model Config Store 代理 ──
-    modelConfigs: modelConfigStore.modelConfigs,
-    selectedModelId: modelConfigStore.selectedModelId,
-    selectedModelConfig: modelConfigStore.selectedModelConfig,
+    modelConfigs: toRef(() => modelConfigStore.modelConfigs),
+    selectedModelId: toRef(() => modelConfigStore.selectedModelId),
+    selectedModelConfig: toRef(() => modelConfigStore.selectedModelConfig),
     modelConfigToLLMConfig: modelConfigStore.modelConfigToLLMConfig,
     addModelConfig: modelConfigStore.addModelConfig,
     updateModelConfig: modelConfigStore.updateModelConfig,

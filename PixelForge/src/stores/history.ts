@@ -7,6 +7,11 @@ import type { StructuralPatch } from '@/compiler/ir/patch'
 /**
  * 编辑历史 store —— 实现 Undo / Redo(Command Pattern + Patch History Stack)。
  *
+ * 注意:store id 为 'patch-history',与 stores/historyStore.ts 的快照制历史('history')分立。
+ * 历史上两文件曾共用 id 'history',Pinia 按 id 单例,后调用者会拿到先调用者创建的实例,
+ * 导致本 store 的 pushEntry 在运行时变成 undefined(Inspector 参数修改全链路失败)。
+ * 两套历史语义不同(patch 栈 vs 快照栈),必须保持独立 id,改名时不要改回 'history'。
+ *
  * 设计原则:
  * - 只记录"编辑操作"(Inspector 改参数 / ParameterTrack 拖关键帧)
  * - 不记录"浏览操作"(seek / step / play / jump)
@@ -76,7 +81,7 @@ const DEFAULT_MAX_SIZE = 100
 /** 同一 targetId.paramKey 的合并时间窗口(ms) */
 const DEFAULT_MERGE_WINDOW_MS = 500
 
-export const useHistoryStore = defineStore('history', () => {
+export const useHistoryStore = defineStore('patch-history', () => {
   const undoStack = ref<HistoryEntry[]>([])
   const redoStack = ref<HistoryEntry[]>([])
   const maxSize = ref(DEFAULT_MAX_SIZE)
