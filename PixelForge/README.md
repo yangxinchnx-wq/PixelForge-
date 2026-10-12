@@ -51,7 +51,7 @@ npm run tauri dev     # 标准启动方式
 ### 测试基线
 
 - **2577 项**自动化测试(87 个测试文件):2577 通过 + 21 跳过,0 失败
-- vue-tsc 零错误(已知例外:`src/assets/assetPersistence.test.ts` 有 3 处既有类型问题,待修)
+- vue-tsc 零错误
 - 注:存储架构提交删除旧 timeline/animation 模块后,测试总数由 3338 调整为 2859;删除 Director / WDL 功能链后再调整为 2577
 
 ---

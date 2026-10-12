@@ -61,7 +61,8 @@ vi.mock('@/storage/opfsStore', () => ({
 }))
 
 // ============================================================================
-// Mock URL.createObjectURL / fetch / atob
+// Mock URL.createObjectURL / fetch
+// atob/btoa 依赖 Node 原生全局（Node 16+），无需 stub
 // ============================================================================
 
 vi.stubGlobal('URL', {
@@ -70,22 +71,13 @@ vi.stubGlobal('URL', {
   revokeObjectURL: vi.fn(),
 })
 
-vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+vi.stubGlobal('fetch', vi.fn(async () => {
   // 模拟 blob URL → 返回固定 bytes
   const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47]) // PNG header
   return {
     blob: async () => new Blob([bytes.buffer as ArrayBuffer], { type: 'image/png' }),
   }
 }))
-
-vi.stubGlobal('atob', (str: string) => {
-  // 简单 base64 解码
-  return Buffer.from(str, 'base64').toString('binary')
-})
-
-vi.stubGlobal('btoa', (str: string) => {
-  return Buffer.from(str, 'binary').toString('base64')
-})
 
 // ============================================================================
 // 测试数据
