@@ -7,6 +7,9 @@ mod db;
 #[cfg(target_os = "windows")]
 mod win_maximize_fix;
 
+#[cfg(target_os = "windows")]
+mod win_rounded_corners;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -24,11 +27,12 @@ pub fn run() {
             }
             // DevTools 默认不自动打开，需要时按 F12 手动打开
 
-            // Windows 平台：修复无边框窗口最大化时的白色边框
+            // Windows 平台：修复无边框窗口最大化时的白色边框，并为窗口四角设置 Win11 圆角
             #[cfg(target_os = "windows")]
             {
                 if let Some(window) = app.get_webview_window("main") {
                     win_maximize_fix::apply(&window);
+                    win_rounded_corners::apply(&window);
                 }
             }
 
