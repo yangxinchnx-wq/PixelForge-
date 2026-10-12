@@ -18,6 +18,8 @@ export interface Clip {
   originalDuration?: number;
   /** 源素材起始时间（秒，可选） */
   sourceStart?: number;
+  /** 关联素材 ID（可选，视频片段引用资源库中的视频 Asset，用于时间轴缩略图条） */
+  assetId?: string;
   /** 播放速度倍率（1.0 = 正常，可选） */
   speed?: number;
   /** 音量（0-1，可选，仅 audio 类型） */

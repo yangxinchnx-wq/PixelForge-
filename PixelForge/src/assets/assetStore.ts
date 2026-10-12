@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 
 import type { Asset, AssetType } from './types'
 import { textureCache } from './textureCache'
+import { clearFilmstripCache } from './filmstrip'
 import {
   persistAssetBinary,
   upsertAssetIndex,
@@ -92,6 +93,8 @@ export const useAssetStore = defineStore('assets', () => {
     const [removed] = items.value.splice(idx, 1)
     // 销毁 GPU 纹理
     textureCache.dispose(id)
+    // 清除时间轴缩略图胶片帧缓存
+    clearFilmstripCache(id)
     if (removed?.url?.startsWith('blob:')) {
       URL.revokeObjectURL(removed.url)
     }

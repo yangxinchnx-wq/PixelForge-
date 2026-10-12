@@ -159,6 +159,17 @@ export const useTimelineStore = defineStore('timeline', () => {
     clips.value = newClips;
   }
 
+  /** 添加片段(带 Timeline 撤销历史) */
+  function addClip(newClip: Clip): void {
+    const snapshot = clips.value;
+    const cmd: Command = {
+      label: `添加片段「${newClip.name}」`,
+      execute() { clips.value = [...snapshot, newClip]; },
+      undo() { clips.value = snapshot; },
+    };
+    executeTimelineCommand(cmd);
+  }
+
   function setTracks(newTracks: Track[]): void {
     tracks.value = newTracks;
   }
@@ -225,6 +236,7 @@ export const useTimelineStore = defineStore('timeline', () => {
     undoTimeline,
     redoTimeline,
     setClips,
+    addClip,
     setTracks,
     selectClip,
     clearSelection,

@@ -1,12 +1,16 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
 import { useAssetStore } from '@/assets/assetStore';
+import type { Asset } from '@/assets/types';
 import { useAppStore } from '../stores/app';
+import { useTimelineStore } from '../stores/timelineStore';
+import type { Clip } from '../types';
 import { loadImages, loadVideo } from '@/assets/assetLoader';
 
 // ─── Asset Store ──────────────────────────────────────
 const assetStore = useAssetStore();
 const appStore = useAppStore();
+const timelineStore = useTimelineStore();
 
 // ─── Local State ──────────────────────────────────────
 const fileInputRef = ref<HTMLInputElement | null>(null);
@@ -121,6 +125,44 @@ function removeAsset(id: string) {
     selectedAssetId.value = assetStore.items[0]?.id ?? null;
     if (selectedAssetId.value) emit('selectAsset', selectedAssetId.value);
   }
+}
+
+// ─── Add To Timeline ──────────────────────────────────
+/** 将视频素材追加到第一条视频轨道末尾（带撤销历史） */
+function addToTimeline(asset: Asset) {
+  const track = timelineStore.tracks.find((t) => t.type === 'video');
+  if (!track) {
+    lastError.value = '没有可用的视频轨道';
+    return;
+  }
+  const end = timelineStore.clips
+    .filter((c) => c.trackId === track.id)
+    .reduce((max, c) => Math.max(max, c.start + c.duration), 0);
+  const clip: Clip = {
+    id: `clip-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    trackId: track.id,
+    name: asset.name,
+    start: end,
+    duration: asset.duration || 5,
+    type: 'video',
+    assetId: asset.id,
+  };
+  timelineStore.addClip(clip);
+}
+
+// ─── Drag To Timeline ─────────────────────────────────
+const draggingAssetId = ref<string | null>(null);
+
+/** 视频素材可拖到时间轴(自定义 MIME,避免与文本拖拽混淆) */
+function onAssetDragStart(e: DragEvent, asset: Asset) {
+  if (asset.type !== 'video' || !e.dataTransfer) return;
+  draggingAssetId.value = asset.id;
+  e.dataTransfer.setData('application/x-pixelforge-asset', asset.id);
+  e.dataTransfer.effectAllowed = 'copy';
+}
+
+function onAssetDragEnd() {
+  draggingAssetId.value = null;
 }
 
 // ─── Format Helpers ───────────────────────────────────
@@ -318,8 +360,11 @@ const activeTaskCount = computed(() => {
         v-for="asset in filteredAssets"
         :key="asset.id"
         class="pf-resource-item"
-        :class="{ active: asset.id === selectedAssetId }"
+        :class="{ active: asset.id === selectedAssetId, dragging: asset.id === draggingAssetId }"
+        :draggable="asset.type === 'video'"
         @click="selectAsset(asset.id)"
+        @dragstart="onAssetDragStart($event, asset)"
+        @dragend="onAssetDragEnd"
       >
         <!-- Thumbnail -->
         <div class="pf-resource-thumb">
@@ -344,6 +389,18 @@ const activeTaskCount = computed(() => {
           <span class="pf-resource-type-badge" :class="{ video: asset.type === 'video' }">
             {{ asset.type === 'video' ? '视频' : '图片' }}
           </span>
+          <!-- Add To Timeline Button (video only) -->
+          <button
+            v-if="asset.type === 'video'"
+            class="pf-resource-add-timeline"
+            title="添加到时间轴"
+            @click.stop="addToTimeline(asset)"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="10" height="10">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+          </button>
           <!-- Remove Button -->
           <button
             class="pf-resource-remove"
@@ -575,6 +632,10 @@ const activeTaskCount = computed(() => {
   border: 1px solid transparent;
 }
 
+.pf-resource-item.dragging {
+  opacity: 0.5;
+}
+
 .pf-resource-item:hover {
   background: var(--track-bg-hover);
 }
@@ -630,6 +691,28 @@ const activeTaskCount = computed(() => {
 .pf-resource-type-badge.video {
   background: color-mix(in srgb, var(--type-video) 80%, transparent);
   color: white;
+}
+
+.pf-resource-add-timeline {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: none;
+  background: color-mix(in srgb, black 50%, transparent);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+
+.pf-resource-item:hover .pf-resource-add-timeline {
+  opacity: 1;
 }
 
 .pf-resource-remove {

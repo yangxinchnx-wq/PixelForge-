@@ -605,6 +605,7 @@ export const useAppStore = defineStore('app', () => {
     undoTimeline: timelineStore.undoTimeline,
     redoTimeline: timelineStore.redoTimeline,
     setClips: timelineStore.setClips,
+    addClip: timelineStore.addClip,
     setTracks: timelineStore.setTracks,
     selectClip: timelineStore.selectClip,
     clearSelection: timelineStore.clearSelection,

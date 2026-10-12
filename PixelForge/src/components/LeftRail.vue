@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import type { Component } from 'vue';
+import { PhVideo, PhImage, PhPuzzlePiece, PhBookBookmark, PhActivity, PhGearSix } from '@phosphor-icons/vue';
 import type { LeftNavTab } from '../types';
 
 defineProps<{
@@ -10,11 +12,11 @@ const emit = defineEmits<{
   settingsClick: [];
 }>();
 
-const navItems: { tab: LeftNavTab; label: string; icon: string }[] = [
-  { tab: 'input', label: '视频', icon: 'PhVideo' },
-  { tab: 'image', label: '图片', icon: 'PhImage' },
-  { tab: 'elements', label: '元素', icon: 'PhPuzzlePiece' },
-  { tab: 'history', label: '历史', icon: 'PhBookBookmark' },
+const navItems: { tab: LeftNavTab; label: string; icon: Component | 'export' }[] = [
+  { tab: 'input', label: '视频', icon: PhVideo },
+  { tab: 'image', label: '图片', icon: PhImage },
+  { tab: 'elements', label: '元素', icon: PhPuzzlePiece },
+  { tab: 'history', label: '历史', icon: PhBookBookmark },
   { tab: 'render', label: '渲染', icon: 'export' },
 ];
 </script>

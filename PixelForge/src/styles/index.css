@@ -1075,6 +1075,8 @@ flex-shrink: 0;
 .tracks-inner { position: relative; min-height: 100%; min-width: 100%; }
 .tracks-content { min-height: 100%; }
 
+.tracks-content.asset-drag-over { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+
 .track {
   height: var(--track-height);
   border-bottom: 1px solid var(--separator);
@@ -1138,7 +1140,8 @@ outline-offset: -1px;
 .clip-waveform { width: 100%; height: 100%; opacity: 0.35; color: var(--text-secondary); }
 
 .clip-thumbnails { display: flex; gap: 1px; width: 100%; height: 100%; }
-.clip-thumbnail { flex: 1; background: var(--separator-strong); border-radius: 2px; }
+.clip-thumbnail { flex: 1; min-width: 0; background: var(--separator-strong); border-radius: 2px; overflow: hidden; }
+.clip-thumbnail-img { flex: 1; min-width: 0; height: 100%; object-fit: cover; display: block; border-radius: 2px; background: var(--separator-strong); }
 
 .clip-handle {
   position: absolute; top: 0; bottom: 0;

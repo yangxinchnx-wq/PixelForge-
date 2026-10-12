@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, nextTick, shallowRef, onMounted, onUnmounted } from 'vue';
 import { useAppStore } from '../stores/app';
+import { useAssetStore } from '../assets/assetStore';
+import { getFilmstrip } from '../assets/filmstrip';
 import type { Clip, Track } from '../types';
 import { TOTAL_DURATION, FPS, formatTimecode } from '../data';
 import { collectSnapTargets, snapOrDefault, DEFAULT_SNAP_THRESHOLD } from '../utils/snapEngine';
 import { resolveCollision, clampResizeLeft, clampResizeRight } from '../utils/collision';
 import type { Command } from '../utils/commandHistory';
-import DirectorPanel from './DirectorPanel.vue';
 
 const props = defineProps<{
   currentTime: number;
@@ -29,9 +30,6 @@ const canUndoTimeline = computed(() => store.canUndoTimeline);
 const canRedoTimeline = computed(() => store.canRedoTimeline);
 
 const pps = ref(30);
-
-// ─── AI Director 面板 ───────────────────────────────
-const showDirector = ref(false);
 
 // ─── Snap indicator ──────────────────────────────────
 const dragLineStart = ref<number | null>(null);
@@ -393,6 +391,82 @@ function handleClipPointerDown(e: PointerEvent, clip: Clip) {
   dragState.value = { type: 'clip-move', clipId: clip.id, grabOffsetX, selectedIds };
 }
 
+// ─── Asset drop (resource panel → timeline) ───────────
+const ASSET_DRAG_MIME = 'application/x-pixelforge-asset';
+const isAssetDragOver = ref(false);
+
+function isAssetDrag(e: DragEvent): boolean {
+  return Array.from(e.dataTransfer?.types ?? []).includes(ASSET_DRAG_MIME);
+}
+
+/** 拖拽悬停:仅接受资源面板的视频素材 */
+function handleTracksDragOver(e: DragEvent) {
+  if (!isAssetDrag(e)) return;
+  e.preventDefault();
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+  isAssetDragOver.value = true;
+}
+
+function handleTracksDragLeave(e: DragEvent) {
+  const related = e.relatedTarget as Node | null;
+  if (related && tracksScrollRef.value?.contains(related)) return;
+  isAssetDragOver.value = false;
+}
+
+/** 落点 Y 坐标所在的轨道 ID(遍历轨道元素命中测试) */
+function trackIdAtClientY(clientY: number): string | null {
+  const scrollEl = tracksScrollRef.value;
+  if (!scrollEl) return null;
+  const trackEls = scrollEl.querySelectorAll<HTMLElement>('.track');
+  for (const el of trackEls) {
+    const rect = el.getBoundingClientRect();
+    if (clientY >= rect.top && clientY <= rect.bottom) {
+      return el.dataset.trackId ?? null;
+    }
+  }
+  return null;
+}
+
+/** 放置:在落点轨道/时间创建视频片段(自动避让碰撞,带撤销历史) */
+function handleTracksDrop(e: DragEvent) {
+  e.preventDefault();
+  isAssetDragOver.value = false;
+  const assetId = e.dataTransfer?.getData(ASSET_DRAG_MIME);
+  if (!assetId) return;
+  const asset = assetStore.getById(assetId);
+  if (!asset || asset.type !== 'video') return;
+
+  // 落点轨道必须是视频轨,否则回退第一条视频轨
+  const dropTrack = tracks.value.find((t) => t.id === trackIdAtClientY(e.clientY));
+  const track = dropTrack?.type === 'video'
+    ? dropTrack
+    : tracks.value.find((t) => t.type === 'video');
+  if (!track) return;
+
+  const duration = asset.duration || 5;
+  const dropTime = clientXToTrackTime(e.clientX);
+
+  // 复用碰撞避让:临时 clip 占位,resolveCollision 找最近的无重叠位置
+  const tempId = `pending-${Date.now().toString(36)}`;
+  const start = resolveCollision(
+    [...clips.value, { id: tempId, trackId: track.id, name: asset.name, start: 0, duration, type: 'video' }],
+    tempId,
+    dropTime,
+    TOTAL_DURATION,
+  );
+
+  const clip: Clip = {
+    id: `clip-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    trackId: track.id,
+    name: asset.name,
+    start,
+    duration,
+    type: 'video',
+    assetId: asset.id,
+  };
+  store.addClip(clip);
+}
+
 // ─── Track toggle ─────────────────────────────────────
 function toggleTrack(trackId: string, prop: 'muted' | 'soloed' | 'locked' | 'visible') {
   store.toggleTrackProp(trackId, prop);
@@ -557,6 +631,46 @@ function getThumbnailCount(clip: Clip): number {
   const width = clip.duration * pps.value;
   return Math.max(2, Math.floor(width / 30));
 }
+
+// ─── Clip filmstrip thumbnails ────────────────────────
+const assetStore = useAssetStore();
+
+/** clipId → 帧 dataURL 列表(shallowRef + 整体替换触发重渲染) */
+const clipFrames = shallowRef<Map<string, string[]>>(new Map());
+
+/** 已发起过提取请求的 key(`${clipId}:${count}`),避免重复请求 */
+const filmstripRequested = new Set<string>();
+
+/** 视频片段缩略图帧数(在占位块数量基础上限制上限,控制抽帧成本) */
+function clipThumbnailCount(clip: Clip): number {
+  return Math.min(24, getThumbnailCount(clip));
+}
+
+/** 为所有关联了视频素材的片段发起抽帧请求(缓存命中则瞬间返回) */
+function requestFilmstrips(): void {
+  for (const clip of clips.value) {
+    if (clip.type !== 'video' || !clip.assetId) continue;
+    const asset = assetStore.getById(clip.assetId);
+    if (!asset?.url) continue;
+    const key = `${clip.id}:${clipThumbnailCount(clip)}`;
+    if (filmstripRequested.has(key) || clipFrames.value.has(key)) continue;
+    filmstripRequested.add(key);
+    void getFilmstrip(asset.id, asset.url, clipThumbnailCount(clip)).then((frames) => {
+      const next = new Map(clipFrames.value);
+      next.set(key, frames);
+      clipFrames.value = next;
+    });
+  }
+}
+
+/** 取片段的真实帧;无素材或提取失败时返回 null(调用方回退占位块) */
+function clipThumbnails(clip: Clip): string[] | null {
+  const frames = clipFrames.value.get(`${clip.id}:${clipThumbnailCount(clip)}`);
+  return frames && frames.length > 0 ? frames : null;
+}
+
+// 片段增删/缩放(pps 变化)/素材异步恢复后,补抓缺失的胶片帧
+watch([clips, pps, () => assetStore.items.length], requestFilmstrips, { deep: true, immediate: true });
 
 function clipsForTrack(trackId: string): Clip[] {
   return clips.value.filter((c) => c.trackId === trackId);
@@ -1023,19 +1137,6 @@ const canPasteInMenu = computed(() => clipboard !== null && clipboard.length > 0
       <div class="toolbar-spacer" />
 
       <div class="toolbar-section">
-        <button
-          class="btn btn-icon"
-          :class="{ 'btn-active': showDirector }"
-          title="AI Director · 时间轴动画"
-          @click="showDirector = !showDirector"
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 2a3 3 0 0 0-3 3 3 3 0 0 0-3 3 3 3 0 0 0-1 5.87V17a3 3 0 0 0 3 3 3 3 0 0 0 4 0 3 3 0 0 0 4 0 3 3 0 0 0 3-3v-3.13A3 3 0 0 0 18 8a3 3 0 0 0-3-3 3 3 0 0 0-3-3z" />
-          </svg>
-        </button>
-      </div>
-
-      <div class="toolbar-section">
         <div class="zoom-control">
           <button class="zoom-btn" title="缩小" @click="handleZoom('out')">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
@@ -1147,11 +1248,19 @@ const canPasteInMenu = computed(() => clipboard !== null && clipboard.length > 0
               </div>
 
               <!-- Tracks -->
-              <div class="tracks-content" @click.self="handleBackgroundClick">
+              <div
+                class="tracks-content"
+                :class="{ 'asset-drag-over': isAssetDragOver }"
+                @click.self="handleBackgroundClick"
+                @dragover="handleTracksDragOver"
+                @dragleave="handleTracksDragLeave"
+                @drop="handleTracksDrop"
+              >
                 <div
                   v-for="track in tracks"
                   :key="track.id"
                   class="track"
+                  :data-track-id="track.id"
                   :class="{ dimmed: !isTrackActive(track) }"
                   @click.self="handleBackgroundClick"
                   @contextmenu.prevent="handleTrackContextMenu($event, track.id)"
@@ -1206,11 +1315,23 @@ const canPasteInMenu = computed(() => clipboard !== null && clipboard.length > 0
                       </div>
                       <!-- Video thumbnails -->
                       <div v-if="clip.type === 'video'" class="clip-thumbnails">
-                        <div
-                          v-for="i in getThumbnailCount(clip)"
-                          :key="i"
-                          class="clip-thumbnail"
-                        />
+                        <template v-if="clipThumbnails(clip)">
+                          <img
+                            v-for="(src, i) in clipThumbnails(clip)"
+                            :key="i"
+                            :src="src"
+                            class="clip-thumbnail-img"
+                            alt=""
+                            draggable="false"
+                          />
+                        </template>
+                        <template v-else>
+                          <div
+                            v-for="i in getThumbnailCount(clip)"
+                            :key="i"
+                            class="clip-thumbnail"
+                          />
+                        </template>
                       </div>
                       <!-- Text clip -->
                       <div v-if="clip.type === 'text'" style="font-size: 10px; opacity: 0.4; font-weight: 400">T</div>
@@ -1245,9 +1366,6 @@ const canPasteInMenu = computed(() => clipboard !== null && clipboard.length > 0
       </div>
     </div>
   </div>
-
-  <!-- AI Director 面板 -->
-  <DirectorPanel v-model:visible="showDirector" />
 
   <!-- 片段右键上下文菜单（Teleport 到 body 以脱离 .pf-timeline 层叠上下文） -->
   <Teleport to="body">
