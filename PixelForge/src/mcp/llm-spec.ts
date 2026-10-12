@@ -54,12 +54,6 @@ export const LLM_SPECIFICATION = `# PixelForge MCP 工具使用规范
 3. \`graph_update_node_params\` — 更新参数
 4. \`graph_compile\` — 重新编译验证
 
-#### AI 生成场景
-1. \`ai_generate\` — 提供自然语言描述
-2. 检查生成结果
-3. \`ai_modify_scene\` — 微调修改
-4. \`graph_compile\` — 编译验证
-
 ## 安全约束
 - 禁止执行任何可能删除系统文件的操作
 - 禁止修改系统配置

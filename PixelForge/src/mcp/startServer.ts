@@ -1,8 +1,8 @@
 /**
  * PixelForge MCP 服务端启动入口(Node stdio 传输层)。
  *
- * 通过 RealEditorBridge 将 23 个 MCP 工具真实映射到 PixelForge 编辑器能力:
- *   图 / 子图 / 时间轴 / 渲染 / AI Director / 资产。
+ * 通过 RealEditorBridge 将 20 个 MCP 工具真实映射到 PixelForge 编辑器能力:
+ *   图 / 子图 / 时间轴 / 渲染 / 资产。
  *
  * 协议: JSON-RPC 2.0 over stdio(每行一条消息)。
  *
@@ -23,7 +23,6 @@ import {
   createGraphTools,
   createTimelineTools,
   createRenderTools,
-  createAIDirectorTools,
   createAssetTools,
 } from './tools'
 
@@ -34,11 +33,10 @@ function main(): void {
   const bridge = new RealEditorBridge()
   const server = new MCPServer(bridge)
 
-  // 注册全部 5 个工具模块(共 23 个工具)到全局注册中心
+  // 注册全部 4 个工具模块(共 20 个工具)到全局注册中心
   registerToolModule(server.getRegistry(), createGraphTools(bridge))
   registerToolModule(server.getRegistry(), createTimelineTools(bridge))
   registerToolModule(server.getRegistry(), createRenderTools(bridge))
-  registerToolModule(server.getRegistry(), createAIDirectorTools(bridge))
   registerToolModule(server.getRegistry(), createAssetTools(bridge))
 
   const transport = new StdioTransport()

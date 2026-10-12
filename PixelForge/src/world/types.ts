@@ -1,7 +1,7 @@
 /**
  * PixelForge - L3 World Authoring 核心类型定义（骨架 §6 Phase F）
  *
- * 本文件定义 L3 层的核心类型，供 timeline / revision / director / sceneGraph / wdl 共享。
+ * 本文件定义 L3 层的核心类型，供 timeline / revision / sceneGraph 共享。
  *
  * L3 的 5 个接入点（骨架 §6.2）：
  *   1. 语义元素 ID 稳定机制 → shared/ids.ts（Phase A 已实现）
@@ -11,7 +11,7 @@
  *   5. ParameterOwnership 边界 → shared/types.ts ParameterOwner（Phase A 已预留）
  *
  * Phase F 数据流（骨架 §7.2）：
- *   [L3 Timeline / Director]
+ *   [L3 Timeline]
  *        ↓  Patch
  *   [L1] patchEngine
  *        ↓  修改 RenderIR
@@ -164,66 +164,7 @@ export interface RevisionLayer {
 }
 
 // ============================================================================
-// 6. DirectorIntent — AI Director 意图
-// ============================================================================
-
-/**
- * AI Director 意图。
- *
- * AI Director 解析用户高层意图，生成参数决策。
- * owner = 'l3_director' 的参数由 AI Director 驱动。
- */
-export interface DirectorIntent {
-  /** 稳定 ID（存入 WorldMetadata.directorIntentId） */
-  id: string
-  /** 原始用户 prompt */
-  prompt: string
-  /** 意图类型（如 'mood' / 'pacing' / 'tone' / 'color_shift'） */
-  type: string
-  /** 意图参数 */
-  params: Record<string, JsonLiteral>
-  /** 置信度（0-1） */
-  confidence: number
-}
-
-// ============================================================================
-// 7. DirectorDecision — AI Director 决策结果
-// ============================================================================
-
-/**
- * AI Director 决策结果。
- *
- * 包含一组参数修改建议（ValuePatch 格式）和可选的 Timeline 生成。
- */
-export interface DirectorDecision {
-  /** 关联的意图 ID */
-  intentId: string
-  /** 参数修改建议（source = 'l3_director'） */
-  patches: DirectorPatch[]
-  /** 可选：生成的 Timeline */
-  timeline?: TimelineContent
-  /** 决策原因（用于 UI 展示） */
-  reasoning: string
-}
-
-/**
- * Director 生成的参数 patch。
- *
- * 与标准 ValuePatch 的区别：source 固定为 'l3_director'。
- */
-export interface DirectorPatch {
-  /** 目标实体类型 */
-  targetEntity: 'layer' | 'effect'
-  /** 目标实体 ID */
-  targetId: string
-  /** 目标参数路径 */
-  paramKey: string
-  /** 新值 */
-  value: JsonLiteral
-}
-
-// ============================================================================
-// 8. SceneGraphNode — 场景图节点
+// 6. SceneGraphNode — 场景图节点
 // ============================================================================
 
 /**
@@ -266,7 +207,7 @@ export interface SceneTransform {
 }
 
 // ============================================================================
-// 9. SceneGraph — 完整场景图
+// 7. SceneGraph — 完整场景图
 // ============================================================================
 
 /**
@@ -284,46 +225,7 @@ export interface SceneGraph {
 }
 
 // ============================================================================
-// 10. WDLDocument — World Description Language 文档
-// ============================================================================
-
-/**
- * WDL 文档。
- *
- * WDL 是 L3 的中间层，描述世界语义。
- * 与 RenderIR 严格分层（DM-2）：WDL 描述世界，RenderIR 描述 2D 渲染输入。
- */
-export interface WDLDocument {
-  /** 稳定 ID */
-  id: string
-  /** 文档版本 */
-  version: string
-  /** 场景描述 */
-  scene: WDLScene
-  /** 时间轴引用 */
-  timelineId?: string
-  /** 场景图引用 */
-  sceneGraphId?: string
-  /** Director 意图引用 */
-  directorIntentId?: string
-}
-
-/**
- * WDL 场景描述。
- */
-export interface WDLScene {
-  /** 场景名称 */
-  name: string
-  /** 场景描述（自然语言） */
-  description: string
-  /** 场景标签 */
-  tags: string[]
-  /** 场景参数 */
-  params: Record<string, JsonLiteral>
-}
-
-// ============================================================================
-// 11. 辅助类型
+// 8. 辅助类型
 // ============================================================================
 
 /**
@@ -344,7 +246,7 @@ export interface TimelineEvaluationResult {
  * ParameterOwner 优先级（骨架 §4.1.5）。
  *
  * 优先级从高到低：
- *   l3_revision > l2_user > l3_timeline > l3_director > l2_parser > system_default
+ *   l3_revision > l2_user > l3_timeline > l2_parser > system_default
  *
  * 注意：l3_revision 优先级最高，但可被 l2_user 否决（通过 needs_confirmation）。
  */
@@ -352,7 +254,6 @@ export const OWNER_PRIORITY: Record<string, number> = {
   l3_revision: 100,
   l2_user: 90,
   l3_timeline: 70,
-  l3_director: 70,
   l2_parser: 50,
   system_default: 10,
 }

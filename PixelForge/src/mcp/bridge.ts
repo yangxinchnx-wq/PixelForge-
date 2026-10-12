@@ -146,23 +146,6 @@ export interface AssetOperationResult {
   error?: string
 }
 
-// ─── AI Director 类型 ───
-
-/** 生成结果 */
-export interface GenerationResult {
-  success: boolean
-  graph?: RenderGraph
-  description?: string
-  error?: string
-}
-
-/** 建议结果 */
-export interface SuggestionResult {
-  success: boolean
-  suggestions?: string[]
-  error?: string
-}
-
 // ─── 编辑器桥接接口 ───
 
 /**
@@ -306,27 +289,6 @@ export interface EditorBridge {
 
   /** 截图 */
   takeScreenshot(format?: 'png' | 'jpg', quality?: number): Promise<ScreenshotResult>
-
-  // ─── AI Director 操作 ───
-
-  /** 自然语言生成 */
-  generateFromDescription(
-    description: string,
-    style?: string,
-    duration?: number,
-  ): Promise<GenerationResult>
-
-  /** 修改场景 */
-  modifyScene(
-    sceneId: string,
-    modifications: string,
-  ): Promise<GenerationResult>
-
-  /** 获取建议 */
-  getSuggestions(
-    context: string,
-    type: 'improvement' | 'alternative' | 'optimization',
-  ): Promise<SuggestionResult>
 
   // ─── 资产操作 ───
 
@@ -630,34 +592,6 @@ export class MockEditorBridge implements EditorBridge {
 
   async takeScreenshot(format: 'png' | 'jpg' = 'png', _quality?: number) {
     return { success: true, data: 'mock_base64_data', format }
-  }
-
-  // ─── AI Director ───
-
-  async generateFromDescription(description: string, _style?: string, _duration?: number) {
-    return {
-      success: true,
-      graph: { nodes: [], edges: [] },
-      description: `Generated from: ${description}`,
-    }
-  }
-
-  async modifyScene(_sceneId: string, modifications: string) {
-    return {
-      success: true,
-      graph: this.deepCopy(this.graph),
-      description: `Modified: ${modifications}`,
-    }
-  }
-
-  async getSuggestions(_context: string, _type: string) {
-    // 从材质预设中提取与上下文相关的建议
-    const { listPresetKeys, getPreset } = await import('@/material/materialPresets')
-    const suggestions = listPresetKeys().map((key) => {
-      const preset = getPreset(key)
-      return preset ? `${preset.label}: ${preset.description}` : key
-    })
-    return { success: true, suggestions }
   }
 
   // ─── 资产操作 ───

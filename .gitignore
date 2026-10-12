@@ -46,3 +46,6 @@ _size_output.txt
 
 # WorkBuddy 本地工作记忆（不上传）
 .workbuddy/
+
+# 临时截图目录（不上传）
+tmp-shots/

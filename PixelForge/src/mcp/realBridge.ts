@@ -1,13 +1,12 @@
 /**
  * RealEditorBridge — MCP 与 PixelForge 真实编辑器的桥接实现。
  *
- * 与 MockEditorBridge(内存假数据)不同,本实现把 23 个 MCP 工具真实映射到:
+ * 与 MockEditorBridge(内存假数据)不同,本实现把 20 个 MCP 工具真实映射到:
  *   - 图操作   → useGraphStore(真实节点图 store)
  *   - 子图操作 → useGraphStore 子图管理 actions + subgraphInliner
  *   - 时间轴   → 内部 TimelineContent(由 src/world/timeline/timelineManager 纯函数驱动)
  *   - 渲染     → useRenderStore(真实渲染 store)
  *   - 资产     → useAssetRegistryStore(真实资产注册表)
- *   - AI Director → src/world/director/director.ts 真实意图解析/决策函数
  *
  * 设计:
  * - 每个方法惰性获取对应 store(要求调用时 Pinia 已激活),便于在测试/运行时复用。
@@ -31,8 +30,6 @@ import type {
   ScreenshotResult,
   AssetListResult,
   AssetOperationResult,
-  GenerationResult,
-  SuggestionResult,
   Sequence,
   Track,
   Keyframe,
@@ -58,7 +55,6 @@ import {
   updateKeyframe,
   removeKeyframe,
 } from '@/world/timeline/timelineManager'
-import { parseIntent, decide, toValuePatches } from '@/world/director/director'
 
 // —— 资产类型映射(AssetKind → bridge AssetType) ——
 function mapAssetType(kind: AssetKind): AssetType {
@@ -365,7 +361,7 @@ export class RealEditorBridge implements EditorBridge {
   ): Promise<KeyframeResult> {
     try {
       if (!this.timeline) return { success: false, error: '当前没有激活的序列' }
-      // 轨道不存在则按需创建(编辑器由 AI Director 驱动时,轨道通常按需生成)
+      // 轨道不存在则按需创建(MCP 客户端驱动时,轨道通常按需生成)
       if (!this.timeline.tracks.some((t) => t.id === trackId)) {
         const track = createTrack(`轨道 ${trackId}`, 'effect', trackId, 'value')
         track.id = trackId // 以调用方指定的 trackId 为准,保证后续查找一致
@@ -483,52 +479,6 @@ export class RealEditorBridge implements EditorBridge {
     // stdio MCP server 运行在独立 Node 进程,无法直接访问浏览器 WebGPU canvas。
     // 真实截图需经 WebSocket/IPC 从前端取帧(后续集成);此处返回明确错误而非伪造数据。
     return { success: false, error: '截图需要实时浏览器画布,stdio 模式下不可用(请通过前端桥接获取)' }
-  }
-
-  // ─── AI Director 操作 ───
-
-  async generateFromDescription(
-    description: string,
-    _style?: string,
-    _duration?: number,
-  ): Promise<GenerationResult> {
-    try {
-      const intent = parseIntent(description)
-      const decision = await decide(intent)
-      const patches = toValuePatches(decision.patches, decision.intentId)
-      return {
-        success: true,
-        description: `已生成 ${patches.length} 个参数决策`,
-      }
-    } catch (e) {
-      return { success: false, error: errMsg(e) }
-    }
-  }
-
-  async modifyScene(_sceneId: string, _modifications: string): Promise<GenerationResult> {
-    try {
-      const intent = parseIntent(_modifications)
-      const decision = await decide(intent)
-      const patches = toValuePatches(decision.patches, decision.intentId)
-      return { success: true, description: `已应用 ${patches.length} 个修改` }
-    } catch (e) {
-      return { success: false, error: errMsg(e) }
-    }
-  }
-
-  async getSuggestions(
-    context: string,
-    type: 'improvement' | 'alternative' | 'optimization',
-  ): Promise<SuggestionResult> {
-    try {
-      const intent = parseIntent(context)
-      const decision = await decide(intent)
-      const patches = toValuePatches(decision.patches, decision.intentId)
-      const suggestions = patches.map((p) => `${type}: ${p.targetEntity} ${p.targetId} → ${JSON.stringify(p.value)}`)
-      return { success: true, suggestions }
-    } catch (e) {
-      return { success: false, error: errMsg(e) }
-    }
   }
 
   // ─── 资产操作 ───

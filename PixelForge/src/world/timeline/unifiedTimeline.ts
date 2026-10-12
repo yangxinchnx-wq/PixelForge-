@@ -2,7 +2,7 @@
  * PixelForge - Unified Timeline compatibility helpers.
  *
  * TimelineContent is the only authoritative animation model used by the
- * runtime, Director and render pipeline. The old ParameterTrack shape is kept
+ * runtime and render pipeline. The old ParameterTrack shape is kept
  * here only as a file/API compatibility boundary for older projects and MCP
  * callers.
  */

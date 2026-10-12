@@ -4,11 +4,10 @@
  * 测试覆盖：
  *   - TimelinePlayer：播放/暂停/停止/跳转/tick/循环
  *   - RevisionApplier：冲突检测/应用/强制覆盖
- *   - DirectorApplier：mock LLM 决策/预览/应用
  *   - L3Orchestrator：端到端编排
  */
 
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 
 import { Opcode } from '@/shared/types'
 import type { RenderIR } from '@/compiler/ir/renderIR'
@@ -17,20 +16,12 @@ import type { AnyPatch, PatchEngineState, PatchApplyResult } from '@/compiler/ir
 import { createTimelinePlayer } from './timelinePlayer'
 import type { TimelinePlayer } from './timelinePlayer'
 import { createRevisionApplier } from './revisionApplier'
-import { createDirectorApplier } from './directorApplier'
 import { createL3Orchestrator } from './l3Orchestrator'
 import type { PatchEngineLike } from './types'
 
 import { createTimeline, createTrack, createKeyframe, addTrack, addKeyframe } from '../timeline/timelineManager'
 import { createRevisionLayer, createEntry, addEntry } from '../revision/revisionLayer'
 import type { TimelineContent } from '../types'
-
-// Mock callLLM for Director tests
-vi.mock('@/authoring/llm/callLLM', () => ({
-  callLLM: vi.fn(),
-}))
-import { callLLM } from '@/authoring/llm/callLLM'
-const mockedCallLLM = vi.mocked(callLLM)
 
 // ============================================================================
 // fixture
@@ -300,88 +291,6 @@ describe('RevisionApplier', () => {
 })
 
 // ============================================================================
-// DirectorApplier 测试
-// ============================================================================
-
-describe('DirectorApplier', () => {
-  let engine: PatchEngineLike
-
-  beforeEach(() => {
-    engine = createMockEngine(createBaseIR())
-    mockedCallLLM.mockReset()
-  })
-
-  afterEach(() => {
-    vi.restoreAllMocks()
-  })
-
-  it('applyFromPrompt LLM 成功时应应用 patch', async () => {
-    mockedCallLLM.mockResolvedValueOnce({
-      content: '{}',
-      parsed: {
-        scene: '测试',
-        elements: [
-          { type: 'background', color: [10, 20, 60], layer: 0, description: '夜空' },
-        ],
-      },
-      usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
-      model: 'test',
-      latencyMs: 100,
-      cached: false,
-    })
-
-    const applier = createDirectorApplier(engine)
-    const result = await applier.applyFromPrompt('夜空', {
-      providerConfig: null,
-      disableCache: true,
-    })
-
-    expect(result.success).toBe(true)
-    expect(result.appliedCount).toBeGreaterThan(0)
-  })
-
-  it('applyFromPrompt 预览模式不应应用 patch', async () => {
-    mockedCallLLM.mockResolvedValueOnce({
-      content: '{}',
-      parsed: {
-        scene: '测试',
-        elements: [
-          { type: 'background', color: [10, 20, 60], layer: 0, description: '夜空' },
-        ],
-      },
-      usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
-      model: 'test',
-      latencyMs: 100,
-      cached: false,
-    })
-
-    const applier = createDirectorApplier(engine)
-    const result = await applier.applyFromPrompt('夜空', {
-      providerConfig: null,
-      disableCache: true,
-      preview: true,
-    })
-
-    expect(result.success).toBe(true)
-    expect(result.appliedCount).toBe(0)
-    expect(result.reasoning).toContain('预览')
-  })
-
-  it('applyFromPrompt LLM 失败应返回空决策', async () => {
-    mockedCallLLM.mockRejectedValueOnce(new Error('network error'))
-
-    const applier = createDirectorApplier(engine)
-    const result = await applier.applyFromPrompt('test', {
-      providerConfig: null,
-      disableCache: true,
-    })
-
-    expect(result.success).toBe(true) // 空决策也是成功
-    expect(result.appliedCount).toBe(0)
-  })
-})
-
-// ============================================================================
 // L3Orchestrator 端到端测试
 // ============================================================================
 
@@ -390,11 +299,6 @@ describe('L3Orchestrator', () => {
 
   beforeEach(() => {
     engine = createMockEngine(createBaseIR())
-    mockedCallLLM.mockReset()
-  })
-
-  afterEach(() => {
-    vi.restoreAllMocks()
   })
 
   it('应串联 Timeline 播放', () => {
@@ -420,30 +324,6 @@ describe('L3Orchestrator', () => {
     expect(result.success).toBe(true)
   })
 
-  it('应串联 Director 应用', async () => {
-    mockedCallLLM.mockResolvedValueOnce({
-      content: '{}',
-      parsed: {
-        scene: '测试',
-        elements: [
-          { type: 'background', color: [10, 20, 60], layer: 0, description: '夜空' },
-        ],
-      },
-      usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
-      model: 'test',
-      latencyMs: 100,
-      cached: false,
-    })
-
-    const orchestrator = createL3Orchestrator(engine)
-    const result = await orchestrator.applyDirectorFromPrompt('夜空', {
-      providerConfig: null,
-      disableCache: true,
-    })
-
-    expect(result.success).toBe(true)
-  })
-
   it('tick 未加载时间轴时应返回空帧', () => {
     const orchestrator = createL3Orchestrator(engine)
     const result = orchestrator.tick(0.016)
@@ -451,10 +331,9 @@ describe('L3Orchestrator', () => {
     expect(result.success).toBe(true)
   })
 
-  it('getTimelinePlayer/getRevisionApplier/getDirectorApplier 应返回子模块', () => {
+  it('getTimelinePlayer/getRevisionApplier 应返回子模块', () => {
     const orchestrator = createL3Orchestrator(engine)
     expect(orchestrator.getTimelinePlayer()).toBeDefined()
     expect(orchestrator.getRevisionApplier()).toBeDefined()
-    expect(orchestrator.getDirectorApplier()).toBeDefined()
   })
 })

@@ -2,34 +2,30 @@
  * PixelForge - L3 主编排器（骨架 §7.2 Phase F）
  *
  * 职责：
- *   - 串联 Timeline / Revision / Director 三个 L3 子系统
+ *   - 串联 Timeline / Revision 两个 L3 子系统
  *   - 提供统一的 tick() 入口（每帧驱动 Timeline）
- *   - 协调三者执行顺序（Director → Revision → Timeline）
+ *   - 协调两者执行顺序（Revision → Timeline）
  *   - 提供 API 供上层 UI 调用
  *
  * 数据流（骨架 §7.2 Phase F）：
  *
- *   [L3 Director] → ValuePatch(source='l3_director')    ↘
  *   [L3 Revision] → ValuePatch(source='l3_revision')    → patchEngine → RenderIR → L1 → L0 → 画面
  *   [L3 Timeline] → ValuePatch(source='l3_timeline')    ↗
  *
  * 执行优先级（同一帧内）：
- *   1. Director（一次性应用，不每帧执行）
- *   2. Revision（一次性应用，不每帧执行）
- *   3. Timeline（每帧执行，由 tick 驱动）
+ *   1. Revision（一次性应用，不每帧执行）
+ *   2. Timeline（每帧执行，由 tick 驱动）
  *
- * 注意：Director 和 Revision 是离散操作，Timeline 是连续操作。
- * Orchestrator 不在同一帧内混用三者，避免 patch 冲突。
+ * 注意：Revision 是离散操作，Timeline 是连续操作。
+ * Orchestrator 不在同一帧内混用两者，避免 patch 冲突。
  */
 
-import type { TimelineContent, RevisionLayer, DirectorIntent } from '../types'
-import type { TickResult, RevisionApplyResult, DirectorApplyResult, L3Config } from './types'
+import type { TimelineContent, RevisionLayer } from '../types'
+import type { TickResult, RevisionApplyResult, L3Config } from './types'
 import type { TimelinePlayer } from './timelinePlayer'
 import type { RevisionApplier } from './revisionApplier'
-import type { DirectorApplier, DirectorApplyOptions } from './directorApplier'
 import { createTimelinePlayer } from './timelinePlayer'
 import { createRevisionApplier } from './revisionApplier'
-import { createDirectorApplier } from './directorApplier'
 import type { PatchEngineLike } from './types'
 
 // ============================================================================
@@ -64,18 +60,12 @@ export interface L3Orchestrator {
   /** 应用 Revision */
   applyRevision(layer: RevisionLayer, force?: boolean): RevisionApplyResult
 
-  // —— Director 控制 ——
-  /** 从 prompt 生成并应用 Director 决策 */
-  applyDirectorFromPrompt(prompt: string, options?: DirectorApplyOptions): Promise<DirectorApplyResult>
-  /** 从已有意图应用 Director 决策 */
-  applyDirectorFromIntent(intent: DirectorIntent, options?: DirectorApplyOptions): Promise<DirectorApplyResult>
-
   // —— 统一入口 ——
   /**
    * 每帧驱动（由外部 rAF / scheduler 调用）。
    *
    * 只驱动 Timeline（连续操作）。
-   * Director 和 Revision 是离散操作，需手动调用。
+   * Revision 是离散操作，需手动调用。
    *
    * @param deltaTime 时间增量（秒）
    * @returns 本帧执行结果
@@ -87,8 +77,6 @@ export interface L3Orchestrator {
   getTimelinePlayer(): TimelinePlayer
   /** 获取 RevisionApplier */
   getRevisionApplier(): RevisionApplier
-  /** 获取 DirectorApplier */
-  getDirectorApplier(): DirectorApplier
 }
 
 // ============================================================================
@@ -101,7 +89,6 @@ export interface L3Orchestrator {
 const DEFAULT_CONFIG: L3Config = {
   timelineSpeed: 1.0,
   timelineLoop: false,
-  directorAutoApply: false,
 }
 
 /**
@@ -124,7 +111,6 @@ export function createL3Orchestrator(
     cfg.timelineLoop,
   )
   const revisionApplier: RevisionApplier = createRevisionApplier(engine)
-  const directorApplier: DirectorApplier = createDirectorApplier(engine)
 
   return {
     // —— Timeline 控制 ——
@@ -169,25 +155,10 @@ export function createL3Orchestrator(
       return revisionApplier.apply(layer, force)
     },
 
-    // —— Director 控制 ——
-    async applyDirectorFromPrompt(
-      prompt: string,
-      options?: DirectorApplyOptions,
-    ): Promise<DirectorApplyResult> {
-      return directorApplier.applyFromPrompt(prompt, options)
-    },
-
-    async applyDirectorFromIntent(
-      intent: DirectorIntent,
-      options?: DirectorApplyOptions,
-    ): Promise<DirectorApplyResult> {
-      return directorApplier.applyFromIntent(intent, options)
-    },
-
     // —— 统一入口 ——
     tick(deltaTime: number): TickResult {
       // 只驱动 Timeline（连续操作）
-      // Director 和 Revision 是离散操作，需手动调用
+      // Revision 是离散操作，需手动调用
       return timelinePlayer.tick(deltaTime)
     },
 
@@ -198,10 +169,6 @@ export function createL3Orchestrator(
 
     getRevisionApplier(): RevisionApplier {
       return revisionApplier
-    },
-
-    getDirectorApplier(): DirectorApplier {
-      return directorApplier
     },
   }
 }

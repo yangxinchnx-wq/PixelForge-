@@ -1,15 +1,9 @@
 <script setup lang="ts">
 import { ref, nextTick, watch, computed } from 'vue';
 import { useAppStore } from '../stores/app';
-import { useGraphStore } from '@/graph/graphStore';
-import type { RenderGraph } from '@/graph/types';
 import PfSelect from './ui/PfSelect.vue';
-import DirectorPanel from './DirectorPanel.vue';
-import WDLWorkspace from './WDLWorkspace.vue';
 
 const store = useAppStore();
-const graphStore = useGraphStore();
-const wdlWorkspaceRef = ref<InstanceType<typeof WDLWorkspace> | null>(null);
 
 // ─── Chat Messages ────────────────────────────────────
 interface ChatMessage {
@@ -48,8 +42,6 @@ function saveChatMessages() {
 const inputText = ref('');
 const isGenerating = computed(() => store.isGenerating);
 const messagesRef = ref<HTMLElement | null>(null);
-const showDirector = ref(true);
-const showWdl = ref(false);
 
 // 自动保存聊天记录
 watch(messages, saveChatMessages, { deep: true });
@@ -254,14 +246,6 @@ function useQuickPrompt(prompt: string) {
   inputText.value = prompt;
 }
 
-function handleWdlGraphSync(graph: RenderGraph): void {
-  graphStore.loadGraph(graph);
-}
-
-function handleGraphToWdl(): void {
-  wdlWorkspaceRef.value?.updateFromGraph(graphStore.exportGraph());
-}
-
 // ─── Helpers ──────────────────────────────────────────
 function scrollToBottom() {
   if (messagesRef.value) {
@@ -291,21 +275,8 @@ watch(isGenerating, () => {
   <div class="pf-panel glass-surface pf-panel-left pf-chat-panel">
     <!-- Header -->
     <div class="pf-panel-header">
-      <span class="pf-panel-title">AI Director</span>
-      <div class="pf-chat-header-actions">
-        <button type="button" class="pf-chat-mode-btn" :class="{ active: showDirector }" @click="showDirector = !showDirector">决策</button>
-        <button type="button" class="pf-chat-mode-btn" :class="{ active: showWdl }" @click="showWdl = !showWdl">WDL</button>
-        <button v-if="showWdl" type="button" class="pf-chat-mode-btn" @click="handleGraphToWdl">图→WDL</button>
-      </div>
+      <span class="pf-panel-title">AI 创作助手</span>
     </div>
-    <DirectorPanel v-if="showDirector" v-model:visible="showDirector" />
-    <WDLWorkspace
-      v-if="showWdl"
-      ref="wdlWorkspaceRef"
-      class="pf-inline-wdl"
-      @apply-i-r="store.applyRenderIR"
-      @graph-sync="handleWdlGraphSync"
-    />
 
     <!-- Messages -->
     <div class="pf-chat-messages" ref="messagesRef">
@@ -439,12 +410,6 @@ watch(isGenerating, () => {
   height: 100%;
   display: flex;
   flex-direction: column;
-}
-
-.pf-inline-wdl {
-  flex: 1 1 45%;
-  min-height: 240px;
-  margin: 0 12px 8px;
 }
 
 /* ── Messages ── */

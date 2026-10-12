@@ -28,7 +28,6 @@ import {
   createGraphTools,
   createTimelineTools,
   createRenderTools,
-  createAIDirectorTools,
   createAssetTools,
 } from '../tools'
 
@@ -349,7 +348,6 @@ describe('MCPServer', () => {
     registerToolModule(registry, createGraphTools(bridge))
     registerToolModule(registry, createTimelineTools(bridge))
     registerToolModule(registry, createRenderTools(bridge))
-    registerToolModule(registry, createAIDirectorTools(bridge))
     registerToolModule(registry, createAssetTools(bridge))
 
     transport = new MemoryTransport()
@@ -408,7 +406,6 @@ describe('MCPServer', () => {
     expect(toolNames).toContain('graph_add_node')
     expect(toolNames).toContain('timeline_get_sequence')
     expect(toolNames).toContain('render_start')
-    expect(toolNames).toContain('ai_generate')
     expect(toolNames).toContain('asset_browse')
   })
 
@@ -702,33 +699,6 @@ describe('MCPServer', () => {
       (getResponses(transport)[1].result as any).content[0].text,
     )
     expect(result.state).toBe('idle')
-  })
-
-  it('MC-I14: ai_generate 生成场景', async () => {
-    transport.pushRequest(
-      makeRequest('initialize', {
-        protocolVersion: '2024-11-05',
-        capabilities: {},
-        clientInfo: { name: 'test', version: '1.0' },
-      }),
-    )
-    transport.pushRequest(
-      makeRequest('tools/call', {
-        name: 'ai_generate',
-        arguments: {
-          description: '夕阳下的海边，天空是橙色渐变，海面有波浪效果',
-          style: 'cinematic',
-          duration: 10,
-        },
-      }),
-    )
-    transport.pushEOF()
-    await server.run(transport)
-
-    const result = JSON.parse(
-      (getResponses(transport)[1].result as any).content[0].text,
-    )
-    expect(result.success).toBe(true)
   })
 })
 

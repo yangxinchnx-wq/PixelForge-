@@ -7,5 +7,4 @@
 export { graphToolDefinitions, createGraphTools } from './graph'
 export { timelineToolDefinitions, createTimelineTools } from './timeline'
 export { renderToolDefinitions, createRenderTools } from './render'
-export { aiDirectorToolDefinitions, createAIDirectorTools } from './ai-director'
 export { assetToolDefinitions, createAssetTools } from './asset'

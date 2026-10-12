@@ -2,7 +2,7 @@
 
 ## 项目简介
 
-PixelForge 是一个基于 Vue 3、TypeScript、Vite、Tauri 和 WebGPU 的可视化编程视觉引擎。项目从"AI 生成器"演进为"可视化编程 + 实时动画 + GPU 计算 + 专业时间轴 + 渲染导出 + 音频混音 + 视频效果链 + Asset Genome + AI Director 对话式创作 + WDL 声明式渲染 DSL"的完整视觉引擎。
+PixelForge 是一个基于 Vue 3、TypeScript、Vite、Tauri 和 WebGPU 的可视化编程视觉引擎。项目从"AI 生成器"演进为"可视化编程 + 实时动画 + GPU 计算 + 专业时间轴 + 渲染导出 + 音频混音 + 视频效果链 + Asset Genome"的完整视觉引擎。
 
 项目按阶段管理,当前进入阶段六(可视化编程引擎 + 实时动画 + 专业时间轴 + 渲染导出等)。
 
@@ -11,6 +11,20 @@ PixelForge 是一个基于 Vue 3、TypeScript、Vite、Tauri 和 WebGPU 的可�
 ## 当前状态
 
 阶段六进行中(Step 25-40.4 已完成,Step 40.5+ 待规划)。
+
+### 启动约束(强制)
+
+**默认且唯一的运行方式是 Tauri 桌面端,已禁用 Web 端作为日常运行方式。**
+
+```bash
+npm run tauri dev     # 标准启动方式
+```
+
+禁用原因:
+
+- WebGPU 渲染在桌面 WebView2 与浏览器内核的行为存在差异,以浏览器为准可能掩盖桌面端特有的问题(窗口尺寸、DPI、焦点、最大化、圆角等)。
+- Tauri 桥接能力(原生文件 IO、红黑树数据库、系统弹窗)在纯浏览器环境中不可用,Web 端启动会误报"运行正常",掩盖真实的集成缺陷。
+- `npm run dev` 仅保留为**内部辅助用途**:Tauri 的 `BeforeDevCommand` 会自动调用它,以及做纯前端 UI 快速预览;不要把它当作日常启动方式,也不要基于它验证功能。
 
 ### 已完成阶段
 
@@ -31,16 +45,14 @@ PixelForge 是一个基于 Vue 3、TypeScript、Vite、Tauri 和 WebGPU 的可�
 | 音频混音器 | 33 | audioMix + audioMixerStore(Web Audio API)+ ProTimelineAudioMixer |
 | 视频效果链 Effect Chain | 34 | 17 种效果 × 5 大类 + effectChainStore + ProTimelineEffectChain |
 | Asset Genome | 35.1-35.7 | Registry + Reference Graph + Impact Analysis + Content Hash/Dedup + Lazy Loading + Browser UI + Packaging |
-| AI Director | 36.1-36.6 | DirectorContext + EnhancedIntent + Multi-turn Conversation + Timeline 自动生成 + Director Panel UI |
-| WDL 声明式渲染 DSL | 37.1-38.6 | Lexer + Parser + Compiler + Validator + Monaco Editor(语法高亮 + 自动补全 + 错误内联 + Graph 双向同步 + 模板库 + ProTimeline 绑定) |
 | 渲染性能优化 | 39.1-39.4 | Profiler + GPU 资源池化(BufferPool/TexturePool)+ 多 Pass 渲染管线 + 三级渲染签名缓存 |
 | 产品化 | 40.1-40.4 | 设置面板 + 快捷键体系(CommandRegistry + CommandPalette)+ 项目导入导出增强 + 错误处理统一化 |
 
 ### 测试基线
 
-- **2859 项**自动化测试(89 个测试文件):2838 通过 + 21 跳过,0 失败
-- vue-tsc 零错误
-- 注:存储架构提交删除旧 timeline/animation 模块后,测试总数由 3338 调整为 2859
+- **2577 项**自动化测试(87 个测试文件):2577 通过 + 21 跳过,0 失败
+- vue-tsc 零错误(已知例外:`src/assets/assetPersistence.test.ts` 有 3 处既有类型问题,待修)
+- 注:存储架构提交删除旧 timeline/animation 模块后,测试总数由 3338 调整为 2859;删除 Director / WDL 功能链后再调整为 2577
 
 ---
 
@@ -51,7 +63,6 @@ PixelForge 是一个基于 Vue 3、TypeScript、Vite、Tauri 和 WebGPU 的可�
 - 构建工具:Vite
 - 桌面壳:Tauri
 - 图形能力:WebGPU(计算着色器 + 存储缓冲区)
-- 代码编辑器:Monaco Editor(WDL 语法高亮/补全/诊断)
 - 测试:Vitest
 
 ---
@@ -92,23 +103,38 @@ npm install
 
 ### 3. 启动
 
+**唯一标准启动方式(禁用 Web 端作为日常运行):**
+
 ```bash
-npm run tauri dev     # 桌面应用(Vite + Rust 一起起)
+npm run tauri dev     # 桌面应用(Vite + Rust 一起起),日常开发必用
 npm run tauri build   # 打包安装包
-npm run dev           # 只跑前端,浏览器里看(Tauri 相关能力不可用)
 ```
+
+`npm run dev`(仅起前端 Vite)**不作为日常启动方式**,只用于:
+
+- 被 Tauri 的 `BeforeDevCommand` 自动调用(即 `npm run tauri dev` 会先拉起它,无需手动执行)
+- 纯前端 UI 快速预览
+
+原因:WebGPU 渲染与 Tauri 桥接能力(原生文件 IO / redb 数据库 / 系统弹窗 / 窗口圆角与最大化)在纯浏览器中不可用或行为不一致,用浏览器验证会掩盖桌面端集成缺陷。功能验证一律以桌面端为准。
 
 首次 `tauri dev` 会编译全部 Rust 依赖,十几分钟到半小时属正常,之后为增量编译。
 
+Windows 本机一键启动脚本(已内置 Node 22 + Rust GNU 工具链的 PATH 配置):
+
+```bash
+start-tauri.cmd     # 桌面端开发(推荐)
+start-dev.cmd       # 仅前端 Vite(辅助预览,勿用于功能验证)
+```
+
 ### 4. 换机后需要手动补的东西
 
-- **LLM API key**:存在浏览器 localStorage(`src/stores/modelConfigStore.ts`),不进仓库。AI Director / LLM 相关功能需要在应用「设置」里重新填写。
+- **LLM API key**:存在浏览器 localStorage(`src/stores/modelConfigStore.ts`),不进仓库。LLM 相关功能需要在应用「设置」里重新填写。
 - **本地作品数据**:OPFS 里的图片/视频缓存 + redb 数据库(`pixelforge.redb`)不随仓库迁移。数据库位置:Windows `%APPDATA%\com.pixelforge.app\`、macOS `~/Library/Application Support/com.pixelforge.app/`、Linux `~/.local/share/com.pixelforge.app/`。要保留旧数据就手动拷这个目录。
 
 ### 5. 装完自检
 
 ```bash
-npm test                 # 约 2859 项,期望 0 失败
+npm test                 # 约 2577 项,期望 0 失败
 npx vue-tsc --noEmit     # 期望 0 错误
 ```
 
@@ -122,11 +148,13 @@ npx vue-tsc --noEmit     # 期望 0 错误
 npm install
 ```
 
-启动开发环境:
+启动开发环境(**唯一标准方式,禁用 Web 端作为日常运行**):
 
 ```bash
-npm run dev
+npm run tauri dev
 ```
+
+`npm run dev` 仅保留为内部辅助(Tauri 的 `BeforeDevCommand` 会自动调用它,或做纯前端 UI 预览),**不要用它做功能验证**——WebGPU 与 Tauri 桥接能力在浏览器中不可用或行为不一致,详见上文「启动约束」。
 
 构建项目:
 

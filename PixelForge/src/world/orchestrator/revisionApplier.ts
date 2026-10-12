@@ -10,7 +10,7 @@
  * 冲突处理原则（骨架 §4.1.5）：
  *   - l3_revision 优先级最高，但可被 l2_user 否决
  *   - 与 l2_user 冲突时触发 needs_confirmation
- *   - 其他 L3 owner（l3_timeline / l3_director）被 l3_revision 直接覆盖
+ *   - 其他 L3 owner（l3_timeline）被 l3_revision 直接覆盖
  */
 
 import type { RevisionLayer } from '../types'

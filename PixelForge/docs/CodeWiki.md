@@ -39,14 +39,12 @@
 
 ## 1. 项目概述
 
-PixelForge 是一个基于 **Vue 3 + TypeScript + Vite + Tauri + WebGPU** 的可视化编程视觉引擎。项目从早期的"AI 生成器"逐步演进为涵盖"可视化编程 + 实时动画 + GPU 计算 + 专业时间轴 + 渲染导出 + 音频混音 + 视频效果链 + Asset Genome + AI Director 对话式创作 + WDL 声明式渲染 DSL"的完整视觉引擎。
+PixelForge 是一个基于 **Vue 3 + TypeScript + Vite + Tauri + WebGPU** 的可视化编程视觉引擎。项目从早期的"AI 生成器"逐步演进为涵盖"可视化编程 + 实时动画 + GPU 计算 + 专业时间轴 + 渲染导出 + 音频混音 + 视频效果链 + Asset Genome"的完整视觉引擎。
 
 核心能力包括：
 
 - 文本 Prompt → RenderIR → GPU 渲染的端到端管线
 - 基于 RenderGraph 的可视化节点编辑
-- WDL（World Description Language）声明式渲染 DSL（含 Monaco 编辑器集成）
-- AI Director 多轮对话式创作（create / modify / animate / analyze 四模式）
 - 三层存储（L1 内存 LRU / L2 OPFS / L3 Rust Redb）
 - WebGPU 多 Pass 渲染管线 + 三层缓存签名
 - 专业时间轴 Pro Timeline（Project / Sequence / Track / Clip）
@@ -116,7 +114,7 @@ PixelForge/                                  # 仓库根
 │   │   ├── render/compositor/               # 多轨合成器
 │   │   ├── shaders/                         # WGSL 着色器
 │   │   ├── authoring/                       # 创作管线（Prompt → IR）
-│   │   ├── world/                           # L3 动态世界层（WDL/Director/Orchestrator/Timeline）
+│   │   ├── world/                           # L3 动态世界层（Orchestrator/Timeline/Revision/SceneGraph）
 │   │   ├── editor/                          # 编辑器子系统（Asset Genome/Audio/Effects/Render/Inspector）
 │   │   ├── storage/                         # 三层存储
 │   │   ├── services/frame/                  # 帧服务
@@ -174,9 +172,8 @@ PixelForge 采用严格的分层架构，每层只向下依赖，禁止反向引
                          │
 ┌────────────────────────▼─────────────────────────────────────┐
 │  World L3 动态层 (world/)                                    │
-│  ─ Director / Orchestrator / Timeline / Revision /           │
-│    SceneGraph / WDL Document                                 │
-│  ─ 三个子系统通过 PatchEngineLike 接口作用于 L1 patchEngine    │
+│  ─ Orchestrator / Timeline / Revision / SceneGraph           │
+│  ─ 两个子系统通过 PatchEngineLike 接口作用于 L1 patchEngine    │
 └────────────────────────┬─────────────────────────────────────┘
                          │ ValuePatch / StructuralPatch /
                          │ TopologyPatch / MetadataPatch
@@ -213,7 +210,7 @@ PixelForge 采用严格的分层架构，每层只向下依赖，禁止反向引
    - **L0**：画面（partial upload 上传到 canvas）
    - **L1**：`patchEngine` + `regionCompiler`（修改与编译 RenderIR）
    - **L2**：RenderIR 静态层 + `l2_user` 参数（用户编辑基线）
-   - **L3**：Timeline / Revision / Director 三个动态子系统
+   - **L3**：Timeline / Revision 两个动态子系统
 
 2. **参数所有权优先级**（`OWNER_PRIORITY`）：
 
@@ -222,8 +219,7 @@ PixelForge 采用严格的分层架构，每层只向下依赖，禁止反向引
    | `l3_revision` | 100 | Revision Layer 覆盖（可被 l2_user 否决） |
    | `l2_user` | 90 | 用户直接编辑 |
    | `l3_timeline` | 70 | 关键帧动画驱动 |
-   | `l3_director` | 70 | AI Director 决策 |
-   | `l2_parser` | 50 | WDL/Rule Parser 初始解析 |
+   | `l2_parser` | 50 | Rule Parser 初始解析 |
    | `system_default` | 10 | 系统默认值 |
 
 3. **静态边界硬约束**（RenderIR 6 条不可破坏约束）：
@@ -248,12 +244,6 @@ PixelForge 采用严格的分层架构，每层只向下依赖，禁止反向引
    ├─► [作者层] promptParser → intentAnalyzer → clarifier(可选追问)
    │      → generator(planner + renderIRGenerator) → RenderIR
    │
-   ├─► [WDL 路径] wdlLexer → wdlParser → wdlValidator
-   │      → wdlCompiler → RenderIR  (与上面任选其一)
-   │
-   ├─► [AI Director] directorConversation → converse()
-   │      → DirectorPatch[] → toValuePatches() → patchEngine
-   │
    ├─► [可视化图] GraphEditor → graphCompiler.compileGraph(graph)
    │      → RenderIR
    │
@@ -261,7 +251,7 @@ PixelForge 采用严格的分层架构，每层只向下依赖，禁止反向引
 RenderIR (L2 静态层)
    │
    ├─► applyPatch()  (ValuePatch / StructuralPatch / TopologyPatch / MetadataPatch)
-   │      来自 L3 Timeline/Revision/Director 或 L2 用户编辑
+   │      来自 L3 Timeline/Revision 或 L2 用户编辑
    │
    ▼
 patchEngine.endFrame() → 新的 immutable RenderIR
@@ -287,13 +277,10 @@ RegionCompileArtifact (descriptorData / auxData / regionData / effectDescData)
 
 ### 5.2 L3 编排流（Orchestrator）
 
-`createL3Orchestrator(engine, config)` 创建编排器，内部封装三个子模块：
+`createL3Orchestrator(engine, config)` 创建编排器，内部封装两个子模块：
 
 - **TimelinePlayer**（连续）：外部 rAF/scheduler 调用 `tick(deltaTime)` 驱动
 - **RevisionApplier**（离散）：UI 调用 `applyRevision(layer, force?)`
-- **DirectorApplier**（离散）：UI 调用 `applyDirectorFromPrompt(prompt, options?)`
-
-执行优先级：Director → Revision → Timeline（不在同一帧混用避免 patch 冲突）。
 
 所有 patch 通过 `PatchEngineLike` 接口提交：
 ```
@@ -347,7 +334,7 @@ export enum Opcode {
 
 export type BlendMode = 'normal' | 'multiply' | 'screen' | 'overlay' | 'add' | 'darken' | 'lighten'
 export type SourceKind = 'generator' | 'image' | 'video' | 'text' | 'shader' | 'graph' | 'asset'
-export type ParameterOwner = 'system_default' | 'l2_parser' | 'l2_user' | 'l3_timeline' | 'l3_director' | 'l3_revision'
+export type ParameterOwner = 'system_default' | 'l2_parser' | 'l2_user' | 'l3_timeline' | 'l3_revision'
 export type ParamOwnership = Record<string, ParameterOwner>
 
 export interface BoundingBox { x: number; y: number; width: number; height: number }
@@ -756,69 +743,9 @@ Prompt → promptParser → intentAnalyzer
 
 **路径**：`src/world/`
 
-**职责**：L3 动态层，包含 WDL DSL、AI Director、Orchestrator、Timeline、Revision、SceneGraph、WDL Document。
+**职责**：L3 动态层，包含 Orchestrator、Timeline、Revision、SceneGraph。
 
-#### 6.9.1 `wdl/`（WDL 声明式渲染 DSL）
-
-**编译流水线**：
-```
-源码 → Lexer.tokenize() → Token[]
-     → Parser.parse() → SceneNode (AST)
-     → Validator.validate() → ValidationReport
-     → compile(ast) → RenderIR
-```
-
-##### 关键文件
-
-- `wdlLexer.ts`：`Lexer` 类 + `tokenize(source)`，`TokenType`（KEYWORD/IDENT/STRING/NUMBER/LBRACE/...），支持注释/字符串转义/负数/科学计数法/尺寸字面量
-- `wdlParser.ts`：递归下降 `Parser` 类 + `parse(source)`，`SceneNode` AST（含 layers/effects/regions）
-- `wdlCompiler.ts`：`compile(ast): RenderIR` + `compileSource(source): RenderIR`，opcode 名→enum、blendMode→类型、bounds→BoundingBox
-- `wdlValidator.ts`：`validate(ast): ValidationReport`（收集所有错误不抛异常），校验 ID 唯一性 / effect.target 引用 / region.layers 引用 / 必填参数 / 类型 / canvas 尺寸
-- `wdlMonarch.ts`：Monaco Monarch 词法定义（视图层高亮，与域 Lexer 独立）
-- `wdlCompletion.ts`：Monaco 智能补全，`analyzeCompletionContext` + `generateCompletions` + `registerWDLCompletion`，7 类补全（块关键字/参数/opcode/blendMode/布尔/图层 ID 引用/参数名）
-- `wdlGraphSync.ts`：WDL ↔ RenderGraph 双向同步，`wdlToGraph(ast)` / `graphToWdl(graph)`
-- `wdlTimelineBinding.ts`：WDL ↔ ProTimeline 绑定，`ClipWdlBinding` / `BindingRegistry` / `computePatches(clips, registry)`
-- `wdlDocument.ts`：WDL 文档（L3 只读元数据容器），`createWDLDocument` / `serializeWDL` / `deserializeWDL`
-- `wdlRegister.ts`：`registerWDLLanguage(monaco)` 幂等注册（语言 ID + Monarch + 配置 + 主题 + 补全）
-- `wdlLanguageConfig.ts`：括号匹配/自动闭合/注释切换/缩进规则
-- `wdlTheme.ts`：`pixelforge-dark` 暗色主题
-- `wdlTemplates.ts`：9 个内置模板（4 类：nature/urban/abstract/minimal），`validateAllTemplates()`
-
-#### 6.9.2 `director/`（AI Director）
-
-**数据流**：
-```
-User Prompt → parseIntent() → DirectorIntent
-            → decide() → DirectorDecision
-            → toValuePatches() → ValuePatch[] (source='l3_director')
-            → patchEngine
-```
-
-##### 关键文件
-
-- `director.ts`：基础骨架
-  - `parseIntent(prompt): DirectorIntent`（本地意图分类，不调 LLM）
-  - `decide(intent, options?): Promise<DirectorDecision>`（调 LLM，失败返回空决策）
-  - `toValuePatches(patches, intentId): ValuePatch[]`
-  - `DIRECTOR_SYSTEM_PROMPT`：要求 LLM 输出严格 JSON
-
-- `directorContext.ts`：上下文引擎
-  - `buildDirectorContext(ir, timeline?): DirectorContext`
-  - `buildCreateModeContext` / `buildModifyModeContext`：序列化 RenderIR 为 LLM 上下文
-
-- `directorEnhanced.ts`：增强版（双模式 + 上下文感知）
-  - `DirectorMode = 'create' | 'modify' | 'animate' | 'analyze'`
-  - `parseEnhancedIntent(prompt, ir?): EnhancedIntent`：检测模式/关键词/引用图层（支持中文数字解析）
-  - `decideWithContext(intent, ir?, timeline?, options?): Promise<DirectorDecision>`
-
-- `directorConversation.ts`：多轮对话 + Timeline 生成
-  - `createConversation` / `addUserMessage` / `addDirectorMessage` / `clearConversation`
-  - `serializeConversation(session): string`
-  - `buildConversationSystemPrompt(session, mode, ir, timeline?): string`
-  - `converse(session, prompt, ir?, timeline?, options?): Promise<ConversationSession>`
-  - Timeline 生成：`extractAnimationParams(output, ir)` / `createTrackFromAnimation` / `createTimelineFromAnimations` / `generateTimelineFromLLM`
-
-#### 6.9.3 `orchestrator/`（L3 主编排器）
+#### 6.9.1 `orchestrator/`（L3 主编排器）
 
 ##### `types.ts`
 ```typescript
@@ -834,8 +761,7 @@ export interface PatchEngineLike {
 export interface TickResult { currentTime; hasPatches; appliedCount; success; error?; skippedTracks? }
 export interface ConflictResolution { needsConfirmation; conflicts; confirm? }
 export interface RevisionApplyResult { success; appliedCount; needsConfirmation; conflicts; error? }
-export interface DirectorApplyResult { success; appliedCount; reasoning; error? }
-export interface L3Config { timelineSpeed; timelineLoop; directorAutoApply }
+export interface L3Config { timelineSpeed; timelineLoop }
 ```
 
 ##### `l3Orchestrator.ts`
@@ -844,18 +770,16 @@ export interface L3Orchestrator {
   loadTimeline / unloadTimeline / playTimeline / pauseTimeline / stopTimeline / seekTimeline / isTimelinePlaying / getCurrentTime
   checkRevisionConflicts(layer): ConflictResolution
   applyRevision(layer, force?): RevisionApplyResult
-  applyDirectorFromPrompt(prompt, options?): Promise<DirectorApplyResult>
-  applyDirectorFromIntent(intent, options?): Promise<DirectorApplyResult>
   tick(deltaTime): TickResult  // 只驱动 Timeline
-  getTimelinePlayer / getRevisionApplier / getDirectorApplier
+  getTimelinePlayer / getRevisionApplier
 }
 export function createL3Orchestrator(engine: PatchEngineLike, config?): L3Orchestrator
 ```
 
-##### `directorApplier.ts` / `revisionApplier.ts` / `timelinePlayer.ts`
-分别封装 Director / Revision / Timeline 三个子系统的应用逻辑。
+##### `revisionApplier.ts` / `timelinePlayer.ts`
+分别封装 Revision / Timeline 两个子系统的应用逻辑。
 
-#### 6.9.4 `timeline/`（时间轴）
+#### 6.9.2 `timeline/`（时间轴）
 
 - `timelineManager.ts`：immutable CRUD
   - `createKeyframe(time, value, interpolation?, bezierControl?)`
@@ -869,7 +793,7 @@ export function createL3Orchestrator(engine: PatchEngineLike, config?): L3Orches
   - `evaluateTrack(track, time)`：二分查找关键帧区间
   - `evaluateTimeline(timeline, time): TimelineEvaluationResult`：为每条启用轨道生成 ValuePatch（source='l3_timeline'）
 
-#### 6.9.5 `revision/`（Revision Layer）
+#### 6.9.3 `revision/`（Revision Layer）
 
 最高优先级覆盖层（l3_revision），冲突处理：与 l2_user 冲突触发 needs_confirmation。
 
@@ -882,9 +806,9 @@ export function detectConflicts(layer, ownershipMap): ConflictResult
 export function applyOwnership(layer, ownershipMap): Map<string, ParamOwnership>
 ```
 
-#### 6.9.6 `sceneGraph/`（场景图）
+#### 6.9.4 `sceneGraph/`（场景图）
 
-L3 层世界描述，不直接进入渲染层，通过 Director 转换为 ValuePatch 作用于 RenderIR。
+L3 层世界描述，不直接进入渲染层，通过 Timeline / Revision 转换为 ValuePatch 作用于 RenderIR。
 
 ```typescript
 export function createSceneGraph(): SceneGraph
@@ -894,15 +818,13 @@ export function addNode / removeNode / updateNode / updateTransform  // immutabl
 export function getNode / getChildren / getParent / collectDescendants / getPath / getRoot / getNodeCount
 ```
 
-#### 6.9.7 `world/types.ts`（L3 共享类型）
+#### 6.9.5 `world/types.ts`（L3 共享类型）
 
 ```typescript
 // 关键类型
 TimelineKeyframe / TimelineTrack / TimelineContent
 RevisionEntry / RevisionLayer
-DirectorIntent / DirectorDecision / DirectorPatch
 SceneGraphNode / SceneTransform / SceneGraph
-WDLDocument / WDLScene
 TimelineEvaluationResult
 
 // 关键常量与函数
@@ -1243,7 +1165,7 @@ function bootstrap() {
 #### 6.16.2 根组件 `App.vue`
 
 - 组合 TopHeader / LeftRail / ControlPanel / CanvasViewport / IRPreviewPanel / TimelinePanel / PerformancePanel / StatusBar / AIChatPanel / ResourceManagerPanel / WorkflowPanel / AmbientFluidCanvas
-- 异步加载重型组件：GraphEditor / AssetGenomePanel / ExportModal / SettingsModal
+- 异步加载重型组件：GraphEditor / ExportModal / SettingsModal
 - 监听 theme 应用到 `document.documentElement.dataset.theme`
 - 监听 isPlaying 启停播放
 - 全局快捷键：Ctrl/Cmd+Z 撤销、Ctrl/Cmd+Shift+Z / Ctrl+Y 重做（焦点守卫：编辑控件聚焦时跳过）
@@ -1281,7 +1203,6 @@ function bootstrap() {
 | `PerformancePanel.vue` | 性能监控面板 |
 | `StatusBar.vue` | 底部状态栏 |
 | `AIChatPanel.vue` | AI 对话面板 |
-| `AssetGenomePanel.vue` | Asset Genome 面板（异步加载） |
 | `AudioMixerPanel.vue` | 音频混音器面板 |
 | `WorkflowPanel.vue` | 工作流面板 |
 | `ResourceManagerPanel.vue` | 资源管理面板 |
@@ -1438,7 +1359,7 @@ fn main() { pixelforge_lib::run(); }
 #### 6.17.5 `tauri.conf.json`
 - productName: PixelForge，identifier: `com.pixelforge.app`
 - 构建钩子：`beforeDevCommand: npm run dev`，`frontendDist: ../dist`，`devUrl: http://localhost:5173`
-- 窗口：1390×850（minWidth/minHeight 同），`decorations: false`（无边框），`maximizable: false`，`resizable: true`
+- 窗口：1390×850（minWidth/minHeight 同），`decorations: false`（无边框），`maximizable: true`，`resizable: true`
 - bundle: category GraphicsAndDesign
 
 #### 6.17.6 `capabilities/default.json`
@@ -1633,8 +1554,7 @@ Asset Genome 资产校验错误码（详见 `editor/asset-genome/assetRegistry.t
 | `l3_revision` | 100 | Revision Layer 覆盖（可被 l2_user 否决） |
 | `l2_user` | 90 | 用户直接编辑 |
 | `l3_timeline` | 70 | 关键帧动画驱动 |
-| `l3_director` | 70 | AI Director 决策 |
-| `l2_parser` | 50 | WDL/Rule Parser 初始解析 |
+| `l2_parser` | 50 | Rule Parser 初始解析 |
 | `system_default` | 10 | 系统默认值 |
 
 冲突解决规则：高优先级覆盖低优先级；`l3_revision` 与 `l2_user` 冲突时触发 `needs_confirmation`，由用户决定是否强制覆盖。

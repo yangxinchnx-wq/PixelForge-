@@ -6,7 +6,7 @@
  * 冲突处理原则（骨架 §4.1.5）：
  *   - l3_revision 优先级最高，但可被 l2_user 否决
  *   - 与 l2_user 冲突时触发 needs_confirmation
- *   - 其他 L3 owner（l3_timeline / l3_director）被 l3_revision 覆盖
+ *   - 其他 L3 owner（l3_timeline）被 l3_revision 覆盖
  *
  * 数据流（骨架 §7.2 Phase F）：
  *   RevisionLayer → toValuePatches() → ValuePatch[] (source='l3_revision') → patchEngine → RenderIR

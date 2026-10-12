@@ -68,7 +68,6 @@ export type PatchSource =
   | 'system_internal'    // 系统内部触发
   | 'rule_parser'        // 规则 parser 输出触发（Phase B）
   | 'l3_timeline'        // Timeline 关键帧变化（Phase F+）
-  | 'l3_director'        // AI Director 决策（Phase F+）
   | 'l3_revision';       // Revision Layer（Phase F+）
 
 /**

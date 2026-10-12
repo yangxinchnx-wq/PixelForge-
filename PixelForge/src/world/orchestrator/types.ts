@@ -92,25 +92,7 @@ export interface RevisionApplyResult {
 }
 
 // ============================================================================
-// 5. DirectorApplyResult — Director 决策应用结果
-// ============================================================================
-
-/**
- * Director 决策应用结果。
- */
-export interface DirectorApplyResult {
-  /** 是否成功应用 */
-  success: boolean
-  /** 应用的 patch 数量 */
-  appliedCount: number
-  /** Director 生成的决策原因 */
-  reasoning: string
-  /** 错误信息 */
-  error?: string
-}
-
-// ============================================================================
-// 6. OwnershipExtractor — 从 RenderIR 提取 paramOwnership
+// 5. OwnershipExtractor — 从 RenderIR 提取 paramOwnership
 // ============================================================================
 
 /**
@@ -128,7 +110,7 @@ export function extractOwnershipMap(ir: RenderIR): Map<string, ParamOwnership> {
 }
 
 // ============================================================================
-// 7. L3Config — Orchestrator 配置
+// 6. L3Config — Orchestrator 配置
 // ============================================================================
 
 /**
@@ -139,6 +121,4 @@ export interface L3Config {
   timelineSpeed: number
   /** 是否自动循环（默认 false） */
   timelineLoop: boolean
-  /** Director 是否自动应用（默认 false，需手动调用） */
-  directorAutoApply: boolean
 }

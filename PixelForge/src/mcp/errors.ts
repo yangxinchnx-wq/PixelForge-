@@ -63,11 +63,6 @@ export enum PixelForgeErrorCode {
   KeyframeNotFound = -32061,
   TimelineInvalidRange = -32062,
 
-  // AI Director 相关
-  AIDirectorBusy = -32070,
-  AIDirectorError = -32071,
-  AIDirectorTimeout = -32072,
-
   // 安全相关
   PermissionDenied = -32080,
   ReadOnlyMode = -32081,

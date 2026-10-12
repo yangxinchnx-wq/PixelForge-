@@ -226,17 +226,16 @@ export type SourceKind =
 
 /**
  * ParameterOwner 枚举（骨架 §4.1.5）。
- * 禁止自由标记，所有 paramOwnership 值必须取以下 6 个之一。
+ * 禁止自由标记，所有 paramOwnership 值必须取以下 5 个之一。
  *
  * Phase B-E 仅允许前三项（l2_user / l2_parser / system_default）。
- * Phase F 启用时才允许后三项。
+ * Phase F 启用时才允许后两项。
  */
 export type ParameterOwner =
   | 'l2_user'
   | 'l2_parser'
   | 'system_default'
   | 'l3_timeline'
-  | 'l3_director'
   | 'l3_revision';
 
 /**
@@ -277,12 +276,11 @@ export interface CompileHints {
  *   - 仅允许标识 / 标签 / 引用三类字段
  *   - 禁止 timeline / animatedBindings / animCurve / motion 等时间语义字段
  *
- * Phase B-E 留空，Phase F+ 由 Timeline / Director / Revision 注入。
+ * Phase B-E 留空，Phase F+ 由 Timeline / Revision 注入。
  */
 export interface WorldMetadata {
   sceneGraphId?: string;
   timelineId?: string;
-  directorIntentId?: string;
 }
 
 // ============================================================================

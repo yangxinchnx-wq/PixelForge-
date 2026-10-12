@@ -36,8 +36,6 @@ export type {
   AssetInfo,
   AssetListResult,
   AssetOperationResult,
-  GenerationResult,
-  SuggestionResult,
 } from './bridge'
 
 // 错误类型
@@ -86,7 +84,6 @@ export {
   createGraphTools,
   createTimelineTools,
   createRenderTools,
-  createAIDirectorTools,
   createAssetTools,
 } from './tools'
 
@@ -100,7 +97,6 @@ import {
   createGraphTools,
   createTimelineTools,
   createRenderTools,
-  createAIDirectorTools,
   createAssetTools,
 } from './tools'
 import { registerToolModule } from './server'
@@ -129,7 +125,6 @@ export function startMCPServer(
     registerToolModule(registry, createGraphTools(bridge))
     registerToolModule(registry, createTimelineTools(bridge))
     registerToolModule(registry, createRenderTools(bridge))
-    registerToolModule(registry, createAIDirectorTools(bridge))
     registerToolModule(registry, createAssetTools(bridge))
   }
 

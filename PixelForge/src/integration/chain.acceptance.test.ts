@@ -7,10 +7,6 @@ import type { LLMOutput, LLMResponse } from '@/authoring/llm/types'
 import { llmParse } from '@/authoring/llm/llmParser'
 import { callLLM } from '@/authoring/llm/callLLM'
 import { parse as parseIntentToRenderIR } from '@/compiler/parser/ruleParser'
-import { validateSource } from '@/world/wdl/wdlValidator'
-import { compileSource } from '@/world/wdl/wdlCompiler'
-import { wdlSourceToGraph } from '@/world/wdl/wdlGraphSync'
-import { compileGraph } from '@/graph/graphCompiler'
 import {
   addKeyframe,
   addTrack,
@@ -38,36 +34,6 @@ vi.mock('@/authoring/llm/callLLM', () => ({
 }))
 
 const mockedCallLLM = vi.mocked(callLLM)
-
-const WDL_FIXTURE = `scene "acceptance" {
-  canvas: 640x360
-
-  layer "background" {
-    opcode: SOLID_COLOR
-    color: [0.03, 0.05, 0.12, 1]
-    blendMode: normal
-  }
-
-  layer "stars" {
-    opcode: NOISE
-    scale: 32
-    amount: 0.8
-    colorA: [0.1, 0.1, 0.2, 1]
-    colorB: [0.7, 0.8, 1, 1]
-    blendMode: add
-  }
-
-  effect "softBlur" {
-    type: blur
-    target: "stars"
-    radius: 0.01
-  }
-
-  region "main" {
-    bounds: [0, 0, 1, 1]
-    layers: ["background", "stars"]
-  }
-}`
 
 type StageResult = {
   name: string
@@ -122,8 +88,7 @@ describe('PixelForge core chain acceptance', () => {
   it('runs the deterministic authoring-to-export chain and prints a score', async () => {
     const results: StageResult[] = []
     let aiIntent: Awaited<ReturnType<typeof llmParse>> | null = null
-    let wdlIr: RenderIR | null = null
-    let graphIr: RenderIR | null = null
+    let baseIr: RenderIR | null = null
     let patchedIr: RenderIR | null = null
     let artifact: ReturnType<typeof compileRenderIRToRegionArtifact> | null = null
 
@@ -162,41 +127,16 @@ describe('PixelForge core chain acceptance', () => {
 
     await runStage(results, '2. ParsedIntent → RenderIR', 1.25, () => {
       expect(aiIntent).not.toBeNull()
-      const ir = parseIntentToRenderIR(aiIntent!.intent)
-      expect(ir.layers).toHaveLength(2)
-      expect(ir.regions).toHaveLength(1)
-      expect(ir.regions[0].layerRefs).toHaveLength(2)
-      expect(validateStaticBoundary(ir)).toEqual([])
+      baseIr = parseIntentToRenderIR(aiIntent!.intent)
+      expect(baseIr.layers).toHaveLength(2)
+      expect(baseIr.regions).toHaveLength(1)
+      expect(baseIr.regions[0].layerRefs).toHaveLength(2)
+      expect(validateStaticBoundary(baseIr)).toEqual([])
     })
 
-    await runStage(results, '3. WDL 校验 → WDL 编译 → RenderIR', 1.25, () => {
-      const report = validateSource(WDL_FIXTURE)
-      expect(report.valid).toBe(true)
-      expect(report.errors).toHaveLength(0)
-      wdlIr = compileSource(WDL_FIXTURE)
-      expect(wdlIr.canvas).toEqual({ width: 640, height: 360 })
-      expect(wdlIr.layers).toHaveLength(2)
-      expect(wdlIr.effects).toHaveLength(1)
-      expect(wdlIr.regions).toHaveLength(1)
-      expect(validateStaticBoundary(wdlIr)).toEqual([])
-    })
-
-    await runStage(results, '4. WDL → Graph → Graph Compiler → RenderIR', 1.25, () => {
-      const graph = wdlSourceToGraph(WDL_FIXTURE)
-      expect(graph.nodes.some((node) => node.type === 'OUTPUT')).toBe(true)
-      expect(graph.nodes.some((node) => node.type === 'EFFECT')).toBe(true)
-      const compiled = compileGraph(graph)
-      graphIr = compiled.ir
-      expect(graphIr.layers).toHaveLength(2)
-      expect(graphIr.effects).toHaveLength(1)
-      expect(graphIr.regions).toHaveLength(1)
-      expect(compiled.topologicalOrder).toContain('output_0')
-      expect(validateStaticBoundary(graphIr)).toEqual([])
-    })
-
-    await runStage(results, '5. Timeline → ValuePatch → PatchEngine', 1.25, () => {
-      expect(graphIr).not.toBeNull()
-      const targetLayer = graphIr!.layers[0]
+    await runStage(results, '3. Timeline → ValuePatch → PatchEngine', 1.25, () => {
+      expect(baseIr).not.toBeNull()
+      const targetLayer = baseIr!.layers[0]
       let timeline = createTimeline(1, 10, false)
       const track = createTrack('background color', 'layer', targetLayer.id, 'color')
       timeline = addTrack(timeline, track)
@@ -208,24 +148,24 @@ describe('PixelForge core chain acceptance', () => {
       expect(evaluation.patches[0].source).toBe('l3_timeline')
       expect(evaluation.patches[0].value).toEqual([0.5, 0.1, 0.05, 1])
 
-      const outcome = applyPatch(graphIr!, evaluation.patches[0])
+      const outcome = applyPatch(baseIr!, evaluation.patches[0])
       patchedIr = outcome.ir
       expect(outcome.appliedCount).toBe(1)
       expect(patchedIr.layers[0].params.color).toEqual([0.5, 0.1, 0.05, 1])
     })
 
-    await runStage(results, '6. RenderIR → Region Artifact', 1.25, () => {
+    await runStage(results, '4. RenderIR → Region Artifact', 1.25, () => {
       expect(patchedIr).not.toBeNull()
       artifact = compileRenderIRToRegionArtifact(patchedIr!)
       expect(artifact.schemaVersion).toBe('region-artifact-v2')
       expect(artifact.visibleLayerCount).toBe(2)
       expect(artifact.regions).toHaveLength(1)
-      expect(artifact.effects).toHaveLength(1)
+      expect(artifact.effects).toHaveLength(0)
       expect(artifact.descriptorData.length).toBe(4)
-      expect(artifact.hasEffects).toBe(true)
+      expect(artifact.hasEffects).toBe(false)
     })
 
-    await runStage(results, '7. RenderPipeline 逐帧调度与导出回调', 1.25, async () => {
+    await runStage(results, '5. RenderPipeline 逐帧调度与导出回调', 1.25, async () => {
       expect(artifact).not.toBeNull()
       const sequence = createSequence({
         id: 'acceptance-sequence',
@@ -263,7 +203,7 @@ describe('PixelForge core chain acceptance', () => {
       ])
     })
 
-    await runStage(results, '8. 项目快照序列化与反序列化', 1.25, () => {
+    await runStage(results, '6. 项目快照序列化与反序列化', 1.25, () => {
       expect(patchedIr).not.toBeNull()
       const project = createProjectSnapshot(
         '链路验收项目',

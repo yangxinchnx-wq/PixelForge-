@@ -7,7 +7,7 @@
  * 与 RenderIR 的关系（DM-2）：
  *   - SceneGraph 描述世界语义（角色、物体、空间关系）
  *   - RenderIR 描述 2D 渲染输入（图层、区域、效果）
- *   - SceneGraph 通过 Director 转换为 RenderIR 修改（ValuePatch）
+ *   - SceneGraph 通过 Timeline / Revision 转换为 RenderIR 修改（ValuePatch）
  */
 
 import type { JsonLiteral } from '@/shared/types'

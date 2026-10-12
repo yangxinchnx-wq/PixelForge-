@@ -1,20 +1,19 @@
 /**
  * MCP 全链路打通验证(RealEditorBridge → 真实 store)。
  *
- * 通过 MemoryTransport 驱动真实 MCPServer,把 23 个 MCP 工具经 JSON-RPC
- * 路由到 RealEditorBridge,再真实改写 Pinia store / timelineManager / AI Director:
+ * 通过 MemoryTransport 驱动真实 MCPServer,把 20 个 MCP 工具经 JSON-RPC
+ * 路由到 RealEditorBridge,再真实改写 Pinia store / timelineManager:
  *   - 图:   graph_create → graph_add_node → graph_connect → graph_compile
  *           (真实改写 useGraphStore)
  *   - 时间轴: timeline_create_sequence → timeline_add_keyframe → timeline_get_sequence
  *           (真实改写内部 TimelineContent,由 timelineManager 纯函数驱动)
  *   - 资产: asset_browse / asset_search(真实读取 useAssetRegistryStore)
- *   - AI Director: ai_generate(真实调用 parseIntent → decide → toValuePatches)
  *   - 渲染: render_start / render_status(真实触达 useRenderStore,无 GPU 时优雅返回)
  *
  * 这是"全链路打通"的端到端证据:工具调用确实落到真实系统,而非 Mock。
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { MCPServer, MemoryTransport, registerToolModule } from './server'
 import { ToolRegistry } from './registry'
@@ -25,16 +24,10 @@ import {
   createGraphTools,
   createTimelineTools,
   createRenderTools,
-  createAIDirectorTools,
   createAssetTools,
 } from './tools'
 import { useGraphStore } from '@/graph/graphStore'
 import { useAssetRegistryStore } from '@/editor/asset-genome/assetRegistryStore'
-
-// 离线测试:让 AI Director 的 decide() 走失败回退(emptyDecision),避免真实网络调用
-vi.mock('@/authoring/llm/callLLM', () => ({
-  callLLM: vi.fn().mockRejectedValue(new Error('offline-test: no LLM configured')),
-}))
 
 /**
  * 测试用安全策略:自动确认(graph_create 等 requiresConfirmation),其余检查原样执行。
@@ -63,7 +56,6 @@ function buildServer(bridge: RealEditorBridge): MCPServer {
   registerToolModule(registry, createGraphTools(bridge))
   registerToolModule(registry, createTimelineTools(bridge))
   registerToolModule(registry, createRenderTools(bridge))
-  registerToolModule(registry, createAIDirectorTools(bridge))
   registerToolModule(registry, createAssetTools(bridge))
   return new MCPServer(bridge, { registry, security: new AutoConfirmSecurity() })
 }
@@ -117,7 +109,7 @@ describe('MCP 全链路打通 (RealEditorBridge → 真实 store)', () => {
     bridge = new RealEditorBridge()
   })
 
-  it('注册了全部 23 个工具(图8 + 时间轴5 + 渲染4 + AI3 + 资产3)', async () => {
+  it('注册了全部 20 个工具(图8 + 时间轴5 + 渲染4 + 资产3)', async () => {
     const transport = new MemoryTransport()
     const server = buildServer(bridge)
     transport.pushRequest({
@@ -132,17 +124,16 @@ describe('MCP 全链路打通 (RealEditorBridge → 真实 store)', () => {
 
     const listResp = transport.getOutputResponses().find((r) => r.id === 'list')!
     const tools = ((listResp as JsonRpcSuccessResponse).result as { tools: ToolDefinition[] }).tools
-    expect(tools.length).toBe(23)
+    expect(tools.length).toBe(20)
 
     const names = new Set(tools.map((t) => t.name))
-    // 完整 23 工具面(graph8 + timeline5 + render4 + ai3 + asset3)
+    // 完整 20 工具面(graph8 + timeline5 + render4 + asset3)
     const expected = [
       'graph_get', 'graph_create', 'graph_compile', 'graph_add_node', 'graph_remove_node',
       'graph_connect', 'graph_disconnect', 'graph_update_node_params',
       'timeline_get_sequence', 'timeline_create_sequence', 'timeline_add_keyframe',
       'timeline_update_keyframe', 'timeline_playback_control',
       'render_start', 'render_pause', 'render_resume', 'render_status',
-      'ai_generate', 'ai_modify_scene', 'ai_suggest',
       'asset_browse', 'asset_search', 'asset_load',
     ]
     expect(names.size).toBe(expected.length)
@@ -195,7 +186,7 @@ describe('MCP 全链路打通 (RealEditorBridge → 真实 store)', () => {
   })
 
   it('子图全链路: createSubGraphFromSelection 真实写入 graph store(桥接层)', async () => {
-    // 子图不是 MCP 工具面(23 工具未含),但 RealEditorBridge 的 createSubGraphFromSelection
+    // 子图不是 MCP 工具面(20 工具未含),但 RealEditorBridge 的 createSubGraphFromSelection
     // 真实映射到 useGraphStore + subgraphInliner,这里在桥接层验证其落地到真实 store。
     const setup = await runScript(bridge, [
       { id: 1, name: 'graph_create', args: { name: 'demo' } },
@@ -254,16 +245,6 @@ describe('MCP 全链路打通 (RealEditorBridge → 真实 store)', () => {
 
     const byType = bridgeResultOf(respById(res, 3))
     expect(byType.assets.every((a: { type: string }) => a.type === 'image')).toBe(true)
-  })
-
-  it('AI Director 全链路: ai_generate 真实调用 parseIntent → decide → toValuePatches(离线回退)', async () => {
-    const res = await runScript(bridge, [
-      { id: 1, name: 'ai_generate', args: { description: '做一个温暖的日落氛围视频' } },
-    ])
-    const r = bridgeResultOf(respById(res, 1))
-    // 离线环境下 decide 回退为 emptyDecision,但链路(解析 → 决策 → patch)已被真实调用
-    expect(r.success).toBe(true)
-    expect(typeof r.description).toBe('string')
   })
 
   it('渲染全链路: render_start / render_status 真实触达 render store(无 GPU 时优雅返回)', async () => {
