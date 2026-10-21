@@ -2,7 +2,7 @@
 
 ## 项目简介
 
-PixelForge 是一个基于 Vue 3、TypeScript、Vite、Tauri 和 WebGPU 的可视化编程视觉引擎。项目从"AI 生成器"演进为"可视化编程 + 实时动画 + GPU 计算 + 专业时间轴 + 渲染导出 + 音频混音 + 视频效果链 + Asset Genome"的完整视觉引擎。
+PixelForge 是一个基于 Vue 3、TypeScript、Vite、Tauri 和 WebGPU 的可视化编程视觉引擎。项目从"AI 生成器"演进为"可视化编程 + 实时动画 + GPU 计算 + 时间轴 + 渲染导出 + 视频效果链 + Asset Genome"的完整视觉引擎。
 
 项目按阶段管理,当前进入阶段六(可视化编程引擎 + 实时动画 + 专业时间轴 + 渲染导出等)。
 
@@ -10,7 +10,7 @@ PixelForge 是一个基于 Vue 3、TypeScript、Vite、Tauri 和 WebGPU 的可�
 
 ## 当前状态
 
-阶段六进行中(Step 25-40.4 已完成,Step 40.5+ 待规划)。
+阶段六进行中(Step 25-40.4 已完成,Step 40.5+ 待规划;音频重建线已先行启动:Step 41.1-41.6 已完成,尚未接线)。
 
 ### 启动约束(强制)
 
@@ -34,25 +34,27 @@ npm run tauri dev     # 标准启动方式
 - **阶段四**:多图层 / 多区域 / 效果系统扩展(已封板)
 - **阶段五**:产品化与长期演进能力(已封板,IndexedDB 持久化 + 错误码枚举化 + 像素级回放一致性 + GPU profiler)
 
-### 阶段六主要模块(Step 25-40.4)
+### 阶段六主要模块(Step 25-41.6)
 
 | 模块 | Step | 说明 |
 |------|------|------|
 | 可视化编程引擎 + Material/Shader | 25-28 | RenderIR Graph Editor + Graph Runtime + Material/Shader Node System(WGSL 自动生成) |
-| 实时动画 + 输入系统 | 29-30 | Advanced Timeline + Animation Engine + Audio/MIDI/Camera/Sensor 输入驱动 |
-| 专业时间轴 Pro Timeline | 31.1-31.9 | Project/Sequence/Track/Clip + Frame Scheduler + 多 Sequence + 嵌套 + 模板库 |
-| 渲染导出模块 | 32 | RenderConfig(6 预设)+ RenderPipeline(状态机)+ RenderStore + ProTimelineRenderPanel |
-| 音频混音器 | 33 | audioMix + audioMixerStore(Web Audio API)+ ProTimelineAudioMixer |
-| 视频效果链 Effect Chain | 34 | 17 种效果 × 5 大类 + effectChainStore + ProTimelineEffectChain |
-| Asset Genome | 35.1-35.7 | Registry + Reference Graph + Impact Analysis + Content Hash/Dedup + Lazy Loading + Browser UI + Packaging |
+| 实时动画 + 输入系统 | 29-30 | Advanced Timeline + Animation Engine + Sensor 输入驱动 |
+| 时间轴 | 31.1-31.9 | 统一时间轴模型(unifiedTimeline)+ 关键帧 + 吸附 + 渲染帧预算调度 |
+| 渲染导出模块 | 32 | RenderConfig(6 预设)+ RenderPipeline(状态机)+ RenderStore + runtimeFrameRenderer |
+| 视频效果链 Effect Chain | 34 | 17 种效果 × 5 大类 + effectChainStore |
+| Asset Genome | 35.1-35.7 | Registry + Reference Graph + Impact Analysis + Content Hash/Dedup + Lazy Loading + Packaging(逻辑层,Browser UI 已移除) |
 | 渲染性能优化 | 39.1-39.4 | Profiler + GPU 资源池化(BufferPool/TexturePool)+ 多 Pass 渲染管线 + 三级渲染签名缓存 |
 | 产品化 | 40.1-40.4 | 设置面板 + 快捷键体系(CommandRegistry + CommandPalette)+ 项目导入导出增强 + 错误处理统一化 |
+| 音频模块(重建) | 41.1-41.6 | 核心纯函数(mute/solo/增益/声像/限幅)+ 效果链 + Web Audio 运行时 + 音频分析(FFT/节拍);**零外部引用,未接线** |
+
+> 注:以下模块**曾经实现过但已从代码中移除**,上表不再列出:AI Director、WDL 声明式渲染 DSL、Pro Timeline 的多 Sequence / 嵌套编辑 / 模板库、Audio/MIDI/Camera 输入驱动。其中 **Step 33 音频混音器已按 Step 41.1-41.6 重建**(见上表末行,`src/audio/`,提交 `4e574bc`,尚未接线),其余仍处移除状态。完整清单与删除提交见根目录 `项目链路总览.md` §9。
 
 ### 测试基线
 
-- **2577 项**自动化测试(87 个测试文件):2577 通过 + 21 跳过,0 失败
+- **3089 项**自动化测试(101 个测试文件):3068 通过 + 21 跳过,0 失败
 - vue-tsc 零错误
-- 注:存储架构提交删除旧 timeline/animation 模块后,测试总数由 3338 调整为 2859;删除 Director / WDL 功能链后再调整为 2577
+- 注:测试总数演进 3338 → 2859(存储架构提交删除旧 timeline/animation 模块)→ 2577(删除 Director / WDL 功能链)→ 3089(新增音频模块 491 项)
 
 ---
 
@@ -134,7 +136,7 @@ start-dev.cmd       # 仅前端 Vite(辅助预览,勿用于功能验证)
 ### 5. 装完自检
 
 ```bash
-npm test                 # 约 2577 项,期望 0 失败
+npm test                 # 约 3089 项,期望 0 失败
 npx vue-tsc --noEmit     # 期望 0 错误
 ```
 
