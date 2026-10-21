@@ -48,7 +48,7 @@ npm run tauri dev     # 标准启动方式
 | 产品化 | 40.1-40.4 | 设置面板 + 快捷键体系(CommandRegistry + CommandPalette)+ 项目导入导出增强 + 错误处理统一化 |
 | 音频模块(重建) | 41.1-41.6 | 核心纯函数(mute/solo/增益/声像/限幅)+ 效果链 + Web Audio 运行时 + 音频分析(FFT/节拍);**零外部引用,未接线** |
 
-> 注:以下模块**曾经实现过但已从代码中移除**,上表不再列出:AI Director、WDL 声明式渲染 DSL、Pro Timeline 的多 Sequence / 嵌套编辑 / 模板库、Audio/MIDI/Camera 输入驱动。其中 **Step 33 音频混音器已按 Step 41.1-41.6 重建**(见上表末行,`src/audio/`,提交 `4e574bc`,尚未接线),其余仍处移除状态。完整清单与删除提交见根目录 `项目链路总览.md` §9。
+> 注:以下模块**曾经实现过但已从代码中移除**,上表不再列出:AI Director、WDL 声明式渲染 DSL、Pro Timeline 的多 Sequence / 嵌套编辑 / 模板库、Audio/MIDI/Camera 输入驱动。其中 **Step 33 音频混音器已按 Step 41.1-41.6 重建**(见上表末行,`src/audio/`,提交 `4e574bc`,尚未接线),其余仍处移除状态。完整清单与删除提交见 `git log`(关键删除提交:`0fdcabb` / `6959241` / `ff5d60f`)。
 
 ### 测试基线
 
@@ -180,14 +180,12 @@ npx vue-tsc --noEmit
 
 ## 推荐阅读顺序
 
-1. `项目阶段划分.md` — 阶段总览与当前状态
-2. `分阶段任务清单.md` — 每个 Step 的可执行任务明细
-3. `文档索引.md` — 全部文档导航
-4. `项目链路总览.md` — 主链路模块说明
-5. `运行时错误分类与界面映射.md` — 错误码清单与界面展示策略
+1. `docs/CodeWiki.md` — 代码架构参考:目录结构 / 分层 / 核心数据流 / 模块详解
+2. `docs/` — 各模块设计文档(mcp-protocol-design / uav-split-design / subgraph-enhancement-plan 等)
+3. `git log` — 阶段执行记录与模块增删历史
 
 ---
 
 ## 项目阶段
 
-完整阶段划分见 `项目阶段划分.md`。当前建议先看该文档,再决定后续开发方向。
+阶段执行历史见 `git log`;代码架构见 `docs/CodeWiki.md`。项目状态以代码与测试为准,不再维护独立的阶段规划文档。
