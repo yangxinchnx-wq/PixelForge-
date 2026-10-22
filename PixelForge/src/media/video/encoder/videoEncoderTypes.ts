@@ -199,6 +199,13 @@ export interface EncodeOptions {
   height: number;
   /** 帧率 */
   fps: number;
+  /**
+   * 精确帧率(可选,有理数)。
+   *
+   * 设置后帧时间戳按整数运算求解,NTSC 帧率(30000/1001)下
+   * 不会出现逐帧累积漂移;`fps` 仅用于编码器提示与关键帧间隔估算。
+   */
+  frameRate?: { num: number; den: number };
   /** 每张图片展示时长（秒） */
   perImageDuration: number;
   /** 基础码率（bps），实际码率会根据质量等级乘以倍率 */

@@ -31,6 +31,144 @@ export type RenderQuality = 'draft' | 'standard' | 'high'
 export type RenderStatus = 'idle' | 'queued' | 'rendering' | 'paused' | 'completed' | 'cancelled' | 'failed'
 
 /**
+ * 精确帧率(有理数形式,每秒 num/den 帧)。
+ *
+ * 用于 NTSC 系列帧率(24000/1001、30000/1001、60000/1001)与任意非整数帧率:
+ * 浮点 fps 无法精确表示这些值(29.97 实际是 30000/1001 ≈ 29.97002997…),
+ * 逐帧乘以浮点帧长会累积误差——1 小时 @ 29.97 实际应出 107893 帧,
+ * 按 29.97 计算只有 107892 帧,并且每帧时间都在漂移。
+ *
+ * 有理数形式配合 bigint 微秒运算,可做到逐帧时间零累积误差。
+ */
+export interface FrameRate {
+  /** 分子(每 den 秒的帧数) */
+  num: number
+  /** 分母(秒) */
+  den: number
+}
+
+/** 常用精确帧率 */
+export const FRAME_RATES = {
+  film24: { num: 24, den: 1 },
+  pal25: { num: 25, den: 1 },
+  ntscFilm24: { num: 24000, den: 1001 },
+  ntsc30: { num: 30000, den: 1001 },
+  pal50: { num: 50, den: 1 },
+  ntsc60: { num: 60000, den: 1001 },
+  fps60: { num: 60, den: 1 },
+} as const satisfies Record<string, FrameRate>
+
+/**
+ * 行业习惯的小数写法 → 精确有理数。
+ *
+ * 23.976 / 29.97 / 59.94 在业界一直被当作 NTSC 帧率的代称,
+ * 它们本身不是精确值,映射到对应的 1001 分母有理数。
+ */
+const NTSC_DECIMAL_ALIASES: Readonly<Record<string, FrameRate>> = {
+  '23.976': { num: 24000, den: 1001 },
+  '29.97': { num: 30000, den: 1001 },
+  '59.94': { num: 60000, den: 1001 },
+}
+
+/** 合法帧率范围(帧/秒) */
+const MIN_FRAME_RATE = 1
+const MAX_FRAME_RATE = 240
+
+/**
+ * 解析帧率字符串。
+ *
+ * 支持三种写法:
+ * - 整数:`30`
+ * - 有理数:`30000/1001`(推荐,无歧义)
+ * - 标准 NTSC 小数别名:`29.97` → 30000/1001
+ *
+ * 其余小数(如 `29.5`)会被拒绝——无法确定它代表哪个精确帧率。
+ *
+ * @param input 帧率字符串
+ * @returns 精确帧率,或错误信息
+ */
+export function parseFrameRate(input: string): { frameRate: FrameRate } | { error: string } {
+  const text = input.trim()
+  if (!text) return { error: '帧率不能为空' }
+
+  const alias = NTSC_DECIMAL_ALIASES[text]
+  if (alias) return { frameRate: { ...alias } }
+
+  const ratio = text.match(/^(\d+)\s*\/\s*(\d+)$/)
+  if (ratio) {
+    const num = Number(ratio[1])
+    const den = Number(ratio[2])
+    if (!Number.isSafeInteger(num) || !Number.isSafeInteger(den) || num <= 0 || den <= 0) {
+      return { error: `帧率无效: ${input}` }
+    }
+    const value = num / den
+    if (value < MIN_FRAME_RATE || value > MAX_FRAME_RATE) {
+      return { error: `帧率超出范围(${MIN_FRAME_RATE}-${MAX_FRAME_RATE}): ${input}` }
+    }
+    return { frameRate: { num, den } }
+  }
+
+  if (/^\d+$/.test(text)) {
+    const num = Number(text)
+    if (num < MIN_FRAME_RATE || num > MAX_FRAME_RATE) {
+      return { error: `帧率超出范围(${MIN_FRAME_RATE}-${MAX_FRAME_RATE}): ${input}` }
+    }
+    return { frameRate: { num, den: 1 } }
+  }
+
+  return {
+    error: `无法解析帧率: ${input}。请使用整数(30)、有理数(30000/1001)或标准 NTSC 写法(29.97)`,
+  }
+}
+
+/**
+ * 从带装饰的标签中解析帧率(如界面上的 "30 fps"、"29.97 fps")。
+ *
+ * 先提取第一个数值(或有理数)记号,再交给 parseFrameRate 严格解析;
+ * 解析失败时回退为 30fps,保证导出流程不会因展示格式变化而中断。
+ *
+ * @param label 形如 "30 fps" 的展示字符串
+ */
+export function parseFrameRateFromLabel(label: string): FrameRate {
+  const token = label.match(/(\d+(?:\.\d+)?(?:\s*\/\s*\d+)?)/)?.[1]
+  if (token) {
+    const parsed = parseFrameRate(token.replace(/\s+/g, ''))
+    if ('frameRate' in parsed) return parsed.frameRate
+  }
+  return { num: 30, den: 1 }
+}
+
+/** 把精确帧率转成浮点数值(仅用于显示、码率估算等非确定性计算) */
+export function frameRateToNumber(rate: FrameRate): number {
+  return rate.num / rate.den
+}
+
+/**
+ * 取得配置生效的精确帧率。
+ *
+ * `exactFps` 优先;未设置时把 `fps` 归一化为有理数——整数直接使用,
+ * 小数按 1e-6 精度转换为 `{ num: round(fps*1e6), den: 1e6 }`,
+ * 保证后续 bigint 运算始终拿到整数分子/分母。
+ */
+export function resolveFrameRate(config: RenderConfig): FrameRate {
+  if (config.exactFps) return config.exactFps
+  if (Number.isInteger(config.fps)) return { num: config.fps, den: 1 }
+  return { num: Math.round(config.fps * 1_000_000), den: 1_000_000 }
+}
+
+/**
+ * 计算第 frameIndex 帧相对起始时间的偏移(微秒,四舍五入到 1μs)。
+ *
+ * 全程 bigint 运算,非整数帧率下也无浮点累积误差。
+ */
+function frameOffsetUs(frameIndex: number, rate: FrameRate): bigint {
+  const num = BigInt(Math.trunc(frameIndex)) * BigInt(rate.den) * 1_000_000n
+  const den = BigInt(rate.num)
+  // 四舍五入:round(num/den) = floor((2*num + den) / (2*den))
+  return (num * 2n + den) / (den * 2n)
+}
+
+/**
  * 渲染配置。
  */
 export interface RenderConfig {
@@ -38,8 +176,15 @@ export interface RenderConfig {
   outputWidth: number
   /** 输出高度(像素) */
   outputHeight: number
-  /** 输出帧率 */
+  /** 输出帧率(整数或小数;精确帧率请同时设置 exactFps) */
   fps: number
+  /**
+   * 精确帧率(可选)。
+   *
+   * 设置后帧时间计算完全按有理数进行,`fps` 仅作为显示/兼容用途。
+   * NTSC 帧率建议填 `{ num: 30000, den: 1001 }` 而不是 `fps: 29.97`。
+   */
+  exactFps?: FrameRate
   /** 输出格式 */
   format: RenderFormat
   /** 质量等级 */
@@ -251,8 +396,18 @@ export function validateRenderConfig(config: RenderConfig): {
   if (config.outputWidth > 7680 || config.outputHeight > 4320) {
     return { valid: false, reason: '分辨率超过 8K 上限' }
   }
-  if (config.fps <= 0 || config.fps > 240) {
+  if (config.fps <= 0 || config.fps > MAX_FRAME_RATE) {
     return { valid: false, reason: `帧率无效: ${config.fps}` }
+  }
+  if (config.exactFps) {
+    const { num, den } = config.exactFps
+    if (!Number.isSafeInteger(num) || !Number.isSafeInteger(den) || num <= 0 || den <= 0) {
+      return { valid: false, reason: `精确帧率无效: ${num}/${den}` }
+    }
+    const value = num / den
+    if (value < MIN_FRAME_RATE || value > MAX_FRAME_RATE) {
+      return { valid: false, reason: `精确帧率超出范围(${MIN_FRAME_RATE}-${MAX_FRAME_RATE}): ${num}/${den}` }
+    }
   }
   if (config.startTime < 0n) {
     return { valid: false, reason: '起始时间不能为负' }
@@ -278,24 +433,32 @@ export function validateRenderConfig(config: RenderConfig): {
 /**
  * 计算渲染总帧数。
  *
+ * 使用精确帧率做整数运算,非整数帧率下不会因浮点误差少算/多算一帧。
+ *
  * @param config 渲染配置
  * @returns 总帧数
  */
 export function computeTotalFrames(config: RenderConfig): number {
-  const durationSec = Number(config.endTime - config.startTime) / 1_000_000
-  return Math.ceil(durationSec * config.fps)
+  const rate = resolveFrameRate(config)
+  const durationUs = config.endTime - config.startTime
+  const numerator = durationUs * BigInt(rate.num)
+  const denominator = BigInt(rate.den) * 1_000_000n
+  // 向上取整:ceil(n/d) = (n + d - 1) / d
+  return Number((numerator + denominator - 1n) / denominator)
 }
 
 /**
  * 计算第 frameIndex 帧对应的时间(微秒)。
+ *
+ * 按精确帧率在 bigint 上直接求解,不做"浮点帧长 × 帧号"的累积乘法,
+ * 因此 NTSC 帧率(30000/1001)下任意帧号都有精确到 1μs 的时间。
  *
  * @param config     渲染配置
  * @param frameIndex 帧索引(0-based)
  * @returns 帧时间(微秒)
  */
 export function frameIndexToTime(config: RenderConfig, frameIndex: number): Time {
-  const frameDurationUs = 1_000_000 / config.fps
-  return config.startTime + BigInt(Math.round(frameIndex * frameDurationUs))
+  return config.startTime + frameOffsetUs(frameIndex, resolveFrameRate(config))
 }
 
 /**

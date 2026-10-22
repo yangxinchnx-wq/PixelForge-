@@ -49,6 +49,7 @@ export async function encodeImagesToVideo(options: EncodeOptions): Promise<Blob>
     width,
     height,
     fps,
+    frameRate,
     perImageDuration,
     bitrate: baseBitrate,
     format,
@@ -88,7 +89,11 @@ export async function encodeImagesToVideo(options: EncodeOptions): Promise<Blob>
   // ── 2. 计算总帧数 ──
   const framesPerImage = Math.max(1, Math.round(perImageDuration * fps));
   const totalFrames = bitmaps.length * framesPerImage;
-  const frameDurationUs = Math.round(1_000_000 / fps); // 微秒
+
+  // 时间戳求解:有精确帧率时按有理数整数运算,避免 NTSC 下逐帧漂移
+  const timestampAt = frameRate
+    ? (frame: number) => Math.round((frame * frameRate.den * 1_000_000) / frameRate.num)
+    : (frame: number) => frame * Math.round(1_000_000 / fps);
 
   // ── 3. 创建 Muxer ──
   let muxer: Mp4Muxer<Mp4ArrayBufferTarget> | WebMMuxer<WebMArrayBufferTarget>;
@@ -159,11 +164,13 @@ export async function encodeImagesToVideo(options: EncodeOptions): Promise<Blob>
     const bitmap = bitmaps[imgIdx];
     for (let frameInImage = 0; frameInImage < framesPerImage; frameInImage++) {
       const globalFrame = imgIdx * framesPerImage + frameInImage;
-      const timestamp = globalFrame * frameDurationUs;
+      const timestamp = timestampAt(globalFrame);
+      // 每帧时长取相邻时间戳差值,与总时长严格对齐
+      const duration = timestampAt(globalFrame + 1) - timestamp;
 
       const frame = new VideoFrame(bitmap, {
         timestamp,
-        duration: frameDurationUs,
+        duration,
       });
 
       // 关键帧：每张图片的第一帧，或按质量预设的关键帧间隔（每 X 秒）强制刷新

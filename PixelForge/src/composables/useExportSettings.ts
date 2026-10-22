@@ -12,7 +12,8 @@ import { useTimelineStore } from '@/stores/timelineStore';
 import { useRenderStore } from '@/editor/render/renderStore';
 import { createRuntimeFrameRenderer } from '@/editor/render/runtimeFrameRenderer';
 import { seconds } from '@/editor/render/timelineTypes';
-import type { RenderConfig } from '@/editor/render/renderConfig';
+import type { FrameRate, RenderConfig } from '@/editor/render/renderConfig';
+import { frameRateToNumber, parseFrameRateFromLabel } from '@/editor/render/renderConfig';
 import type { FrameExporter } from '@/editor/render/renderPipeline';
 import {
   EXPORT_FORMATS,
@@ -80,10 +81,13 @@ export function useExportSettings(resolution: { value: string }, frameRate: { va
     return m ? { w: parseInt(m[1]), h: parseInt(m[2]) } : { w: 1920, h: 1080 };
   });
 
-  const parsedFps = computed(() => {
-    const m = frameRate.value.match(/(\d+)/);
-    return m ? parseInt(m[1]) : 30;
-  });
+  /**
+   * 精确帧率:支持 "30 fps" / "29.97 fps" / "30000/1001" 等写法。
+   * 旧实现直接取第一个整数,会把 29.97 解析成 29。
+   */
+  const parsedFrameRate = computed<FrameRate>(() => parseFrameRateFromLabel(frameRate.value));
+
+  const parsedFps = computed(() => frameRateToNumber(parsedFrameRate.value));
 
   const exportDuration = computed(() => {
     if (renderSource.value === 'runtime') return runtimeDuration.value;
@@ -226,6 +230,7 @@ export function useExportSettings(resolution: { value: string }, frameRate: { va
         outputWidth: w,
         outputHeight: h,
         fps,
+        exactFps: parsedFrameRate.value,
         format: formatInfo.container === 'webm' ? 'webm' : 'mp4',
         quality: 'standard',
         startTime: seconds(0),
@@ -296,6 +301,7 @@ export function useExportSettings(resolution: { value: string }, frameRate: { va
         width: w,
         height: h,
         fps,
+        frameRate: parsedFrameRate.value,
         perImageDuration: 1 / fps,
         bitrate: renderTargetBitrate.value * 1_000_000,
         format: renderFormat.value,
